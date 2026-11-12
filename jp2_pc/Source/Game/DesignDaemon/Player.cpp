@@ -1253,7 +1253,12 @@ private:
 	void HandleThrow(const CMessageControl& msgc);
 
 	//*****************************************************************************************
-	void HandleStow(const CMessageControl& msgc);
+	void HandleStow(const CMessageControl& msgc, int i_vr_slot = -1);
+
+	// VR mod: force-grab targeting and pulling.
+	void HandleForceGrab();
+	CInstance* pinsForceTarget = nullptr;
+	TSec sForcePullTime = -100;
 
 	//*****************************************************************************************
 	void HandleSwing(const CMessageControl& msgc, bool b_use);
@@ -1797,6 +1802,8 @@ private:
 	//*****************************************************************************************
 	virtual void Pickup(CInstance* pins_obj) override
 	{
+		gVR.iPickupCount++;
+
 		// If there is a preference, set the hand mesh.
 		// Must be done before magneting, so new hand box takes effect.
 		const CMagnetPair* pmp_pickup = NMagnetSystem::pmpFindMagnet(pins_obj, Set(emfHAND_HOLD));
@@ -2436,6 +2443,18 @@ private:
 
 		// Let the VR input mapping know whether the trigger should grab or use.
 		gVR.bHolding = eHandHolding >= ehhHOLDING;
+		gVR.fHeldMass = (pinsHeld && eHandHolding >= ehhHOLDING) ? pinsHeld->pphiGetPhysicsInfo()->fMass(pinsHeld) : 0.0f;
+		if (gVR.bActive)
+		{
+			// Holster locations, for the VR mod's proximity test.
+			for (int i = 0; i < 2; i++)
+			{
+				CVector3<> v3 = PlayerSettings.aap3Stow[i][2].v3Pos * p3GetPlacement();
+				gVR.aafHolsterPosWorld[i][0] = v3.tX;
+				gVR.aafHolsterPosWorld[i][1] = v3.tY;
+				gVR.aafHolsterPosWorld[i][2] = v3.tZ;
+			}
+		}
 
 		//
 		// Perform any delayed substitution.
@@ -2747,7 +2766,18 @@ private:
 
 		HandleDrop(msgc);
 		HandleThrow(msgc);
-		HandleStow(msgc);
+		{
+			// VR holster gesture.
+			int i_vr_slot = -1;
+			if (gVR.bActive && gVR.bMotionHand && gVR.iHolsterRequest >= 0)
+			{
+				i_vr_slot = gVR.iHolsterRequest;
+				gVR.iHolsterRequest = -1;
+			}
+			HandleStow(msgc, i_vr_slot);
+		}
+
+		HandleForceGrab();
 		HandleSwing(msgc, b_use);
 
 		//
@@ -2782,6 +2812,10 @@ private:
 					PlayerSettings.ang2HandViewMin.tY, 
 					PlayerSettings.ang2HandViewMax.tY
 				))/* || CMessageStep::sStaticTotal >= sRaiseTime*/)
+					eHandActivity = ehaACTIVE;
+
+				// VR: the hand is wherever the controller is; no need to see it first.
+				if (gVR.bActive && gVR.bMotionHand)
 					eHandActivity = ehaACTIVE;
 			}
 
@@ -4152,19 +4186,108 @@ private:
 	}
 
 	//*****************************************************************************************
-	void CPlayerPriv::HandleStow(const CMessageControl& msgc)
+	void CPlayerPriv::HandleForceGrab()
 	{
-		if (msgc.bHit(uCMD_STOW))
+		if (!gVR.bActive || !gVR.bMotionHand || eHandHolding != ehhEMPTY || iStowing)
+		{
+			gVR.bForceTarget = false;
+			gVR.bForcePull   = false;
+			if (eHandHolding != ehhEMPTY)
+				pinsForceTarget = nullptr;
+			return;
+		}
+
+		const float fFORCE_RANGE = 6.0f;
+
+		if (gVR.bForceAim)
+		{
+			// Find the first pickupable object along the pointing ray.
+			CVector3<> v3_pos(gVR.afAimPosWorld[0], gVR.afAimPosWorld[1], gVR.afAimPosWorld[2]);
+			CVector3<> v3_dir(gVR.afAimDirWorld[0], gVR.afAimDirWorld[1], gVR.afAimDirWorld[2]);
+			if (v3_dir.tLenSqr() < 0.01f)
+				v3_dir = CVector3<>(0, 1, 0);
+
+			CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(v3_dir)), v3_pos);
+			CRayCast rc(p3_cast, 0.15f, fFORCE_RANGE);
+
+			CInstance* pins_found = nullptr;
+			SObjectLoc* pobl;
+			while (pobl = rc.poblNextIntersection())
+			{
+				if (pobl->pinsObject == pinsHand || pobl->pinsObject == this)
+					continue;
+				if (bPickupable(pobl->pinsObject))
+				{
+					pins_found = NMagnetSystem::pinsFindMaster(pobl->pinsObject);
+					break;
+				}
+				// Stop at the first solid non-pickupable thing (walls, terrain).
+				if (!ptCast<CBoundaryBox>(pobl->pinsObject))
+					break;
+			}
+
+			if (pins_found != pinsForceTarget)
+			{
+				pinsForceTarget = pins_found;
+				if (pins_found)
+					gVR.iForceTargetSerial++;
+			}
+		}
+		else if (CMessageStep::sStaticTotal - sForcePullTime > 2.0)
+		{
+			pinsForceTarget = nullptr;
+		}
+
+		gVR.bForceTarget = pinsForceTarget != nullptr && gVR.bForceAim;
+
+		if (gVR.bForcePull)
+		{
+			gVR.bForcePull = false;
+			if (pinsForceTarget && CMessageStep::sStaticTotal - sForcePullTime > 0.5)
+			{
+				// Throw the object on a ballistic arc that lands at the hand.
+				CPhysicsInfo* pphi = pinsForceTarget->pphiGetPhysicsInfoWritable();
+				CVector3<> v3_obj  = pinsForceTarget->v3Pos();
+				CVector3<> v3_hand = pinsHand->v3Pos() + CVector3<>(0, 0, 0.15f);
+				CVector3<> v3_delta = v3_hand - v3_obj;
+				float f_dist = v3_delta.tLen();
+				float f_time = f_dist / 7.0f;
+				SetMinMax(f_time, 0.35f, 0.8f);
+
+				CVector3<> v3_vel = v3_delta / f_time + CVector3<>(0, 0, 0.5f * 9.8f * f_time);
+				CVector3<> v3_cur = pphi->p3GetVelocity(pinsForceTarget).v3Pos;
+				float f_mass = pphi->fMass(pinsForceTarget);
+				pphi->ApplyImpulse(pinsForceTarget, 0, v3_obj, (v3_vel - v3_cur) * f_mass);
+				sForcePullTime = CMessageStep::sStaticTotal;
+			}
+		}
+
+		// Catching is done by the normal grab: squeezing the grip seeks objects near the palm.
+	}
+
+	//*****************************************************************************************
+	void CPlayerPriv::HandleStow(const CMessageControl& msgc, int i_vr_slot)
+	{
+		bool b_vr = i_vr_slot >= 0;
+		if (msgc.bHit(uCMD_STOW) || b_vr)
 		{
 			if (!iStowing)
 			{
 				int i_stowable = iStowable();
-				if (i_stowable >= 0)
+				if (b_vr && eHandHolding != ehhEMPTY && i_stowable < 0)
+				{
+					// VR: holding something too big to holster; ignore.
+				}
+				else if (b_vr && eHandHolding == ehhEMPTY && !apinsStowed[i_vr_slot])
+				{
+					// VR: nothing in that holster.
+				}
+				else if (i_stowable >= 0)
 				{
 					// Stow this object away, before retrieving any previously stowed object.
 					// Initiate stowing state.
 					// Go to mid-point first to stow object.
-					iStowing = 1;
+					iStowing = b_vr ? 3 : 1;
 					iStowSlot = i_stowable;
 					sActionTime = CMessageStep::sStaticTotal;
 
@@ -4175,8 +4298,8 @@ private:
 				else if (apinsStowed[0] || apinsStowed[1])
 				{
 					// We have a stowed object to retrieve.
-					iStowing = 1;
-					iStowSlot = apinsStowed[0] ? 0 : 1;
+					iStowing = b_vr ? 3 : 1;
+					iStowSlot = (b_vr && apinsStowed[i_vr_slot]) ? i_vr_slot : (apinsStowed[0] ? 0 : 1);
 					sActionTime = CMessageStep::sStaticTotal;
 
 					// Drop any (unstowable) held object.
@@ -4284,6 +4407,14 @@ private:
 					if (!apinsStowed[1 - iStowSlot] && eHandHolding == ehhEMPTY)
 						// Just stowed, no new object to pick up, all done.
 						iStowing = 0;
+
+					if (gVR.bActive && gVR.bMotionHand)
+					{
+						// VR: the controller takes the hand straight back; no retract animation.
+						iStowing = 0;
+						if (eHandHolding == ehhHOLDING)
+							sRaiseTime = CMessageStep::sStaticTotal + PlayerSettings.sPickupNoDrop;
+					}
 				}
 				else if (iStowing == 6)
 				{

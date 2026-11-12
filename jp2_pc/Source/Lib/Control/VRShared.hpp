@@ -34,6 +34,37 @@ struct SVRShared
 
 	// Player is holding an object (trigger fires/uses instead of grabbing).
 	bool  bHolding = false;
+
+	//
+	// Written by the VR mod, read by the player.
+	//
+
+	// Finger curl request 0 (open) .. 1 (fist), used when the hand is empty.
+	float fFingerCurl = 0;
+
+	// Holster gesture: grip was just pressed with the controller near a holster.
+	// -1 = none, 0 = hip (small items), 1 = back (large items).  Player clears it.
+	int   iHolsterRequest = -1;
+
+	// Holster positions (world space), published by the player for the VR mod's proximity test.
+	float aafHolsterPosWorld[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
+
+	// Force grab: aiming (trigger held, empty hand) and pull (flick detected this frame).
+	bool  bForceAim  = false;
+	bool  bForcePull = false;
+	// Pointing ray for force grab (world space).
+	float afAimPosWorld[3] = { 0, 0, 0 };
+	float afAimDirWorld[3] = { 0, 1, 0 };
+
+	//
+	// Written by the player, read by the VR mod (feedback).
+	//
+
+	bool  bForceTarget = false;		// Something is targeted for force grab.
+	int   iForceTargetSerial = 0;	// Changes when the target changes (haptic tick).
+	float fHeldMass = 0;			// Mass of held object, kg (0 if none).
+	int   iShotCount = 0;			// Incremented when the held gun fires.
+	int   iPickupCount = 0;			// Incremented when something is picked up.
 };
 
 extern SVRShared gVR;

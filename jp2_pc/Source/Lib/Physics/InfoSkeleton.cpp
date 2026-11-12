@@ -128,6 +128,7 @@
 #include "Game/AI/Brain.hpp"
 
 #include "Lib/Groff/VTParse.hpp"
+#include "Lib/Control/VRShared.hpp"
 
 #define bVERIFY_MATRICES	VER_DEBUG
 
@@ -1565,6 +1566,9 @@ extern int	 iKontrol_Jump[NUM_PELVISES];
 		// If currently grasping an object, curl the hand.
 		if (msgpr.subPickup.rtUrgency != 0 && msgpr.subPickup.dData)
 			cta.fFingerCurl = -0.9;
+		else if (gVR.bActive)
+			// VR: empty hand curls with the controller's grip/trigger (0 = open, 1 = fist).
+			cta.fFingerCurl = -1.3f * gVR.fFingerCurl;
 
 		cta.bSwing = msgpr.subSwing.rtUrgency != 0 && msgpr.subSwing.dData;
 

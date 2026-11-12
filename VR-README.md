@@ -14,38 +14,56 @@ If no headset is found the game just runs on the monitor. See `TrespasserVR.log`
 `OpenTrespasser-Release.exe` is a slower build with extra checks. Use it if the normal exe crashes
 and send the log files it writes.
 
-## Controls (defaults, rebindable in SteamVR > Controller Bindings)
+## Controls
 
-| Action | Index | Touch / Quest | Vive |
-|---|---|---|---|
-| Move (where you look) | Left stick | Left stick | Left pad |
-| Snap turn | Right stick | Right stick | Right pad |
-| Toggle run | Right stick click | Right stick click | – |
-| Raise arm (it follows your controller) | Right grip | Right grip | Right grip |
-| Grab (empty hand) / fire or use (holding) | Right trigger | Right trigger | Right trigger |
-| Grab / drop | A | A | Right pad click |
-| Jump | B | B | Right menu |
-| Crouch | Left grip | Left grip | Left grip |
-| Throw (hold to wind up) | Left trigger | Left trigger | Left trigger |
-| Stow / swap item | Left A | X | – |
-| Pause menu | Left B | Y | Left menu |
-| Recenter view | Left stick click | Left stick click | Left pad click |
+Laid out for PSVR2 Sense and Quest/Touch controllers (Index and Vive also have defaults). Everything
+can be rebound in SteamVR > Settings > Controllers > Manage Controller Bindings.
 
-Menus and loading screens appear on a floating screen; use the mouse on your PC to click them.
+**Right hand (Anne's arm follows it)**
+
+| Input | Action |
+|---|---|
+| Grip (hold) | Grab whatever your hand touches; keep holding to carry it. Let go to drop, or swing and let go to throw |
+| Trigger (holding) | Fire / use the held item |
+| Trigger (empty hand) | Force grab: point at an item, hold trigger, flick your wrist toward you, then squeeze grip to catch |
+| Cross / A | Jump |
+| Circle / B | Crouch (toggle) |
+| Stick left/right | Turn (snap or smooth) |
+| Stick click | Toggle run |
+
+**Left hand**
+
+| Input | Action |
+|---|---|
+| Stick | Walk |
+| Stick click | Recenter view |
+| Grip (near a held long gun) | Two-handed aim |
+| Trigger | Throw (hold to wind up) |
+| Square / X | Swap held item with holster |
+| Triangle / Y | Pause menu |
+
+**Holsters**: let go of a small item (pistol) at your hip, or a big one (rifle, shotgun) over your shoulder,
+to holster it. Squeeze grip at the same spot with an empty hand to draw it. You feel a tick when your
+hand is at a holster.
+
+**Menus**: point at the floating screen and pull the trigger to click.
+
+Set `LeftHanded=1` in the settings to swap everything over.
 
 ## Settings
 
-`TrespasserVR.ini` is created next to the exe on first run:
+`TrespasserVR.ini` is created next to the exe on first run, with a comment on every option. Changes
+apply within a couple of seconds, even mid-game, so you can tweak while wearing the headset (e.g. via
+the SteamVR desktop view). Highlights:
 
-- `Enabled=0` turns VR off.
-- `SnapTurnDegrees=0` switches to smooth turning (`SmoothTurnSpeed` degrees/second).
-- `HandPitch`, `HandYaw`, `HandRoll` rotate the in-game hand relative to your controller. If guns
-  point too high or low, adjust `HandPitch` in steps of 10.
-- `MotionHand=0` goes back to the original mouse-style arm.
-- `FlipFovX=1` / `FlipFovY=1`: debug switches in case the image looks doubled or misaligned.
+- `SmoothTurn=1` for smooth turning, `SmoothTurnSpeed` for its speed; `SnapTurnDegrees` for snap.
+- `MoveWithHand=1` to walk where your left hand points instead of where you look.
+- `GripToggle=1` if you'd rather press grip once to grab and again to drop.
+- `HandPitch` / `HandYaw` / `HandRoll` to adjust how guns sit in your hand.
+- `Haptics` to change vibration strength.
 
 Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish size such as
-1024×1024 suits headsets best. Bigger looks sharper but costs frame rate (the game renders twice).
+1024x1024 suits headsets best. Bigger looks sharper but costs frame rate (the game renders twice).
 
 ## Known limitations
 
@@ -53,4 +71,4 @@ Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish 
   SteamVR motion smoothing helps.
 - Walking around your room moves your head up to 0.6 m (`LeanRadius`) from your body; beyond that the
   view stops following. Use the stick to walk.
-- One hand only (Trespasser only has one arm).
+- Anne has one arm, so only one hand is visible; in left-handed mode it is still her right arm.

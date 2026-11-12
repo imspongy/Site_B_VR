@@ -60,6 +60,7 @@
 
 #include "Lib/Std/Random.hpp"
 #include "Lib/Renderer/Particles.hpp"
+#include "Lib/Control/VRShared.hpp"
 
 
 static CRandom rndGun;
@@ -427,6 +428,9 @@ bool    g_bUnlimitedAmmo = FALSE; //cheat can toggle this
 				{
 					dout << "Missed.\n";
 				}
+
+				// VR mod: haptic kick.
+				gVR.iShotCount++;
 
 				//
 				// Apply an impulse to the gun in the hand

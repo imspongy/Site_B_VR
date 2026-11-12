@@ -2,7 +2,7 @@
  *
  * VRMod.cpp
  *
- * Trespasser VR: game-side integration.
+ * Site B VR: game-side integration.
  *
  * How it works
  * ------------
@@ -13,9 +13,11 @@
  * - The game renders with DirectX 7 into its back buffer.  After each eye, the back buffer is
  *   locked and copied to a Direct3D 11 texture that is submitted to SteamVR (VRBackend.cpp).
  * - The headset orientation is fed back to the player (Player.cpp) so the in-game head, aiming,
- *   walking direction and arm all follow where you are actually looking.  The right controller
- *   drives the hand target directly.
- * - Menus and loading screens are shown on a floating virtual screen (SteamVR overlay).
+ *   walking direction and arm all follow where you are actually looking.  The main-hand
+ *   controller drives Anne's (physics-simulated) arm directly, so weight, collisions and recoil
+ *   all come from the original physics.
+ * - Menus and loading screens are shown on a floating virtual screen (SteamVR overlay) that you
+ *   can point at with a laser and click with the trigger.
  *
  * Coordinates: OpenVR is x right, y up, -z forward.  The game is x right, y forward, z up.
  *   game = (vr.x, -vr.z, vr.y);  quaternion (w, x, y, z) -> (w, x, -z, y).
@@ -36,6 +38,7 @@
 #include "Lib/EntityDBase/Instance.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -52,22 +55,34 @@ namespace
 	//******************************************************************************************
 	//
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
+	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
 	struct SSettings
 	{
 		bool  bEnabled        = true;
 		bool  bMotionHand     = true;
-		float fSnapTurnDeg    = 45.0f;	// 0 = smooth turn.
-		float fSmoothTurnDeg  = 150.0f;	// Degrees per second for smooth turn.
+		bool  bLeftHanded     = false;	// Arm follows the left controller; controls mirrored.
+		bool  bSmoothTurn     = false;	// false = snap turn.
+		float fSnapTurnDeg    = 45.0f;	// Degrees per snap.
+		float fSmoothTurnDeg  = 150.0f;	// Degrees per second at full stick.
+		float fTurnDeadzone   = 0.2f;
+		bool  bMoveWithHand   = false;	// Stick moves toward where the off hand points.
+		float fWalkSpeed      = 0.6f;	// Stick speed when not running (1.0 = game's run).
+		float fMoveDeadzone   = 0.15f;
+		bool  bGripToggle     = false;	// false = hold grip to hold; true = press to grab/drop.
+		bool  bForceGrab      = true;
+		bool  bTwoHandAim     = true;
+		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
+		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
 		float fHandYawDeg     = 0.0f;
 		float fHandRollDeg    = 0.0f;
-		float fWalkSpeed      = 0.6f;	// Stick speed when not running (1.0 = game's run).
 		float fLeanRadius     = 0.6f;	// Max physical head offset from the recentre point.
 		float fOverlayWidth   = 2.4f;	// Menu screen width in metres.
 		float fOverlayDist    = 2.0f;	// Menu screen distance in metres.
 		bool  bFlipFovX       = false;	// Debug: invert the off-axis direction.
 		bool  bFlipFovY       = false;
+		bool  bMenuFlipY      = false;	// Debug: laser pointer Y inverted on the menu screen.
 	};
 
 	SSettings setVR;
@@ -88,13 +103,32 @@ namespace
 	const void* pvLastCamAttach = nullptr;
 	bool        bLastCamHead = false;
 
+	// World-space hands (main = arm hand, off = support hand), updated each render frame.
+	bool        abHandValid[2] = { false, false };
+	CVector3<>  av3HandWorld[2];
+	CRotate3<>  ar3HandWorld[2];
+	CVector3<>  av3HandVel[2];			// Tracking-space velocity, game axes (m/s).
+	CVector3<>  av3HandPrevTrack[2];
+	CVector3<>  v3HeadWorld(0, 0, 0);
+	DWORD       u4PrevFrameTime = 0;
+
 	// Input edge state.
-	uint32      u4PrevButtons = 0;
-	bool        bPrevRecenter = false;
-	bool        bPrevMenu     = false;
-	bool        bPrevRunClick = false;
+	SVRControls ctlPrev;
 	bool        bRunToggle    = false;
+	bool        bCrouchToggle = false;
 	bool        bSnapArmed    = true;
+	bool        bSuppressGrab = false;	// Grip press was used for a holster; don't grab.
+	int         iGrabPulse    = 0;		// Frames of a forced GRAB press (drop).
+	bool        bTwoHand      = false;	// Support hand is on the held object.
+	int         iLastHolsterNear = -1;
+
+	// Haptic feedback state.
+	int         iSeenShots = 0, iSeenPickups = 0, iSeenForceSerial = 0;
+	CVector3<>  v3PrevVel(0, 0, 0);
+
+	// ini hot-reload.
+	FILETIME    ftIni = { 0, 0 };
+	DWORD       u4LastIniCheck = 0;
 
 	FILE*       pfLog = nullptr;
 
@@ -106,6 +140,11 @@ namespace
 		std::string s(str_path);
 		size_t pos = s.find_last_of("\\/");
 		return pos == std::string::npos ? std::string(".") : s.substr(0, pos);
+	}
+
+	std::string strIniPath()
+	{
+		return strExeDir() + "\\TrespasserVR.ini";
 	}
 
 	//******************************************************************************************
@@ -133,57 +172,129 @@ namespace
 	}
 
 	//******************************************************************************************
+	void WriteDefaultIni(const std::string& str_file)
+	{
+		FILE* pf = std::fopen(str_file.c_str(), "w");
+		if (!pf)
+			return;
+		std::fputs(
+			"; Site B VR settings.  Changes take effect within a couple of seconds, even in game.\n"
+			"; Delete this file to restore defaults.\n"
+			"[VR]\n"
+			"; 0 = play on the monitor as normal.\n"
+			"Enabled=1\n"
+			"\n"
+			"; --- Hands ---\n"
+			"; 1 = Anne's arm follows your LEFT controller and all controls are mirrored.\n"
+			"LeftHanded=0\n"
+			"; 0 = hold the grip to keep holding things (let go to drop).\n"
+			"; 1 = press grip once to grab, press again to drop.\n"
+			"GripToggle=0\n"
+			"; Point at an item, hold the trigger and flick your wrist to pull it to you.\n"
+			"ForceGrab=1\n"
+			"; Grab the front of a long gun with your other hand to aim it with both hands.\n"
+			"TwoHandAim=1\n"
+			"; How close (metres) your hand must be to a holster (hip / over shoulder).\n"
+			"HolsterRadius=0.25\n"
+			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
+			"Haptics=1\n"
+			"; Rotate the in-game hand relative to your controller (degrees).\n"
+			"; If guns aim too high, try HandPitch=-20.\n"
+			"HandPitch=0\n"
+			"HandYaw=0\n"
+			"HandRoll=0\n"
+			"; 0 = Anne's arm moves like the original game (mouse style).\n"
+			"MotionHand=1\n"
+			"\n"
+			"; --- Movement ---\n"
+			"; 0 = walk where you look, 1 = walk where your off hand points.\n"
+			"MoveWithHand=0\n"
+			"; Walking speed when run is off (stick click toggles run). 1 = full run speed.\n"
+			"WalkSpeed=0.6\n"
+			"MoveDeadzone=0.15\n"
+			"\n"
+			"; --- Turning ---\n"
+			"; 0 = snap turn, 1 = smooth turn.\n"
+			"SmoothTurn=0\n"
+			"; Degrees per snap.\n"
+			"SnapTurnDegrees=45\n"
+			"; Degrees per second at full stick (smooth turn).\n"
+			"SmoothTurnSpeed=150\n"
+			"TurnDeadzone=0.2\n"
+			"\n"
+			"; --- Comfort / view ---\n"
+			"; How far (metres) you can physically lean before the view stops following.\n"
+			"LeanRadius=0.6\n"
+			"; Size and distance (metres) of the floating menu screen.\n"
+			"MenuScreenWidth=2.4\n"
+			"MenuScreenDistance=2.0\n"
+			"\n"
+			"; --- Debug ---\n"
+			"; Set to 1 if the image looks skewed or doubled.\n"
+			"FlipFovX=0\n"
+			"FlipFovY=0\n"
+			"; Set to 1 if the menu laser moves up when you point down.\n"
+			"MenuFlipY=0\n", pf);
+		std::fclose(pf);
+	}
+
+	//******************************************************************************************
 	void LoadSettings()
 	{
-		std::string str_file = strExeDir() + "\\TrespasserVR.ini";
+		std::string str_file = strIniPath();
 
 		if (GetFileAttributesA(str_file.c_str()) == INVALID_FILE_ATTRIBUTES)
-		{
-			FILE* pf = std::fopen(str_file.c_str(), "w");
-			if (pf)
-			{
-				std::fputs(
-					"; Trespasser VR settings. Delete this file to restore defaults.\n"
-					"[VR]\n"
-					"; 0 = play on the monitor as normal.\n"
-					"Enabled=1\n"
-					"; Right controller moves Anne's arm directly.\n"
-					"MotionHand=1\n"
-					"; Degrees per snap turn on the right stick. 0 = smooth turning.\n"
-					"SnapTurnDegrees=45\n"
-					"SmoothTurnSpeed=150\n"
-					"; Walking speed when run is toggled off (right stick click toggles run).\n"
-					"WalkSpeed=0.6\n"
-					"; Rotate the in-game hand relative to your controller (degrees).\n"
-					"; If guns aim too high, try HandPitch=-20.\n"
-					"HandPitch=0\n"
-					"HandYaw=0\n"
-					"HandRoll=0\n"
-					"; How far (metres) you can physically lean before the view stops following.\n"
-					"LeanRadius=0.6\n"
-					"; Size and distance (metres) of the floating menu screen.\n"
-					"MenuScreenWidth=2.4\n"
-					"MenuScreenDistance=2.0\n"
-					"; Debug: set to 1 if the image looks skewed or doubled.\n"
-					"FlipFovX=0\n"
-					"FlipFovY=0\n", pf);
-				std::fclose(pf);
-			}
-		}
+			WriteDefaultIni(str_file);
 
-		setVR.bEnabled       = fIni(str_file, "Enabled", 1) != 0;
-		setVR.bMotionHand    = fIni(str_file, "MotionHand", 1) != 0;
-		setVR.fSnapTurnDeg   = fIni(str_file, "SnapTurnDegrees", 45);
-		setVR.fSmoothTurnDeg = fIni(str_file, "SmoothTurnSpeed", 150);
-		setVR.fWalkSpeed     = fIni(str_file, "WalkSpeed", 0.6f);
-		setVR.fHandPitchDeg  = fIni(str_file, "HandPitch", 0);
-		setVR.fHandYawDeg    = fIni(str_file, "HandYaw", 0);
-		setVR.fHandRollDeg   = fIni(str_file, "HandRoll", 0);
-		setVR.fLeanRadius    = fIni(str_file, "LeanRadius", 0.6f);
-		setVR.fOverlayWidth  = fIni(str_file, "MenuScreenWidth", 2.4f);
-		setVR.fOverlayDist   = fIni(str_file, "MenuScreenDistance", 2.0f);
-		setVR.bFlipFovX      = fIni(str_file, "FlipFovX", 0) != 0;
-		setVR.bFlipFovY      = fIni(str_file, "FlipFovY", 0) != 0;
+		SSettings s;
+		s.bEnabled       = fIni(str_file, "Enabled", 1) != 0;
+		s.bMotionHand    = fIni(str_file, "MotionHand", 1) != 0;
+		s.bLeftHanded    = fIni(str_file, "LeftHanded", 0) != 0;
+		s.bGripToggle    = fIni(str_file, "GripToggle", 0) != 0;
+		s.bForceGrab     = fIni(str_file, "ForceGrab", 1) != 0;
+		s.bTwoHandAim    = fIni(str_file, "TwoHandAim", 1) != 0;
+		s.fHolsterRadius = fIni(str_file, "HolsterRadius", 0.25f);
+		s.fHaptics       = fIni(str_file, "Haptics", 1);
+		s.fHandPitchDeg  = fIni(str_file, "HandPitch", 0);
+		s.fHandYawDeg    = fIni(str_file, "HandYaw", 0);
+		s.fHandRollDeg   = fIni(str_file, "HandRoll", 0);
+		s.bMoveWithHand  = fIni(str_file, "MoveWithHand", 0) != 0;
+		s.fWalkSpeed     = fIni(str_file, "WalkSpeed", 0.6f);
+		s.fMoveDeadzone  = fIni(str_file, "MoveDeadzone", 0.15f);
+		s.bSmoothTurn    = fIni(str_file, "SmoothTurn", 0) != 0;
+		s.fSnapTurnDeg   = fIni(str_file, "SnapTurnDegrees", 45);
+		s.fSmoothTurnDeg = fIni(str_file, "SmoothTurnSpeed", 150);
+		s.fTurnDeadzone  = fIni(str_file, "TurnDeadzone", 0.2f);
+		s.fLeanRadius    = fIni(str_file, "LeanRadius", 0.6f);
+		s.fOverlayWidth  = fIni(str_file, "MenuScreenWidth", 2.4f);
+		s.fOverlayDist   = fIni(str_file, "MenuScreenDistance", 2.0f);
+		s.bFlipFovX      = fIni(str_file, "FlipFovX", 0) != 0;
+		s.bFlipFovY      = fIni(str_file, "FlipFovY", 0) != 0;
+		s.bMenuFlipY     = fIni(str_file, "MenuFlipY", 0) != 0;
+		setVR = s;
+
+		gVR.bMotionHand = setVR.bMotionHand;
+
+		WIN32_FILE_ATTRIBUTE_DATA fad;
+		if (GetFileAttributesExA(str_file.c_str(), GetFileExInfoStandard, &fad))
+			ftIni = fad.ftLastWriteTime;
+	}
+
+	//******************************************************************************************
+	void CheckIniReload()
+	{
+		DWORD u4_now = GetTickCount();
+		if (u4_now - u4LastIniCheck < 1500)
+			return;
+		u4LastIniCheck = u4_now;
+
+		WIN32_FILE_ATTRIBUTE_DATA fad;
+		if (GetFileAttributesExA(strIniPath().c_str(), GetFileExInfoStandard, &fad) &&
+			CompareFileTime(&fad.ftLastWriteTime, &ftIni) != 0)
+		{
+			LoadSettings();
+			Log("Settings reloaded.");
+		}
 	}
 
 	//******************************************************************************************
@@ -227,6 +338,45 @@ namespace
 		af[3] = r3.v3S.tZ;
 	}
 
+	inline void StoreV(float* af, const CVector3<>& v3)
+	{
+		af[0] = v3.tX;
+		af[1] = v3.tY;
+		af[2] = v3.tZ;
+	}
+
+	inline float fDot(const CVector3<>& a, const CVector3<>& b)
+	{
+		return a.tX * b.tX + a.tY * b.tY + a.tZ * b.tZ;
+	}
+
+	inline CVector3<> v3Cross(const CVector3<>& a, const CVector3<>& b)
+	{
+		return CVector3<>(a.tY * b.tZ - a.tZ * b.tY, a.tZ * b.tX - a.tX * b.tZ, a.tX * b.tY - a.tY * b.tX);
+	}
+
+	inline float fLen(const CVector3<>& v)
+	{
+		return std::sqrt(fDot(v, v));
+	}
+
+	// Rotation whose forward (+y) is d3_fwd and whose up (+z) is as close as possible to v3_up.
+	CRotate3<> r3LookAt(const CVector3<>& v3_fwd, const CVector3<>& v3_up)
+	{
+		CVector3<> f = v3_fwd * (1.0f / (std::max)(fLen(v3_fwd), 1e-5f));
+		CRotate3<> r3_base(d3YAxis, CDir3<>(f));
+		CVector3<> v3_z = CVector3<>(0, 0, 1) * r3_base;
+
+		// Project desired up onto the plane perpendicular to forward.
+		CVector3<> u = v3_up - f * fDot(v3_up, f);
+		if (fLen(u) < 1e-4f)
+			return r3_base;
+		u = u * (1.0f / fLen(u));
+
+		float f_angle = std::atan2(fDot(v3Cross(v3_z, u), f), fDot(v3_z, u));
+		return r3_base * r3AxisAngle(f.tX, f.tY, f.tZ, f_angle);
+	}
+
 	// Physical head offset from the recentre point, limited to the lean radius.
 	CVector3<> v3Lean(const CVector3<>& v3_head_track)
 	{
@@ -243,6 +393,22 @@ namespace
 		if (v3.tZ < -1.2f)
 			v3.tZ = -1.2f;
 		return v3;
+	}
+
+	inline int iMain()
+	{
+		return setVR.bLeftHanded ? 0 : 1;
+	}
+
+	inline int iOff()
+	{
+		return setVR.bLeftHanded ? 1 : 0;
+	}
+
+	inline void Haptic(int i_hand, float f_seconds, float f_freq, float f_amp)
+	{
+		if (setVR.fHaptics > 0)
+			VRB_Haptic(i_hand, f_seconds, f_freq, (std::min)(1.0f, f_amp * setVR.fHaptics));
 	}
 
 	//******************************************************************************************
@@ -295,82 +461,314 @@ namespace
 		if (b_reset_position)
 			v3Calib = v3Game(fr.posHead.afP);
 		bNeedAlign = false;
-		Log("Aligned view (yaw %.1f deg)", (fYawOf(r3_world) - fYawOf(r3_head)) * 57.2958f);
+		Log("Aligned view (yaw %.1f deg)", (fYawOf(r3_world) - fYawOf(r3_head)) / fDEG);
 	}
 
 	//******************************************************************************************
-	// SteamVR controller -> game control message.
+	// Which holster (0 hip, 1 back) the main hand is at, or -1.
+	int iHolsterNear()
+	{
+		if (!abHandValid[iMain()])
+			return -1;
+		const CVector3<>& v3_hand = av3HandWorld[iMain()];
+		int i_best = -1;
+		float f_best = setVR.fHolsterRadius;
+		for (int i = 0; i < 2; i++)
+		{
+			CVector3<> v3_h(gVR.aafHolsterPosWorld[i][0], gVR.aafHolsterPosWorld[i][1], gVR.aafHolsterPosWorld[i][2]);
+			// The back slot is hard to reach precisely; be more generous there.
+			float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
+			if (f_dist < f_best)
+			{
+				f_best = f_dist;
+				i_best = i;
+			}
+		}
+		return i_best;
+	}
+
+	//******************************************************************************************
+	// SteamVR controllers -> game control message.  Called once per game step.
 	void InputHook(SInput& tin)
 	{
 		if (!bActive)
 			return;
 
-		const SVRControls& c = frLast.ctl;
+		const SVRHandInput& m  = frLast.ctl.ahand[iMain()];
+		const SVRHandInput& o  = frLast.ctl.ahand[iOff()];
+		const SVRHandInput& mp = ctlPrev.ahand[iMain()];
+		const SVRHandInput& op = ctlPrev.ahand[iOff()];
 
 		// Mouse look is replaced by the headset.
 		tin.v2Rotate = CVector2<>(0, 0);
 
-		// Left stick: walk relative to where you are looking (the game walks along head facing).
-		float f_x = c.fMoveX, f_y = c.fMoveY;
+		//
+		// Locomotion: off-hand stick.
+		//
+		float f_x = o.fStickX, f_y = o.fStickY;
 		float f_len = std::sqrt(f_x * f_x + f_y * f_y);
-		if (f_len > 0.15f)
+		if (f_len > setVR.fMoveDeadzone)
 		{
+			// Rescale past the deadzone so movement starts smoothly.
+			float f_scale = (std::min)(1.0f, (f_len - setVR.fMoveDeadzone) / (1.0f - setVR.fMoveDeadzone)) / f_len;
+			f_x *= f_scale;
+			f_y *= f_scale;
+
+			if (setVR.bMoveWithHand && abHandValid[iOff()] && gVR.bHeadValid)
+			{
+				// The game walks relative to the head; rotate the stick into head space.
+				CRotate3<> r3_head(gVR.afHeadRotWorld[0], gVR.afHeadRotWorld[1], gVR.afHeadRotWorld[2], gVR.afHeadRotWorld[3], true);
+				float f_delta = fYawOf(ar3HandWorld[iOff()]) - fYawOf(r3_head);
+				float c = std::cos(f_delta), s = std::sin(f_delta);
+				float f_rx = f_x * c - f_y * s;
+				float f_ry = f_x * s + f_y * c;
+				f_x = f_rx;
+				f_y = f_ry;
+			}
+
 			float f_speed = bRunToggle ? 1.0f : setVR.fWalkSpeed;
-			tin.v2Move.tY = f_y > 0 ? f_y * f_speed : f_y * 0.4f;
 			tin.v2Move.tX = f_x * 0.6f;
+			tin.v2Move.tY = f_y > 0 ? f_y * f_speed : f_y * 0.5f;
 		}
 
-		// Run toggle on right stick click.
-		if (c.bRun && !bPrevRunClick)
+		// Run toggle: main stick click.
+		if (m.bStickClick && !mp.bStickClick)
 			bRunToggle = !bRunToggle;
-		bPrevRunClick = c.bRun;
 
-		// Turning.
-		if (setVR.fSnapTurnDeg > 0)
+		//
+		// Turning: main stick X.
+		//
+		if (!setVR.bSmoothTurn)
 		{
-			if (bSnapArmed && std::fabs(c.fTurnX) > 0.65f)
+			if (bSnapArmed && std::fabs(m.fStickX) > 0.65f)
 			{
-				r3Yaw = r3Yaw * r3YawRad((c.fTurnX > 0 ? -1.0f : 1.0f) * setVR.fSnapTurnDeg * fDEG);
+				r3Yaw = r3Yaw * r3YawRad((m.fStickX > 0 ? -1.0f : 1.0f) * setVR.fSnapTurnDeg * fDEG);
 				bSnapArmed = false;
 			}
-			else if (std::fabs(c.fTurnX) < 0.3f)
+			else if (std::fabs(m.fStickX) < 0.3f)
 				bSnapArmed = true;
 		}
-		else if (std::fabs(c.fTurnX) > 0.15f)
+		else if (std::fabs(m.fStickX) > setVR.fTurnDeadzone)
 		{
-			r3Yaw = r3Yaw * r3YawRad(-c.fTurnX * setVR.fSmoothTurnDeg * fDEG * tin.fElapsedTime);
+			float f_t = (std::fabs(m.fStickX) - setVR.fTurnDeadzone) / (1.0f - setVR.fTurnDeadzone);
+			f_t = f_t * f_t;	// Fine control near the centre.
+			float f_sign = m.fStickX > 0 ? -1.0f : 1.0f;
+			r3Yaw = r3Yaw * r3YawRad(f_sign * f_t * setVR.fSmoothTurnDeg * fDEG * tin.fElapsedTime);
 		}
 
-		// Buttons.
-		uint32 u4 = 0;
-		if (c.bHand)
-			u4 |= uCMD_HAND;
-		if (c.bTrigger)
-			u4 |= gVR.bHolding ? uCMD_USE : (uCMD_HAND | uCMD_GRAB);
-		if (c.bDrop)
-			u4 |= uCMD_GRAB;
-		if (c.bJump)
-			u4 |= uCMD_JUMP;
-		if (c.bCrouch)
-			u4 |= uCMD_CROUCH;
-		if (c.bThrow)
-			u4 |= uCMD_THROW;
-		if (c.bStow)
-			u4 |= uCMD_STOW;
-		if (c.bPunch)
-			u4 |= uCMD_PUNCH;
+		uint32 u4 = 0, u4_hit = 0;
 
-		tin.u4ButtonState |= u4;
-		tin.u4ButtonHit   |= u4 & ~u4PrevButtons;
-		u4PrevButtons = u4;
+		//
+		// Main hand.
+		//
+		if (setVR.bMotionHand)
+			// The arm always follows the controller.
+			u4 |= uCMD_HAND;
+
+		int i_holster = iHolsterNear();
+		bool b_grip_down = m.bGrip && !mp.bGrip;
+		bool b_grip_up   = !m.bGrip && mp.bGrip;
+
+		if (!setVR.bGripToggle)
+		{
+			// Hold mode.
+			if (b_grip_down)
+			{
+				bSuppressGrab = false;
+				if (!gVR.bHolding && i_holster >= 0)
+				{
+					// Draw from holster.
+					gVR.iHolsterRequest = i_holster;
+					bSuppressGrab = true;
+				}
+			}
+			if (m.bGrip && !bSuppressGrab && !gVR.bHolding)
+				u4 |= uCMD_GRAB;		// Seek: grab whatever the hand touches.
+			if (b_grip_up)
+			{
+				if (gVR.bHolding)
+				{
+					if (i_holster >= 0)
+						gVR.iHolsterRequest = i_holster;	// Let go at a holster: holster it.
+					else
+						iGrabPulse = 1;						// Let go: drop.
+				}
+				bSuppressGrab = false;
+			}
+		}
+		else
+		{
+			// Toggle mode.
+			if (b_grip_down)
+			{
+				if (i_holster >= 0)
+				{
+					gVR.iHolsterRequest = i_holster;
+					bSuppressGrab = true;
+				}
+				else if (gVR.bHolding)
+					iGrabPulse = 1;
+				else
+					bSuppressGrab = false;
+			}
+			if (m.bGrip && !bSuppressGrab && !gVR.bHolding)
+				u4 |= uCMD_GRAB;
+			if (b_grip_up)
+				bSuppressGrab = false;
+		}
+
+		if (iGrabPulse > 0)
+		{
+			// One step with GRAB pressed (starts the drop), then released (completes it).
+			u4 |= uCMD_GRAB;
+			u4_hit |= uCMD_GRAB;
+			iGrabPulse--;
+		}
+
+		// Trigger: use / fire when holding; force grab aim when empty.
+		if (gVR.bHolding)
+		{
+			if (m.bTrigger)
+				u4 |= uCMD_USE;
+			gVR.bForceAim = false;
+		}
+		else
+		{
+			gVR.bForceAim = setVR.bForceGrab && m.bTrigger && !m.bGrip;
+		}
+
+		// Face buttons.
+		if (m.bLower)
+			u4 |= uCMD_JUMP;
+		if (m.bUpper && !mp.bUpper)
+			bCrouchToggle = !bCrouchToggle;
+		if (bCrouchToggle)
+			u4 |= uCMD_CROUCH;
+
+		//
+		// Off hand.
+		//
+		if (o.bTrigger)
+			u4 |= uCMD_THROW;
+		if (o.bLower)
+			u4 |= uCMD_STOW;
 
 		// Pause menu.
-		if (c.bMenu && !bPrevMenu && g_hwnd)
+		bool b_menu = o.bUpper || o.bMenu || m.bMenu;
+		bool b_menu_prev = op.bUpper || op.bMenu || mp.bMenu;
+		if (b_menu && !b_menu_prev && g_hwnd)
 		{
 			PostMessage(g_hwnd, WM_KEYDOWN, VK_ESCAPE, 0x00010001);
 			PostMessage(g_hwnd, WM_KEYUP,   VK_ESCAPE, 0xC0010001);
 		}
-		bPrevMenu = c.bMenu;
+
+		// Finger curl for the empty hand.
+		gVR.fFingerCurl = (std::max)(m.fGrip, (std::min)(1.0f, 0.4f * m.fTrigger + 0.6f * m.fGrip));
+
+		tin.u4ButtonState |= u4;
+		static uint32 u4_prev = 0;
+		tin.u4ButtonHit   |= (u4 & ~u4_prev) | u4_hit;
+		u4_prev = u4 & ~u4_hit;		// A pulsed button reads as released next step.
+
+		ctlPrev = frLast.ctl;
+	}
+
+	//******************************************************************************************
+	// Haptics and force-grab gestures; called once per rendered frame.
+	void UpdateFeedback(float f_dt)
+	{
+		int i_m = iMain();
+
+		if (gVR.iShotCount != iSeenShots)
+		{
+			iSeenShots = gVR.iShotCount;
+			Haptic(i_m, 0.09f, 90.0f, 1.0f);
+			if (bTwoHand)
+				Haptic(iOff(), 0.07f, 90.0f, 0.6f);
+		}
+		if (gVR.iPickupCount != iSeenPickups)
+		{
+			iSeenPickups = gVR.iPickupCount;
+			Haptic(i_m, 0.05f, 60.0f, 0.5f);
+		}
+		if (gVR.iForceTargetSerial != iSeenForceSerial)
+		{
+			iSeenForceSerial = gVR.iForceTargetSerial;
+			Haptic(i_m, 0.02f, 220.0f, 0.3f);
+		}
+
+		// Holster hover tick.
+		int i_holster = iHolsterNear();
+		if (i_holster != iLastHolsterNear)
+		{
+			if (i_holster >= 0)
+				Haptic(i_m, 0.03f, 160.0f, 0.35f);
+			iLastHolsterNear = i_holster;
+		}
+
+		// Weight: heavier held objects rumble more when you swing them around.
+		if (gVR.fHeldMass > 0 && f_dt > 0)
+		{
+			CVector3<> v3_acc = (av3HandVel[i_m] - v3PrevVel) * (1.0f / f_dt);
+			float f_amp = fLen(v3_acc) * gVR.fHeldMass / 600.0f;
+			if (f_amp > 0.04f)
+				Haptic(i_m, f_dt * 1.5f, 40.0f, (std::min)(f_amp, 0.7f));
+		}
+		v3PrevVel = av3HandVel[i_m];
+
+		// Force grab: flick toward yourself (or upward) while aiming at a target.
+		if (gVR.bForceAim && gVR.bForceTarget && abHandValid[i_m])
+		{
+			CVector3<> v3_to_head = v3HeadWorld - av3HandWorld[i_m];
+			float f_dist = fLen(v3_to_head);
+			// Velocity in world axes (tracking velocity rotated by the yaw).
+			CVector3<> v3_vel = av3HandVel[i_m] * r3Yaw;
+			float f_toward = f_dist > 0.01f ? fDot(v3_vel, v3_to_head) / f_dist : 0.0f;
+			if (f_toward > 1.3f || v3_vel.tZ > 1.6f)
+			{
+				gVR.bForcePull = true;
+				Haptic(i_m, 0.12f, 70.0f, 0.6f);
+			}
+		}
+	}
+
+	//******************************************************************************************
+	// Menu screen laser pointer -> game window mouse.
+	void PumpMenuLaser()
+	{
+		SVROverlayMouse ev;
+		static bool b_down = false;
+		while (VRB_PollOverlayMouse(ev))
+		{
+			if (!g_hwnd || !prasMainScreen)
+				continue;
+
+			RECT rc;
+			GetClientRect(g_hwnd, &rc);
+			float f_y = setVR.bMenuFlipY ? (prasMainScreen->iHeight - ev.fY) : ev.fY;
+			int i_x = (int)(ev.fX * (rc.right - rc.left) / (std::max)(1, prasMainScreen->iWidth));
+			int i_y = (int)(f_y  * (rc.bottom - rc.top) / (std::max)(1, prasMainScreen->iHeight));
+
+			POINT pt = { i_x, i_y };
+			ClientToScreen(g_hwnd, &pt);
+			SetCursorPos(pt.x, pt.y);
+
+			LPARAM lp = MAKELPARAM(i_x, i_y);
+			switch (ev.eType)
+			{
+			case SVROverlayMouse::eMOVE:
+				PostMessage(g_hwnd, WM_MOUSEMOVE, b_down ? MK_LBUTTON : 0, lp);
+				break;
+			case SVROverlayMouse::eDOWN:
+				b_down = true;
+				PostMessage(g_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lp);
+				break;
+			case SVROverlayMouse::eUP:
+				b_down = false;
+				PostMessage(g_hwnd, WM_LBUTTONUP, 0, lp);
+				break;
+			}
+		}
 	}
 
 	//******************************************************************************************
@@ -379,6 +777,8 @@ namespace
 	{
 		if (!bActive)
 			return;
+
+		CheckIniReload();
 
 		if (bStereoThisFrame)
 		{
@@ -397,6 +797,7 @@ namespace
 				                setVR.fOverlayWidth, setVR.fOverlayDist, b_place);
 			});
 			bOverlayShown = true;
+			PumpMenuLaser();
 		}
 		bStereoThisFrame = false;
 	}
@@ -476,11 +877,26 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	}
 	frLast = fr;
 
+	static bool b_logged_controller = false;
+	if (!b_logged_controller && (fr.aposHand[0].bValid || fr.aposHand[1].bValid))
+	{
+		Log("Controllers: %s", VRB_ControllerType());
+		b_logged_controller = true;
+	}
+
+	CheckIniReload();
+
 	if (!fr.posHead.bValid)
 	{
 		gVR.bHeadValid = false;
 		return false;
 	}
+
+	DWORD u4_now = GetTickCount();
+	float f_dt = u4PrevFrameTime ? (u4_now - u4PrevFrameTime) * 0.001f : 0.0f;
+	if (f_dt > 0.1f)
+		f_dt = 0.1f;
+	u4PrevFrameTime = u4_now;
 
 	CCamera* pcam = CWDbQueryActiveCamera().tGet();
 	if (!pcam)
@@ -503,11 +919,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		bLastCamHead    = b_camera_on_head;
 	}
 
-	if (fr.ctl.bRecenter && !bPrevRecenter)
+	// Recenter: off-hand stick click.
+	const SVRHandInput& hi_off = fr.ctl.ahand[iOff()];
+	static bool b_prev_recenter = false;
+	if (hi_off.bStickClick && !b_prev_recenter)
 		Align(b_player_view && gpPlayer ? gpPlayer->r3Rot() : r3_cam_rot, fr, true);
 	else if (bNeedAlign)
 		Align(r3_cam_rot, fr, true);
-	bPrevRecenter = fr.ctl.bRecenter;
+	b_prev_recenter = hi_off.bStickClick;
 
 	CVector3<> v3_head_track = v3Game(fr.posHead.afP);
 	CVector3<> v3_lean       = v3Lean(v3_head_track);
@@ -518,24 +937,66 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		return v3_cam_pos + (v3_lean + (v3_track - v3_head_track)) * r3Yaw;
 	};
 
-	// Publish head and hand for the player's next step.
+	v3HeadWorld = v3World(v3_head_track);
+
+	// Publish head for the player's next step.
 	StoreQ(gVR.afHeadRotWorld, r3Game(fr.posHead.afQ) * r3Yaw);
 	gVR.bHeadValid = true;
 
-	gVR.bHandValid = fr.posHandRight.bValid;
-	if (fr.posHandRight.bValid)
+	// Hands in world space.
+	for (int i = 0; i < 2; i++)
 	{
-		const float f_deg = fDEG;
-		CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, setVR.fHandPitchDeg * f_deg) *
-		                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * f_deg) *
-		                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * f_deg);
-		CRotate3<> r3_hand = r3_offset * r3Game(fr.posHandRight.afQ) * r3Yaw;
-		CVector3<> v3_hand = v3World(v3Game(fr.posHandRight.afP));
-		StoreQ(gVR.afHandRotWorld, r3_hand);
-		gVR.afHandPosWorld[0] = v3_hand.tX;
-		gVR.afHandPosWorld[1] = v3_hand.tY;
-		gVR.afHandPosWorld[2] = v3_hand.tZ;
+		abHandValid[i] = fr.aposHand[i].bValid;
+		if (!abHandValid[i])
+			continue;
+		CVector3<> v3_track = v3Game(fr.aposHand[i].afP);
+		if (f_dt > 0)
+			av3HandVel[i] = (v3_track - av3HandPrevTrack[i]) * (1.0f / f_dt);
+		av3HandPrevTrack[i] = v3_track;
+		av3HandWorld[i] = v3World(v3_track);
+		ar3HandWorld[i] = r3Game(fr.aposHand[i].afQ) * r3Yaw;
 	}
+
+	// Main hand drives the arm.
+	int i_m = iMain(), i_o = iOff();
+	gVR.bHandValid = abHandValid[i_m];
+	if (abHandValid[i_m])
+	{
+		CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, setVR.fHandPitchDeg * fDEG) *
+		                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
+		                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * fDEG);
+		CRotate3<> r3_hand = ar3HandWorld[i_m];
+
+		// Two-handed aim: off-hand grip near the held object steadies it along the line
+		// from the main hand to the off hand.
+		const SVRHandInput& hi_o = fr.ctl.ahand[i_o];
+		if (setVR.bTwoHandAim && gVR.bHolding && abHandValid[i_o] && hi_o.bGrip)
+		{
+			CVector3<> v3_line = av3HandWorld[i_o] - av3HandWorld[i_m];
+			float f_line = fLen(v3_line);
+			if (!bTwoHand && f_line < 0.45f && f_line > 0.08f)
+			{
+				bTwoHand = true;
+				Haptic(i_o, 0.04f, 120.0f, 0.4f);
+			}
+			if (bTwoHand && f_line > 0.08f)
+			{
+				CVector3<> v3_up = CVector3<>(0, 0, 1) * ar3HandWorld[i_m];
+				r3_hand = r3LookAt(v3_line, v3_up);
+			}
+		}
+		else
+			bTwoHand = false;
+
+		StoreQ(gVR.afHandRotWorld, r3_offset * r3_hand);
+		StoreV(gVR.afHandPosWorld, av3HandWorld[i_m]);
+
+		// Force-grab ray from the main hand.
+		StoreV(gVR.afAimPosWorld, av3HandWorld[i_m]);
+		StoreV(gVR.afAimDirWorld, CVector3<>(0, 1, 0) * ar3HandWorld[i_m]);
+	}
+
+	UpdateFeedback(f_dt);
 
 	//
 	// Render each eye.

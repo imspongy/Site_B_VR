@@ -28,22 +28,24 @@ struct SVRFov
 	float fTanLeft = -1, fTanRight = 1, fTanUp = 1, fTanDown = -1;
 };
 
+// Raw controller state for one hand.  Button names follow the physical layout:
+// "lower" = A / X / Cross / Square, "upper" = B / Y / Circle / Triangle.
+struct SVRHandInput
+{
+	float fStickX = 0, fStickY = 0;
+	bool  bStickClick = false;
+	bool  bGrip = false;
+	float fGrip = 0;
+	bool  bTrigger = false;
+	float fTrigger = 0;
+	bool  bLower = false;
+	bool  bUpper = false;
+	bool  bMenu = false;
+};
+
 struct SVRControls
 {
-	float fMoveX = 0, fMoveY = 0;	// Locomotion stick.
-	float fTurnX = 0, fTurnY = 0;	// Turn stick.
-
-	bool bHand       = false;		// Right grip: raise / motion-control the hand.
-	bool bTrigger    = false;		// Right trigger: grab when empty, use/fire when holding.
-	bool bDrop       = false;		// Right A: grab / drop.
-	bool bJump       = false;		// Right B.
-	bool bCrouch     = false;		// Left grip.
-	bool bThrow      = false;		// Left trigger.
-	bool bStow       = false;		// Left Y.
-	bool bPunch      = false;		// Left X.
-	bool bRecenter   = false;		// Left stick click.
-	bool bRun        = false;		// Right stick click (toggle handled by the mod).
-	bool bMenu       = false;		// Left menu button.
+	SVRHandInput ahand[2];			// 0 = left, 1 = right.
 };
 
 struct SVRFrame
@@ -51,8 +53,7 @@ struct SVRFrame
 	SVRPose     posHead;
 	SVRPose     aposEye[2];			// 0 = left, 1 = right.
 	SVRFov      afovEye[2];
-	SVRPose     posHandRight;		// Grip pose.
-	SVRPose     posHandLeft;
+	SVRPose     aposHand[2];		// Grip poses, 0 = left, 1 = right.
 	SVRControls ctl;
 };
 
@@ -86,8 +87,21 @@ void VRB_ShowOverlay
 
 void VRB_HideOverlay();
 
-// Short rumble on the right (b_right) or left controller.
-void VRB_Haptic(bool b_right, float f_seconds, float f_amplitude);
+// Rumble on a controller (0 = left, 1 = right).
+void VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude);
+
+// Menu laser pointer events on the overlay (pixel coordinates, top-left origin).
+struct SVROverlayMouse
+{
+	enum EType { eMOVE, eDOWN, eUP } eType;
+	float fX, fY;
+};
+
+// Fetches the next laser-pointer event on the menu screen.  Returns false when none are left.
+bool VRB_PollOverlayMouse(SVROverlayMouse& ev);
+
+// SteamVR's name for the connected controllers (for the log), e.g. "oculus_touch".
+const char* VRB_ControllerType();
 
 // True when SteamVR asked the application to quit.
 bool VRB_QuitRequested();

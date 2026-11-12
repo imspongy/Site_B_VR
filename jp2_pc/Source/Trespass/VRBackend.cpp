@@ -47,10 +47,14 @@ namespace
 
 	// Input action handles.
 	vr::VRActionSetHandle_t hSetMain = vr::k_ulInvalidActionSetHandle;
-	vr::VRActionHandle_t hMove = 0, hTurn = 0, hHand = 0, hTrigger = 0, hDrop = 0, hJump = 0,
-	                     hCrouch = 0, hThrow = 0, hStow = 0, hPunch = 0, hRecenter = 0, hRun = 0,
-	                     hMenu = 0, hPoseRight = 0, hPoseLeft = 0, hHapticRight = 0, hHapticLeft = 0;
+	struct SHandActions
+	{
+		vr::VRActionHandle_t hStick = 0, hStickClick = 0, hGrip = 0, hGripValue = 0, hTrigger = 0,
+		                     hTriggerValue = 0, hLower = 0, hUpper = 0, hMenu = 0, hPose = 0, hHaptic = 0;
+	};
+	SHandActions ahact[2];
 	bool bInputOK = false;
+	char strControllerType[128] = "unknown";
 
 	//******************************************************************************************
 	template<class T> void SafeRelease(T*& p)
@@ -161,120 +165,549 @@ namespace
 	//
 	const char* strACTIONS = R"JSON({
   "default_bindings": [
-    { "controller_type": "knuckles",        "binding_url": "bindings_knuckles.json" },
-    { "controller_type": "oculus_touch",    "binding_url": "bindings_oculus_touch.json" },
-    { "controller_type": "vive_controller", "binding_url": "bindings_vive_controller.json" }
+    {
+      "controller_type": "knuckles",
+      "binding_url": "bindings_knuckles.json"
+    },
+    {
+      "controller_type": "oculus_touch",
+      "binding_url": "bindings_oculus_touch.json"
+    },
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "bindings_vive_controller.json"
+    }
   ],
-  "action_sets": [ { "name": "/actions/main", "usage": "leftright" } ],
+  "action_sets": [
+    {
+      "name": "/actions/main",
+      "usage": "leftright"
+    }
+  ],
   "actions": [
-    { "name": "/actions/main/in/Move",      "type": "vector2" },
-    { "name": "/actions/main/in/Turn",      "type": "vector2" },
-    { "name": "/actions/main/in/Hand",      "type": "boolean" },
-    { "name": "/actions/main/in/Trigger",   "type": "boolean" },
-    { "name": "/actions/main/in/Drop",      "type": "boolean" },
-    { "name": "/actions/main/in/Jump",      "type": "boolean" },
-    { "name": "/actions/main/in/Crouch",    "type": "boolean" },
-    { "name": "/actions/main/in/Throw",     "type": "boolean" },
-    { "name": "/actions/main/in/Stow",      "type": "boolean" },
-    { "name": "/actions/main/in/Punch",     "type": "boolean" },
-    { "name": "/actions/main/in/Recenter",  "type": "boolean" },
-    { "name": "/actions/main/in/Run",       "type": "boolean" },
-    { "name": "/actions/main/in/Menu",      "type": "boolean" },
-    { "name": "/actions/main/in/PoseRight", "type": "pose" },
-    { "name": "/actions/main/in/PoseLeft",  "type": "pose" },
-    { "name": "/actions/main/out/HapticRight", "type": "vibration" },
-    { "name": "/actions/main/out/HapticLeft",  "type": "vibration" }
+    {
+      "name": "/actions/main/in/StickL",
+      "type": "vector2"
+    },
+    {
+      "name": "/actions/main/in/StickClickL",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/GripL",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/GripValueL",
+      "type": "vector1"
+    },
+    {
+      "name": "/actions/main/in/TriggerL",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/TriggerValueL",
+      "type": "vector1"
+    },
+    {
+      "name": "/actions/main/in/LowerL",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/UpperL",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/MenuL",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/PoseL",
+      "type": "pose"
+    },
+    {
+      "name": "/actions/main/out/HapticL",
+      "type": "vibration"
+    },
+    {
+      "name": "/actions/main/in/StickR",
+      "type": "vector2"
+    },
+    {
+      "name": "/actions/main/in/StickClickR",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/GripR",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/GripValueR",
+      "type": "vector1"
+    },
+    {
+      "name": "/actions/main/in/TriggerR",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/TriggerValueR",
+      "type": "vector1"
+    },
+    {
+      "name": "/actions/main/in/LowerR",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/UpperR",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/MenuR",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/main/in/PoseR",
+      "type": "pose"
+    },
+    {
+      "name": "/actions/main/out/HapticR",
+      "type": "vibration"
+    }
   ],
-  "localization": [ {
-    "language_tag": "en_US",
-    "/actions/main": "Trespasser",
-    "/actions/main/in/Move": "Move",
-    "/actions/main/in/Turn": "Turn",
-    "/actions/main/in/Hand": "Raise hand (hold)",
-    "/actions/main/in/Trigger": "Grab / use / fire",
-    "/actions/main/in/Drop": "Grab / drop",
-    "/actions/main/in/Jump": "Jump",
-    "/actions/main/in/Crouch": "Crouch",
-    "/actions/main/in/Throw": "Throw (hold to wind up)",
-    "/actions/main/in/Stow": "Stow / swap item",
-    "/actions/main/in/Punch": "Punch / swing",
-    "/actions/main/in/Recenter": "Recenter view",
-    "/actions/main/in/Run": "Toggle run",
-    "/actions/main/in/Menu": "Pause menu",
-    "/actions/main/in/PoseRight": "Right hand",
-    "/actions/main/in/PoseLeft": "Left hand",
-    "/actions/main/out/HapticRight": "Right haptics",
-    "/actions/main/out/HapticLeft": "Left haptics"
-  } ]
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/main": "Trespasser (Site B VR)",
+      "/actions/main/in/StickL": "Left thumbstick",
+      "/actions/main/in/StickClickL": "Left thumbstick click",
+      "/actions/main/in/GripL": "Left grip",
+      "/actions/main/in/GripValueL": "Left grip (analog)",
+      "/actions/main/in/TriggerL": "Left trigger",
+      "/actions/main/in/TriggerValueL": "Left trigger (analog)",
+      "/actions/main/in/LowerL": "Left lower face button (A / X / Cross / Square)",
+      "/actions/main/in/UpperL": "Left upper face button (B / Y / Circle / Triangle)",
+      "/actions/main/in/MenuL": "Left menu button",
+      "/actions/main/in/PoseL": "Left hand",
+      "/actions/main/out/HapticL": "Left haptics",
+      "/actions/main/in/StickR": "Right thumbstick",
+      "/actions/main/in/StickClickR": "Right thumbstick click",
+      "/actions/main/in/GripR": "Right grip",
+      "/actions/main/in/GripValueR": "Right grip (analog)",
+      "/actions/main/in/TriggerR": "Right trigger",
+      "/actions/main/in/TriggerValueR": "Right trigger (analog)",
+      "/actions/main/in/LowerR": "Right lower face button (A / X / Cross / Square)",
+      "/actions/main/in/UpperR": "Right upper face button (B / Y / Circle / Triangle)",
+      "/actions/main/in/MenuR": "Right menu button",
+      "/actions/main/in/PoseR": "Right hand",
+      "/actions/main/out/HapticR": "Right haptics"
+    }
+  ]
 })JSON";
 
-#define POSES_AND_HAPTICS \
-R"JSON(      "poses": [
-        { "output": "/actions/main/in/PoseRight", "path": "/user/hand/right/pose/handgrip" },
-        { "output": "/actions/main/in/PoseLeft",  "path": "/user/hand/left/pose/handgrip" }
+	const char* strBIND_KNUCKLES = R"JSON({
+  "controller_type": "knuckles",
+  "name": "Site B VR (Index)",
+  "bindings": {
+    "/actions/main": {
+      "poses": [
+        {
+          "output": "/actions/main/in/PoseL",
+          "path": "/user/hand/left/pose/handgrip"
+        },
+        {
+          "output": "/actions/main/in/PoseR",
+          "path": "/user/hand/right/pose/handgrip"
+        }
       ],
       "haptics": [
-        { "output": "/actions/main/out/HapticRight", "path": "/user/hand/right/output/haptic" },
-        { "output": "/actions/main/out/HapticLeft",  "path": "/user/hand/left/output/haptic" }
-      ],)JSON"
+        {
+          "output": "/actions/main/out/HapticL",
+          "path": "/user/hand/left/output/haptic"
+        },
+        {
+          "output": "/actions/main/out/HapticR",
+          "path": "/user/hand/right/output/haptic"
+        }
+      ],
+      "sources": [
+        {
+          "path": "/user/hand/left/input/thumbstick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/StickL"
+            },
+            "click": {
+              "output": "/actions/main/in/StickClickL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TriggerL"
+            },
+            "pull": {
+              "output": "/actions/main/in/TriggerValueL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "grab",
+          "inputs": {
+            "grab": {
+              "output": "/actions/main/in/GripL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "trigger",
+          "inputs": {
+            "pull": {
+              "output": "/actions/main/in/GripValueL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/a",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/LowerL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/b",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/UpperL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/thumbstick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/StickR"
+            },
+            "click": {
+              "output": "/actions/main/in/StickClickR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TriggerR"
+            },
+            "pull": {
+              "output": "/actions/main/in/TriggerValueR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "grab",
+          "inputs": {
+            "grab": {
+              "output": "/actions/main/in/GripR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "trigger",
+          "inputs": {
+            "pull": {
+              "output": "/actions/main/in/GripValueR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/a",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/LowerR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/b",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/UpperR"
+            }
+          }
+        }
+      ]
+    }
+  }
+})JSON";
 
-#define BTN(hand, input, action) \
-	"        { \"path\": \"/user/hand/" hand "/input/" input "\", \"mode\": \"button\", \"inputs\": { \"click\": { \"output\": \"/actions/main/in/" action "\" } } },\n"
-#define TRIG(hand, action) \
-	"        { \"path\": \"/user/hand/" hand "/input/trigger\", \"mode\": \"trigger\", \"inputs\": { \"click\": { \"output\": \"/actions/main/in/" action "\" } } },\n"
-#define STICK(hand, input, action, clickaction) \
-	"        { \"path\": \"/user/hand/" hand "/input/" input "\", \"mode\": \"joystick\", \"inputs\": { \"position\": { \"output\": \"/actions/main/in/" action "\" }, \"click\": { \"output\": \"/actions/main/in/" clickaction "\" } } },\n"
-#define PAD(hand, action, clickaction) \
-	"        { \"path\": \"/user/hand/" hand "/input/trackpad\", \"mode\": \"trackpad\", \"inputs\": { \"position\": { \"output\": \"/actions/main/in/" action "\" }, \"click\": { \"output\": \"/actions/main/in/" clickaction "\" } } },\n"
-#define GRAB(hand, action) \
-	"        { \"path\": \"/user/hand/" hand "/input/grip\", \"mode\": \"grab\", \"inputs\": { \"grab\": { \"output\": \"/actions/main/in/" action "\" } } },\n"
-#define LAST "        { \"path\": \"/user/hand/left/input/trigger\", \"mode\": \"trigger\", \"inputs\": { \"click\": { \"output\": \"/actions/main/in/Throw\" } } }\n"
+	const char* strBIND_TOUCH = R"JSON({
+  "controller_type": "oculus_touch",
+  "name": "Site B VR (Touch / PSVR2 layout)",
+  "bindings": {
+    "/actions/main": {
+      "poses": [
+        {
+          "output": "/actions/main/in/PoseL",
+          "path": "/user/hand/left/pose/handgrip"
+        },
+        {
+          "output": "/actions/main/in/PoseR",
+          "path": "/user/hand/right/pose/handgrip"
+        }
+      ],
+      "haptics": [
+        {
+          "output": "/actions/main/out/HapticL",
+          "path": "/user/hand/left/output/haptic"
+        },
+        {
+          "output": "/actions/main/out/HapticR",
+          "path": "/user/hand/right/output/haptic"
+        }
+      ],
+      "sources": [
+        {
+          "path": "/user/hand/left/input/joystick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/StickL"
+            },
+            "click": {
+              "output": "/actions/main/in/StickClickL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TriggerL"
+            },
+            "pull": {
+              "output": "/actions/main/in/TriggerValueL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/GripL"
+            },
+            "pull": {
+              "output": "/actions/main/in/GripValueL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/x",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/LowerL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/y",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/UpperL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/joystick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/StickR"
+            },
+            "click": {
+              "output": "/actions/main/in/StickClickR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TriggerR"
+            },
+            "pull": {
+              "output": "/actions/main/in/TriggerValueR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/GripR"
+            },
+            "pull": {
+              "output": "/actions/main/in/GripValueR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/a",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/LowerR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/b",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/UpperR"
+            }
+          }
+        }
+      ]
+    }
+  }
+})JSON";
 
-	const char* strBIND_KNUCKLES =
-		"{\n  \"controller_type\": \"knuckles\",\n  \"name\": \"Trespasser VR (Index)\",\n  \"bindings\": {\n    \"/actions/main\": {\n"
-		POSES_AND_HAPTICS
-		"      \"sources\": [\n"
-		STICK("left", "thumbstick", "Move", "Recenter")
-		STICK("right", "thumbstick", "Turn", "Run")
-		GRAB("right", "Hand")
-		TRIG("right", "Trigger")
-		BTN("right", "a", "Drop")
-		BTN("right", "b", "Jump")
-		GRAB("left", "Crouch")
-		BTN("left", "a", "Stow")
-		BTN("left", "b", "Menu")
-		LAST
-		"      ]\n    }\n  }\n}\n";
-
-	const char* strBIND_TOUCH =
-		"{\n  \"controller_type\": \"oculus_touch\",\n  \"name\": \"Trespasser VR (Touch)\",\n  \"bindings\": {\n    \"/actions/main\": {\n"
-		POSES_AND_HAPTICS
-		"      \"sources\": [\n"
-		STICK("left", "joystick", "Move", "Recenter")
-		STICK("right", "joystick", "Turn", "Run")
-		BTN("right", "grip", "Hand")
-		TRIG("right", "Trigger")
-		BTN("right", "a", "Drop")
-		BTN("right", "b", "Jump")
-		BTN("left", "grip", "Crouch")
-		BTN("left", "x", "Stow")
-		BTN("left", "y", "Menu")
-		LAST
-		"      ]\n    }\n  }\n}\n";
-
-	const char* strBIND_VIVE =
-		"{\n  \"controller_type\": \"vive_controller\",\n  \"name\": \"Trespasser VR (Vive)\",\n  \"bindings\": {\n    \"/actions/main\": {\n"
-		POSES_AND_HAPTICS
-		"      \"sources\": [\n"
-		PAD("left", "Move", "Recenter")
-		PAD("right", "Turn", "Drop")
-		BTN("right", "grip", "Hand")
-		TRIG("right", "Trigger")
-		BTN("right", "application_menu", "Jump")
-		BTN("left", "grip", "Crouch")
-		BTN("left", "application_menu", "Menu")
-		LAST
-		"      ]\n    }\n  }\n}\n";
+	const char* strBIND_VIVE = R"JSON({
+  "controller_type": "vive_controller",
+  "name": "Site B VR (Vive)",
+  "bindings": {
+    "/actions/main": {
+      "poses": [
+        {
+          "output": "/actions/main/in/PoseL",
+          "path": "/user/hand/left/pose/handgrip"
+        },
+        {
+          "output": "/actions/main/in/PoseR",
+          "path": "/user/hand/right/pose/handgrip"
+        }
+      ],
+      "haptics": [
+        {
+          "output": "/actions/main/out/HapticL",
+          "path": "/user/hand/left/output/haptic"
+        },
+        {
+          "output": "/actions/main/out/HapticR",
+          "path": "/user/hand/right/output/haptic"
+        }
+      ],
+      "sources": [
+        {
+          "path": "/user/hand/left/input/trackpad",
+          "mode": "trackpad",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/StickL"
+            },
+            "click": {
+              "output": "/actions/main/in/StickClickL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TriggerL"
+            },
+            "pull": {
+              "output": "/actions/main/in/TriggerValueL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/GripL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/application_menu",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/MenuL"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trackpad",
+          "mode": "trackpad",
+          "inputs": {
+            "position": {
+              "output": "/actions/main/in/StickR"
+            },
+            "click": {
+              "output": "/actions/main/in/StickClickR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/TriggerR"
+            },
+            "pull": {
+              "output": "/actions/main/in/TriggerValueR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/GripR"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/application_menu",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/main/in/MenuR"
+            }
+          }
+        }
+      ]
+    }
+  }
+})JSON";
 
 	//******************************************************************************************
 	void InitInput()
@@ -294,23 +727,23 @@ R"JSON(      "poses": [
 			return;
 
 		pin->GetActionSetHandle("/actions/main", &hSetMain);
-		pin->GetActionHandle("/actions/main/in/Move",      &hMove);
-		pin->GetActionHandle("/actions/main/in/Turn",      &hTurn);
-		pin->GetActionHandle("/actions/main/in/Hand",      &hHand);
-		pin->GetActionHandle("/actions/main/in/Trigger",   &hTrigger);
-		pin->GetActionHandle("/actions/main/in/Drop",      &hDrop);
-		pin->GetActionHandle("/actions/main/in/Jump",      &hJump);
-		pin->GetActionHandle("/actions/main/in/Crouch",    &hCrouch);
-		pin->GetActionHandle("/actions/main/in/Throw",     &hThrow);
-		pin->GetActionHandle("/actions/main/in/Stow",      &hStow);
-		pin->GetActionHandle("/actions/main/in/Punch",     &hPunch);
-		pin->GetActionHandle("/actions/main/in/Recenter",  &hRecenter);
-		pin->GetActionHandle("/actions/main/in/Run",       &hRun);
-		pin->GetActionHandle("/actions/main/in/Menu",      &hMenu);
-		pin->GetActionHandle("/actions/main/in/PoseRight", &hPoseRight);
-		pin->GetActionHandle("/actions/main/in/PoseLeft",  &hPoseLeft);
-		pin->GetActionHandle("/actions/main/out/HapticRight", &hHapticRight);
-		pin->GetActionHandle("/actions/main/out/HapticLeft",  &hHapticLeft);
+		for (int i = 0; i < 2; i++)
+		{
+			std::string str_s = i == 0 ? "L" : "R";
+			std::string str_in = "/actions/main/in/";
+			SHandActions& ha = ahact[i];
+			pin->GetActionHandle((str_in + "Stick" + str_s).c_str(),        &ha.hStick);
+			pin->GetActionHandle((str_in + "StickClick" + str_s).c_str(),   &ha.hStickClick);
+			pin->GetActionHandle((str_in + "Grip" + str_s).c_str(),         &ha.hGrip);
+			pin->GetActionHandle((str_in + "GripValue" + str_s).c_str(),    &ha.hGripValue);
+			pin->GetActionHandle((str_in + "Trigger" + str_s).c_str(),      &ha.hTrigger);
+			pin->GetActionHandle((str_in + "TriggerValue" + str_s).c_str(), &ha.hTriggerValue);
+			pin->GetActionHandle((str_in + "Lower" + str_s).c_str(),        &ha.hLower);
+			pin->GetActionHandle((str_in + "Upper" + str_s).c_str(),        &ha.hUpper);
+			pin->GetActionHandle((str_in + "Menu" + str_s).c_str(),         &ha.hMenu);
+			pin->GetActionHandle((str_in + "Pose" + str_s).c_str(),         &ha.hPose);
+			pin->GetActionHandle(("/actions/main/out/Haptic" + str_s).c_str(), &ha.hHaptic);
+		}
 		bInputOK = true;
 	}
 
@@ -636,29 +1069,42 @@ bool VRB_BeginFrame(SVRFrame& frame)
 
 	// Controllers.
 	frame.ctl = SVRControls();
-	frame.posHandRight.bValid = frame.posHandLeft.bValid = false;
+	frame.aposHand[0].bValid = frame.aposHand[1].bValid = false;
 	if (bInputOK)
 	{
 		vr::VRActiveActionSet_t set = {};
 		set.ulActionSet = hSetMain;
 		if (vr::VRInput()->UpdateActionState(&set, sizeof(set), 1) == vr::VRInputError_None)
 		{
-			SVRControls& c = frame.ctl;
-			Analog(hMove, c.fMoveX, c.fMoveY);
-			Analog(hTurn, c.fTurnX, c.fTurnY);
-			c.bHand     = bDigital(hHand);
-			c.bTrigger  = bDigital(hTrigger);
-			c.bDrop     = bDigital(hDrop);
-			c.bJump     = bDigital(hJump);
-			c.bCrouch   = bDigital(hCrouch);
-			c.bThrow    = bDigital(hThrow);
-			c.bStow     = bDigital(hStow);
-			c.bPunch    = bDigital(hPunch);
-			c.bRecenter = bDigital(hRecenter);
-			c.bRun      = bDigital(hRun);
-			c.bMenu     = bDigital(hMenu);
-			Pose(hPoseRight, frame.posHandRight);
-			Pose(hPoseLeft,  frame.posHandLeft);
+			for (int i = 0; i < 2; i++)
+			{
+				const SHandActions& ha = ahact[i];
+				SVRHandInput& hi = frame.ctl.ahand[i];
+				float f_unused;
+				Analog(ha.hStick, hi.fStickX, hi.fStickY);
+				Analog(ha.hGripValue, hi.fGrip, f_unused);
+				Analog(ha.hTriggerValue, hi.fTrigger, f_unused);
+				hi.bStickClick = bDigital(ha.hStickClick);
+				hi.bGrip       = bDigital(ha.hGrip);
+				hi.bTrigger    = bDigital(ha.hTrigger);
+				hi.bLower      = bDigital(ha.hLower);
+				hi.bUpper      = bDigital(ha.hUpper);
+				hi.bMenu       = bDigital(ha.hMenu);
+				// Analog fallback for controllers without analog grip.
+				if (hi.bGrip && hi.fGrip < 0.5f)
+					hi.fGrip = 1.0f;
+				Pose(ha.hPose, frame.aposHand[i]);
+			}
+		}
+	}
+
+	// Remember what kind of controllers these are, for the log.
+	for (vr::TrackedDeviceIndex_t u = 0; u < vr::k_unMaxTrackedDeviceCount; u++)
+	{
+		if (pvrSystem->GetTrackedDeviceClass(u) == vr::TrackedDeviceClass_Controller)
+		{
+			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_ControllerType_String, strControllerType, sizeof(strControllerType));
+			break;
 		}
 	}
 
@@ -695,11 +1141,17 @@ bool VRB_SubmitEye
 }
 
 //**********************************************************************************************
-void VRB_Haptic(bool b_right, float f_seconds, float f_amplitude)
+void VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude)
 {
-	if (!bInputOK)
+	if (!bInputOK || i_hand < 0 || i_hand > 1)
 		return;
-	vr::VRInput()->TriggerHapticVibrationAction(b_right ? hHapticRight : hHapticLeft, 0, f_seconds, 160.0f, f_amplitude, vr::k_ulInvalidInputValueHandle);
+	vr::VRInput()->TriggerHapticVibrationAction(ahact[i_hand].hHaptic, 0, f_seconds, f_frequency, f_amplitude, vr::k_ulInvalidInputValueHandle);
+}
+
+//**********************************************************************************************
+const char* VRB_ControllerType()
+{
+	return strControllerType;
 }
 
 //**********************************************************************************************
@@ -727,6 +1179,23 @@ void VRB_ShowOverlay
 		return;
 	if (!bEnsureTex(pd3dOverlayTex, iOverlayW, iOverlayH, i_width, i_height))
 		return;
+
+	// Laser-pointer interaction: SteamVR draws the laser and sends us mouse events.
+	static bool b_input_set = false;
+	static int i_scale_w = 0, i_scale_h = 0;
+	if (!b_input_set)
+	{
+		pov->SetOverlayInputMethod(hOverlay, vr::VROverlayInputMethod_Mouse);
+		pov->SetOverlayFlag(hOverlay, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, true);
+		b_input_set = true;
+	}
+	if (i_scale_w != i_width || i_scale_h != i_height)
+	{
+		vr::HmdVector2_t v2_scale = { (float)i_width, (float)i_height };
+		pov->SetOverlayMouseScale(hOverlay, &v2_scale);
+		i_scale_w = i_width;
+		i_scale_h = i_height;
+	}
 	pd3dContext->UpdateSubresource(pd3dOverlayTex, 0, nullptr, au4Convert.data(), i_width * 4, 0);
 	pd3dContext->Flush();
 
@@ -772,4 +1241,36 @@ void VRB_HideOverlay()
 {
 	if (hOverlay != vr::k_ulOverlayHandleInvalid && vr::VROverlay())
 		vr::VROverlay()->HideOverlay(hOverlay);
+}
+
+//**********************************************************************************************
+bool VRB_PollOverlayMouse(SVROverlayMouse& ev)
+{
+	vr::IVROverlay* pov = vr::VROverlay();
+	if (!pov || hOverlay == vr::k_ulOverlayHandleInvalid)
+		return false;
+
+	vr::VREvent_t vev;
+	while (pov->PollNextOverlayEvent(hOverlay, &vev, sizeof(vev)))
+	{
+		switch (vev.eventType)
+		{
+		case vr::VREvent_MouseMove:
+			ev.eType = SVROverlayMouse::eMOVE;
+			break;
+		case vr::VREvent_MouseButtonDown:
+			ev.eType = SVROverlayMouse::eDOWN;
+			break;
+		case vr::VREvent_MouseButtonUp:
+			ev.eType = SVROverlayMouse::eUP;
+			break;
+		default:
+			continue;
+		}
+		// OpenVR overlay mouse coordinates have their origin at the bottom left.
+		ev.fX = vev.data.mouse.x;
+		ev.fY = (float)iOverlayH - vev.data.mouse.y;
+		return true;
+	}
+	return false;
 }
