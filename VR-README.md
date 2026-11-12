@@ -19,37 +19,32 @@ and send the log files it writes.
 Laid out for PSVR2 Sense and Quest/Touch controllers (Index and Vive also have defaults). Everything
 can be rebound in SteamVR > Settings > Controllers > Manage Controller Bindings.
 
-**Right hand (Anne's arm follows it)**
+**Both hands work the same way** (the right controller drives Anne's own arm, the left one her second arm):
 
 | Input | Action |
 |---|---|
-| Grip (hold) | Grab whatever your hand touches; keep holding to carry it. Let go to drop, or swing and let go to throw |
+| Grip (hold) | Grab whatever the hand touches and keep holding it. Let go to drop, or swing and let go to throw |
 | Trigger (holding) | Fire / use the held item |
 | Trigger (empty hand) | Force grab: point at an item, hold trigger, flick your wrist toward you, then squeeze grip to catch |
-| Cross / A | Jump |
-| Circle / B | Crouch (toggle) |
-| Stick left/right | Turn (snap or smooth) |
-| Stick click | Toggle run |
+| Grip on the other hand's gun | Two-handed grip. Pistols: your hand cups the bottom of the grip. Rifles/shotguns: the gun aims along the line between your hands |
+| Hand at hip / over shoulder | Holsters: let go of an item there to holster it, squeeze grip there with an empty hand to draw it |
 
-**Left hand**
+Hands push and knock things over physically, and heavy objects lag behind your hand.
+
+**Sticks and buttons** (swap sides with `LeftHanded=1`):
 
 | Input | Action |
 |---|---|
-| Stick | Walk |
-| Stick click | Recenter view |
-| Grip | Grab and carry things with Anne's second hand (let go to drop or throw). Grip the right hand's object to take it over |
-| Grip (on the front of a held gun) | Two-handed aim; the hand wraps the gun hand for pistols |
-| Trigger | Throw (hold to wind up) |
-| Square / X | Swap held item with holster |
+| Left stick | Walk |
+| Left stick click | Recenter view |
+| Right stick | Turn (snap or smooth) |
+| Right stick click | Toggle run |
+| Cross / A | Jump |
+| Circle / B | Crouch (toggle) |
+| Square / X | Swap held item with holster (classic) |
 | Triangle / Y | Pause menu |
 
-**Holsters**: let go of a small item (pistol) at your hip, or a big one (rifle, shotgun) over your shoulder,
-to holster it. Squeeze grip at the same spot with an empty hand to draw it. You feel a tick when your
-hand is at a holster.
-
 **Menus**: point at the floating screen and pull the trigger to click.
-
-Set `LeftHanded=1` in the settings to swap everything over.
 
 ## Settings
 
@@ -72,6 +67,4 @@ Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish 
   SteamVR motion smoothing helps.
 - Walking around your room moves your head up to 0.6 m (`LeanRadius`) from your body; beyond that the
   view stops following. Use the stick to walk.
-- The second hand is a mirrored copy of Anne's arm. It can carry things but doesn't push objects
-  around on its own, and it can't fire guns (pass a gun to the right hand by grabbing it there).
-- In left-handed mode the arms don't swap sides.
+- The left arm is a mirrored copy of Anne's right arm driven by the mod; the right arm is the game's own.

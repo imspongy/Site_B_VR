@@ -72,8 +72,8 @@ namespace
 		bool  bGripToggle     = false;	// false = hold grip to hold; true = press to grab/drop.
 		bool  bForceGrab      = true;
 		bool  bTwoHandAim     = true;
-		bool  bSecondHand     = true;	// Visible second arm that can carry things.
-		float fSecondHandMaxMass = 40.0f;
+		bool  bSecondHand     = true;	// Second arm, driven by the left controller.
+		float fPistolMaxMass  = 2.5f;	// Guns lighter than this get the pistol support grip.
 		bool  bFlipSecondCurl = false;	// Debug: second hand's fingers bend the wrong way.
 		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
 		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
@@ -122,12 +122,17 @@ namespace
 	bool        bSnapArmed    = true;
 	bool        bSuppressGrab = false;	// Grip press was used for a holster; don't grab.
 	int         iGrabPulse    = 0;		// Frames of a forced GRAB press (drop).
-	bool        bTwoHand      = false;	// Support hand is on the held object.
-	int         iLastHolsterNear = -1;
+	int         aiLastHolsterNear[2] = { -1, -1 };
+	bool        abPrevGripRender[2] = { false, false };
 
 	// Haptic feedback state.
-	int         iSeenShots = 0, iSeenPickups = 0, iSeenForceSerial = 0, iSeenLeftPickups = 0;
-	CVector3<>  v3PrevVel(0, 0, 0);
+	int         iSeenShots = 0, iSeenLeftShots = 0, iSeenPickups = 0, iSeenLeftPickups = 0;
+	int         aiSeenForceSerial[2] = { 0, 0 };
+	CVector3<>  av3PrevVel[2];
+
+	// Controller indices: the right controller always drives Anne's real (right) arm and the
+	// left controller her second (left) arm.  Handedness only swaps sticks and face buttons.
+	const int   iRIGHT = 1, iLEFT = 0;
 
 	// ini hot-reload.
 	FILETIME    ftIni = { 0, 0 };
@@ -188,7 +193,8 @@ namespace
 			"Enabled=1\n"
 			"\n"
 			"; --- Hands ---\n"
-			"; 1 = Anne's arm follows your LEFT controller and all controls are mirrored.\n"
+			"; 1 = swap the sticks and face buttons for left-handed play (move on the right stick,\n"
+			";     jump/crouch on the left buttons). Both hands always work the same.\n"
 			"LeftHanded=0\n"
 			"; 0 = hold the grip to keep holding things (let go to drop).\n"
 			"; 1 = press grip once to grab, press again to drop.\n"
@@ -197,10 +203,10 @@ namespace
 			"ForceGrab=1\n"
 			"; Grab the front of a gun with your other hand to aim it with both hands.\n"
 			"TwoHandAim=1\n"
-			"; Show Anne's second arm on your off-hand controller and let it carry things.\n"
+			"; Anne's second arm on your left controller (grab, carry, push, fire, holster).\n"
 			"SecondHand=1\n"
-			"; Heaviest object (kg) the second hand can lift on its own.\n"
-			"SecondHandMaxMass=40\n"
+			"; Guns lighter than this (kg) count as pistols for the two-handed grip.\n"
+			"PistolMaxMass=2.5\n"
 			"; How close (metres) your hand must be to a holster (hip / over shoulder).\n"
 			"HolsterRadius=0.25\n"
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
@@ -263,7 +269,7 @@ namespace
 		s.bForceGrab     = fIni(str_file, "ForceGrab", 1) != 0;
 		s.bTwoHandAim    = fIni(str_file, "TwoHandAim", 1) != 0;
 		s.bSecondHand    = fIni(str_file, "SecondHand", 1) != 0;
-		s.fSecondHandMaxMass = fIni(str_file, "SecondHandMaxMass", 40);
+		s.fPistolMaxMass = fIni(str_file, "PistolMaxMass", 2.5f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius = fIni(str_file, "HolsterRadius", 0.25f);
 		s.fHaptics       = fIni(str_file, "Haptics", 1);
@@ -287,7 +293,6 @@ namespace
 
 		gVR.bMotionHand  = setVR.bMotionHand;
 		gVR.bLeftArm     = setVR.bSecondHand;
-		gVR.fLeftMaxMass = setVR.fSecondHandMaxMass;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 
 		WIN32_FILE_ATTRIBUTE_DATA fad;
@@ -480,17 +485,25 @@ namespace
 	}
 
 	//******************************************************************************************
-	// Which holster (0 hip, 1 back) the main hand is at, or -1.
-	int iHolsterNear()
+	// Which holster (0 hip, 1 back) the given controller is at, or -1.
+	int iHolsterNear(int i_hand)
 	{
-		if (!abHandValid[iMain()])
+		if (!abHandValid[i_hand])
 			return -1;
-		const CVector3<>& v3_hand = av3HandWorld[iMain()];
+		const CVector3<>& v3_hand = av3HandWorld[i_hand];
 		int i_best = -1;
 		float f_best = setVR.fHolsterRadius;
 		for (int i = 0; i < 2; i++)
 		{
 			CVector3<> v3_h(gVR.aafHolsterPosWorld[i][0], gVR.aafHolsterPosWorld[i][1], gVR.aafHolsterPosWorld[i][2]);
+			// The holster points are on Anne's right side; mirror them for the left hand.
+			if (i_hand == iLEFT && gpPlayer)
+			{
+				CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
+				CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
+				v3_local.tX = -v3_local.tX;
+				v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
+			}
 			// The back slot is hard to reach precisely; be more generous there.
 			float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
 			if (f_dist < f_best)
@@ -504,15 +517,21 @@ namespace
 
 	//******************************************************************************************
 	// SteamVR controllers -> game control message.  Called once per game step.
+	// (The left hand is handled by the player directly from the shared state.)
 	void InputHook(SInput& tin)
 	{
 		if (!bActive)
 			return;
 
+		// Sticks and face buttons: main/off swap with handedness.
 		const SVRHandInput& m  = frLast.ctl.ahand[iMain()];
 		const SVRHandInput& o  = frLast.ctl.ahand[iOff()];
 		const SVRHandInput& mp = ctlPrev.ahand[iMain()];
 		const SVRHandInput& op = ctlPrev.ahand[iOff()];
+
+		// The right hand (Anne's real arm).
+		const SVRHandInput& r  = frLast.ctl.ahand[iRIGHT];
+		const SVRHandInput& rp = ctlPrev.ahand[iRIGHT];
 
 		// Mouse look is replaced by the headset.
 		tin.v2Rotate = CVector2<>(0, 0);
@@ -546,7 +565,7 @@ namespace
 			tin.v2Move.tY = f_y > 0 ? f_y * f_speed : f_y * 0.5f;
 		}
 
-		// Run toggle: main stick click.
+		// Run toggle: turn-stick click.
 		if (m.bStickClick && !mp.bStickClick)
 			bRunToggle = !bRunToggle;
 
@@ -574,22 +593,26 @@ namespace
 		uint32 u4 = 0, u4_hit = 0;
 
 		//
-		// Main hand.
+		// Right hand.
 		//
 		if (setVR.bMotionHand)
 			// The arm always follows the controller.
 			u4 |= uCMD_HAND;
 
-		int i_holster = iHolsterNear();
-		bool b_grip_down = m.bGrip && !mp.bGrip;
-		bool b_grip_up   = !m.bGrip && mp.bGrip;
+		int i_holster = iHolsterNear(iRIGHT);
+		bool b_grip_down = r.bGrip && !rp.bGrip;
+		bool b_grip_up   = !r.bGrip && rp.bGrip;
+
+		// Steadying the left hand's gun: never grab it.
+		if (gVR.iTwoHand == 2)
+			bSuppressGrab = true;
 
 		if (!setVR.bGripToggle)
 		{
 			// Hold mode.
 			if (b_grip_down)
 			{
-				bSuppressGrab = false;
+				bSuppressGrab = gVR.iTwoHand == 2;
 				if (!gVR.bHolding && i_holster >= 0)
 				{
 					// Draw from holster.
@@ -597,7 +620,7 @@ namespace
 					bSuppressGrab = true;
 				}
 			}
-			if (m.bGrip && !bSuppressGrab && !gVR.bHolding)
+			if (r.bGrip && !bSuppressGrab && !gVR.bHolding)
 				u4 |= uCMD_GRAB;		// Seek: grab whatever the hand touches.
 			if (b_grip_up)
 			{
@@ -606,7 +629,7 @@ namespace
 					if (i_holster >= 0)
 						gVR.iHolsterRequest = i_holster;	// Let go at a holster: holster it.
 					else
-						iGrabPulse = 1;						// Let go: drop.
+						iGrabPulse = 1;						// Let go: drop (or throw, if swinging).
 				}
 				bSuppressGrab = false;
 			}
@@ -624,9 +647,9 @@ namespace
 				else if (gVR.bHolding)
 					iGrabPulse = 1;
 				else
-					bSuppressGrab = false;
+					bSuppressGrab = gVR.iTwoHand == 2;
 			}
-			if (m.bGrip && !bSuppressGrab && !gVR.bHolding)
+			if (r.bGrip && !bSuppressGrab && !gVR.bHolding)
 				u4 |= uCMD_GRAB;
 			if (b_grip_up)
 				bSuppressGrab = false;
@@ -640,31 +663,22 @@ namespace
 			iGrabPulse--;
 		}
 
-		// Trigger: use / fire when holding; force grab aim when empty.
-		if (gVR.bHolding)
-		{
-			if (m.bTrigger)
-				u4 |= uCMD_USE;
-			gVR.bForceAim = false;
-		}
-		else
-		{
-			gVR.bForceAim = setVR.bForceGrab && m.bTrigger && !m.bGrip;
-		}
+		// Trigger: use / fire when holding.
+		if (gVR.bHolding && r.bTrigger)
+			u4 |= uCMD_USE;
 
+		// Finger curl for the empty right hand.
+		gVR.fFingerCurl = (std::max)(r.fGrip, (std::min)(1.0f, 0.4f * r.fTrigger + 0.6f * r.fGrip));
+
+		//
 		// Face buttons.
+		//
 		if (m.bLower)
 			u4 |= uCMD_JUMP;
 		if (m.bUpper && !mp.bUpper)
 			bCrouchToggle = !bCrouchToggle;
 		if (bCrouchToggle)
 			u4 |= uCMD_CROUCH;
-
-		//
-		// Off hand.
-		//
-		if (o.bTrigger)
-			u4 |= uCMD_THROW;
 		if (o.bLower)
 			u4 |= uCMD_STOW;
 
@@ -676,9 +690,6 @@ namespace
 			PostMessage(g_hwnd, WM_KEYDOWN, VK_ESCAPE, 0x00010001);
 			PostMessage(g_hwnd, WM_KEYUP,   VK_ESCAPE, 0xC0010001);
 		}
-
-		// Finger curl for the empty hand.
-		gVR.fFingerCurl = (std::max)(m.fGrip, (std::min)(1.0f, 0.4f * m.fTrigger + 0.6f * m.fGrip));
 
 		tin.u4ButtonState |= u4;
 		static uint32 u4_prev = 0;
@@ -692,62 +703,74 @@ namespace
 	// Haptics and force-grab gestures; called once per rendered frame.
 	void UpdateFeedback(float f_dt)
 	{
-		int i_m = iMain();
-
 		if (gVR.iShotCount != iSeenShots)
 		{
 			iSeenShots = gVR.iShotCount;
-			Haptic(i_m, 0.09f, 90.0f, 1.0f);
-			if (bTwoHand)
-				Haptic(iOff(), 0.07f, 90.0f, 0.6f);
+			Haptic(iRIGHT, 0.09f, 90.0f, 1.0f);
+			if (gVR.iTwoHand == 1)
+				Haptic(iLEFT, 0.07f, 90.0f, 0.6f);
+		}
+		if (gVR.iLeftShotCount != iSeenLeftShots)
+		{
+			iSeenLeftShots = gVR.iLeftShotCount;
+			Haptic(iLEFT, 0.09f, 90.0f, 1.0f);
+			if (gVR.iTwoHand == 2)
+				Haptic(iRIGHT, 0.07f, 90.0f, 0.6f);
 		}
 		if (gVR.iPickupCount != iSeenPickups)
 		{
 			iSeenPickups = gVR.iPickupCount;
-			Haptic(i_m, 0.05f, 60.0f, 0.5f);
+			Haptic(iRIGHT, 0.05f, 60.0f, 0.5f);
 		}
 		if (gVR.iLeftPickupCount != iSeenLeftPickups)
 		{
 			iSeenLeftPickups = gVR.iLeftPickupCount;
-			Haptic(iOff(), 0.05f, 60.0f, 0.5f);
-		}
-		if (gVR.iForceTargetSerial != iSeenForceSerial)
-		{
-			iSeenForceSerial = gVR.iForceTargetSerial;
-			Haptic(i_m, 0.02f, 220.0f, 0.3f);
+			Haptic(iLEFT, 0.05f, 60.0f, 0.5f);
 		}
 
-		// Holster hover tick.
-		int i_holster = iHolsterNear();
-		if (i_holster != iLastHolsterNear)
+		for (int i = 0; i < 2; i++)
 		{
-			if (i_holster >= 0)
-				Haptic(i_m, 0.03f, 160.0f, 0.35f);
-			iLastHolsterNear = i_holster;
-		}
+			// Controller i is right (index 1) or left (0); force-grab slot is 0 right, 1 left.
+			int i_ctrl  = i == 0 ? iRIGHT : iLEFT;
+			float f_mass = i == 0 ? gVR.fHeldMass : gVR.fLeftHeldMass;
 
-		// Weight: heavier held objects rumble more when you swing them around.
-		if (gVR.fHeldMass > 0 && f_dt > 0)
-		{
-			CVector3<> v3_acc = (av3HandVel[i_m] - v3PrevVel) * (1.0f / f_dt);
-			float f_amp = fLen(v3_acc) * gVR.fHeldMass / 600.0f;
-			if (f_amp > 0.04f)
-				Haptic(i_m, f_dt * 1.5f, 40.0f, (std::min)(f_amp, 0.7f));
-		}
-		v3PrevVel = av3HandVel[i_m];
-
-		// Force grab: flick toward yourself (or upward) while aiming at a target.
-		if (gVR.bForceAim && gVR.bForceTarget && abHandValid[i_m])
-		{
-			CVector3<> v3_to_head = v3HeadWorld - av3HandWorld[i_m];
-			float f_dist = fLen(v3_to_head);
-			// Velocity in world axes (tracking velocity rotated by the yaw).
-			CVector3<> v3_vel = av3HandVel[i_m] * r3Yaw;
-			float f_toward = f_dist > 0.01f ? fDot(v3_vel, v3_to_head) / f_dist : 0.0f;
-			if (f_toward > 1.3f || v3_vel.tZ > 1.6f)
+			if (gVR.aiForceTargetSerial[i] != aiSeenForceSerial[i])
 			{
-				gVR.bForcePull = true;
-				Haptic(i_m, 0.12f, 70.0f, 0.6f);
+				aiSeenForceSerial[i] = gVR.aiForceTargetSerial[i];
+				Haptic(i_ctrl, 0.02f, 220.0f, 0.3f);
+			}
+
+			// Holster hover tick.
+			int i_holster = iHolsterNear(i_ctrl);
+			if (i_holster != aiLastHolsterNear[i])
+			{
+				if (i_holster >= 0)
+					Haptic(i_ctrl, 0.03f, 160.0f, 0.35f);
+				aiLastHolsterNear[i] = i_holster;
+			}
+
+			// Weight: heavier held objects rumble more when you swing them around.
+			if (f_mass > 0 && f_dt > 0)
+			{
+				CVector3<> v3_acc = (av3HandVel[i_ctrl] - av3PrevVel[i]) * (1.0f / f_dt);
+				float f_amp = fLen(v3_acc) * f_mass / 600.0f;
+				if (f_amp > 0.04f)
+					Haptic(i_ctrl, f_dt * 1.5f, 40.0f, (std::min)(f_amp, 0.7f));
+			}
+			av3PrevVel[i] = av3HandVel[i_ctrl];
+
+			// Force grab: flick toward yourself (or upward) while aiming at a target.
+			if (gVR.abForceAim[i] && gVR.abForceTarget[i] && abHandValid[i_ctrl])
+			{
+				CVector3<> v3_to_head = v3HeadWorld - av3HandWorld[i_ctrl];
+				float f_dist = fLen(v3_to_head);
+				CVector3<> v3_vel = av3HandVel[i_ctrl] * r3Yaw;
+				float f_toward = f_dist > 0.01f ? fDot(v3_vel, v3_to_head) / f_dist : 0.0f;
+				if (f_toward > 1.3f || v3_vel.tZ > 1.6f)
+				{
+					gVR.abForcePull[i] = true;
+					Haptic(i_ctrl, 0.12f, 70.0f, 0.6f);
+				}
 			}
 		}
 	}
@@ -977,59 +1000,109 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		ar3HandWorld[i] = r3Game(fr.aposHand[i].afQ) * r3Yaw;
 	}
 
-	// Main hand drives the arm.
-	int i_m = iMain(), i_o = iOff();
-	gVR.bHandValid = abHandValid[i_m];
-	if (abHandValid[i_m])
+	//
+	// Two-handed guns: one hand holds the gun, the other grips near it.
+	//
 	{
-		CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, setVR.fHandPitchDeg * fDEG) *
-		                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
-		                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * fDEG);
-		CRotate3<> r3_hand = ar3HandWorld[i_m];
+		const SVRHandInput& hr = fr.ctl.ahand[iRIGHT];
+		const SVRHandInput& hl = fr.ctl.ahand[iLEFT];
+		bool b_r_down = hr.bGrip && !abPrevGripRender[iRIGHT];
+		bool b_l_down = hl.bGrip && !abPrevGripRender[iLEFT];
+		abPrevGripRender[iRIGHT] = hr.bGrip;
+		abPrevGripRender[iLEFT]  = hl.bGrip;
 
-		// Two-handed aim: off-hand grip near the held object steadies it along the line
-		// from the main hand to the off hand.
-		const SVRHandInput& hi_o = fr.ctl.ahand[i_o];
-		if (setVR.bTwoHandAim && gVR.bHoldingGun && !gVR.bLeftHolding && abHandValid[i_o] && hi_o.bGrip)
+		float f_gap = (abHandValid[0] && abHandValid[1]) ? fLen(av3HandWorld[iLEFT] - av3HandWorld[iRIGHT]) : 99.0f;
+
+		if (gVR.iTwoHand == 0 && setVR.bTwoHandAim)
 		{
-			CVector3<> v3_line = av3HandWorld[i_o] - av3HandWorld[i_m];
-			float f_line = fLen(v3_line);
-			if (!bTwoHand && f_line < 0.45f && f_line > 0.08f)
+			if (b_l_down && gVR.bHoldingGun && !gVR.bLeftHolding)
 			{
-				bTwoHand = true;
-				Haptic(i_o, 0.04f, 120.0f, 0.4f);
+				bool b_pistol = gVR.fHeldMass <= setVR.fPistolMaxMass;
+				if (f_gap < (b_pistol ? 0.25f : 0.7f))
+				{
+					gVR.iTwoHand = 1;
+					gVR.bTwoHandPistol = b_pistol;
+					Haptic(iLEFT, 0.04f, 120.0f, 0.4f);
+				}
 			}
-			if (bTwoHand && f_line > 0.08f)
+			else if (b_r_down && gVR.bLeftHoldingGun && !gVR.bHolding)
 			{
-				CVector3<> v3_up = CVector3<>(0, 0, 1) * ar3HandWorld[i_m];
-				r3_hand = r3LookAt(v3_line, v3_up);
+				bool b_pistol = gVR.fLeftHeldMass <= setVR.fPistolMaxMass;
+				if (f_gap < (b_pistol ? 0.25f : 0.7f))
+				{
+					gVR.iTwoHand = 2;
+					gVR.bTwoHandPistol = b_pistol;
+					Haptic(iRIGHT, 0.04f, 120.0f, 0.4f);
+				}
 			}
 		}
-		else
-			bTwoHand = false;
-
-		StoreQ(gVR.afHandRotWorld, r3_offset * r3_hand);
-		StoreV(gVR.afHandPosWorld, av3HandWorld[i_m]);
-		gVR.bTwoHandActive = bTwoHand;
-
-		// Force-grab ray from the main hand.
-		StoreV(gVR.afAimPosWorld, av3HandWorld[i_m]);
-		StoreV(gVR.afAimDirWorld, CVector3<>(0, 1, 0) * ar3HandWorld[i_m]);
+		else if (gVR.iTwoHand == 1 && (!hl.bGrip || !gVR.bHoldingGun))
+			gVR.iTwoHand = 0;
+		else if (gVR.iTwoHand == 2 && (!hr.bGrip || !gVR.bLeftHoldingGun))
+			gVR.iTwoHand = 0;
 	}
 
-	// Off hand, for the second arm.
-	gVR.bOffValid = abHandValid[i_o];
-	if (abHandValid[i_o])
+	CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, setVR.fHandPitchDeg * fDEG) *
+	                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
+	                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * fDEG);
+	// The same offset, mirrored for the left hand.
+	CRotate3<> r3_offset_l(r3_offset.tC, r3_offset.v3S.tX, -r3_offset.v3S.tY, -r3_offset.v3S.tZ, true);
+
+	CRotate3<> r3_right = ar3HandWorld[iRIGHT];
+	CRotate3<> r3_left  = ar3HandWorld[iLEFT];
+
+	// Long guns aim along the line between the hands.
+	if (gVR.iTwoHand == 1 && !gVR.bTwoHandPistol)
+		r3_right = r3LookAt(av3HandWorld[iLEFT] - av3HandWorld[iRIGHT], CVector3<>(0, 0, 1) * ar3HandWorld[iRIGHT]);
+	else if (gVR.iTwoHand == 2 && !gVR.bTwoHandPistol)
+		r3_left = r3LookAt(av3HandWorld[iRIGHT] - av3HandWorld[iLEFT], CVector3<>(0, 0, 1) * ar3HandWorld[iLEFT]);
+
+	// Right controller -> Anne's arm.
+	gVR.bHandValid = abHandValid[iRIGHT];
+	if (abHandValid[iRIGHT])
 	{
-		const SVRHandInput& hi_o = fr.ctl.ahand[i_o];
-		StoreV(gVR.afOffPosWorld, av3HandWorld[i_o]);
-		StoreQ(gVR.afOffRotWorld, ar3HandWorld[i_o]);
-		StoreV(gVR.afOffVelWorld, av3HandVel[i_o] * r3Yaw);
-		gVR.fOffCurl = (std::max)(hi_o.fGrip, (std::min)(1.0f, 0.4f * hi_o.fTrigger + 0.6f * hi_o.fGrip));
-		gVR.bOffGrip = hi_o.bGrip;
+		const SVRHandInput& hr = fr.ctl.ahand[iRIGHT];
+		StoreQ(gVR.afHandRotWorld, r3_offset * r3_right);
+		StoreV(gVR.afHandPosWorld, av3HandWorld[iRIGHT]);
+
+		// Force grab: trigger held with an empty hand and no grip.
+		gVR.abForceAim[0] = setVR.bForceGrab && !gVR.bHolding && hr.bTrigger && !hr.bGrip;
+		StoreV(gVR.aafAimPosWorld[0], av3HandWorld[iRIGHT]);
+		StoreV(gVR.aafAimDirWorld[0], CVector3<>(0, 1, 0) * ar3HandWorld[iRIGHT]);
 	}
 	else
-		gVR.bOffGrip = false;
+		gVR.abForceAim[0] = false;
+
+	// Left controller -> second arm.
+	gVR.bLeftValid = abHandValid[iLEFT] && setVR.bMotionHand;
+	if (abHandValid[iLEFT])
+	{
+		const SVRHandInput& hl = fr.ctl.ahand[iLEFT];
+		bool b_grip_down = hl.bGrip && !gVR.bLeftGrip;
+		bool b_grip_up   = !hl.bGrip && gVR.bLeftGrip;
+
+		StoreV(gVR.afLeftPosWorld, av3HandWorld[iLEFT]);
+		StoreQ(gVR.afLeftRotWorld, r3_offset_l * r3_left);
+		StoreV(gVR.afLeftVelWorld, av3HandVel[iLEFT] * r3Yaw);
+		gVR.fLeftCurl = (std::max)(hl.fGrip, (std::min)(1.0f, 0.4f * hl.fTrigger + 0.6f * hl.fGrip));
+		gVR.bLeftTrigger = hl.bTrigger && gVR.bLeftHolding;
+
+		// Holsters for the left hand (the player decides whether there's anything to do).
+		int i_holster = iHolsterNear(iLEFT);
+		if (i_holster >= 0 && ((b_grip_down && !gVR.bLeftHolding) || (b_grip_up && gVR.bLeftHolding)))
+			gVR.iLeftHolsterRequest = i_holster;
+		gVR.bLeftGrip = hl.bGrip;
+
+		gVR.abForceAim[1] = setVR.bForceGrab && !gVR.bLeftHolding && hl.bTrigger && !hl.bGrip;
+		StoreV(gVR.aafAimPosWorld[1], av3HandWorld[iLEFT]);
+		StoreV(gVR.aafAimDirWorld[1], CVector3<>(0, 1, 0) * ar3HandWorld[iLEFT]);
+	}
+	else
+	{
+		gVR.bLeftGrip = false;
+		gVR.bLeftTrigger = false;
+		gVR.abForceAim[1] = false;
+	}
 
 	UpdateFeedback(f_dt);
 

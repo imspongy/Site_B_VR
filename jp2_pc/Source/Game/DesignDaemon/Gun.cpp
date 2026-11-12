@@ -840,6 +840,10 @@ bool    g_bUnlimitedAmmo = FALSE; //cheat can toggle this
 			if (ptCast<CPlayer>(pobl->pinsObject))
 				continue;
 
+			// Skip the VR left hand.
+			if (pobl->pinsObject == gVR.pvLeftHandBox)
+				continue;
+
 			//
 			// Found something.
 			//
