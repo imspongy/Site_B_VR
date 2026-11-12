@@ -29,6 +29,7 @@
 #include "../Lib/Sys/RegInit.hpp"
 #include "../Lib/EntityDBase/MessageTypes/MsgStep.hpp"
 #include "../Game/AI/AIMain.hpp"
+#include "VRMod.h"
 
 BOOL bQuitGame = FALSE;
 
@@ -819,19 +820,26 @@ void CGameWnd::DrawWndInfo(CRaster * pRaster, RECT * prc)
     }
     else
     {
-	    gmlGameLoop.Paint();
-
-        if (m_puictlCheat->GetVisible() || m_iClear)
+        auto paint_scene = [&]()
         {
-            prasMainScreen->ClearBorder(true);
-        }
+	        gmlGameLoop.Paint();
+
+            if (m_puictlCheat->GetVisible() || m_iClear)
+            {
+                prasMainScreen->ClearBorder(true);
+            }
+
+	        prenMain->pScreenRender->EndFrame();
+        };
+
+        // VR mod: render once per eye to the headset; otherwise paint normally.
+        if (!VRMod_RenderStereo(paint_scene))
+            paint_scene();
 
         if (m_iClear > 0)
         {
             m_iClear--;
         }
-
-	    prenMain->pScreenRender->EndFrame();
 
         if (g_bDisplayLocation)
         {

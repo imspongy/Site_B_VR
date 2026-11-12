@@ -69,6 +69,7 @@
 #include "common.hpp"
 #include <Lib/W95/WinInclude.hpp>
 #include "Control.hpp"
+#include "VRShared.hpp"
 
 #include "Lib/EntityDBase/MessageTypes/MsgControl.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgSystem.hpp"
@@ -163,6 +164,10 @@ void CInputDeemone::Process(const CMessageStep& msg_step)
 		}
 
 		tin.fElapsedTime = msg_step.sStep;
+
+		// VR mod: merge motion controller input.
+		if (gpfnVRInputHook)
+			gpfnVRInputHook(tin);
 
 		//
 		// For now, since the player needs to act whenever a key is down,

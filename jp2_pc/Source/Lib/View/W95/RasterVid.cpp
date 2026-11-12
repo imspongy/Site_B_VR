@@ -90,6 +90,7 @@
 // Include stdio for prasReadBMP only.
 #include <stdio.h>
 #include <crtdbg.h>
+#include "Lib/Control/VRShared.hpp"
 
 //
 // Flags.
@@ -1424,6 +1425,10 @@ rptr<CRaster> prasReadBMP(const char* str_bitmap_name, bool b_vid)
 	//******************************************************************************************
 	void CRasterWin::Flip() 
 	{
+		// VR mod: mirror menus/loading screens into the headset.
+		if (gpfnVRFlipHook)
+			gpfnVRFlipHook();
+
 		// If single surface, return.
 		if (pddsPrimary4 == pddsDraw4)
 			return;

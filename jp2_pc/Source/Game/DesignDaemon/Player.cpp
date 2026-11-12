@@ -79,6 +79,29 @@
 #include "Lib/Sys/DebugConsole.hpp"
 #include "Lib/Sys/Profile.hpp"
 #include "Lib/EntityDBase/AnimationScript.hpp"
+#include "Lib/Control/VRShared.hpp"
+
+//
+// VR mod helpers.
+//
+namespace
+{
+	inline bool bVRHead()
+	{
+		return gVR.bActive && gVR.bHeadValid;
+	}
+
+	inline CRotate3<> r3VR(const float* af_q)
+	{
+		return CRotate3<>(af_q[0], af_q[1], af_q[2], af_q[3], true);
+	}
+
+	// Headset orientation relative to the given body rotation, as yaw/pitch (no roll).
+	inline CAngles2 ang2VRHead(const CRotate3<>& r3_body)
+	{
+		return Angles2(r3VR(gVR.afHeadRotWorld) / r3_body);
+	}
+}
 
 // PREVENT CODE GEN BUG!
 #pragma optimize("g", off)
@@ -2142,6 +2165,16 @@ private:
 					p3Hand.v3Pos *= r3_adjust;
 			}
 
+			if (bVRHead())
+			{
+				// VR: head orientation comes from the headset, relative to the new body facing.
+				CAngles2 ang2_vr = ang2VRHead(p3_new.r3Rot);
+				SetMinMax(ang2_vr.tX, -dPI_2 * 0.95, dPI_2 * 0.95);
+				SetMinMax(ang2_vr.tY, -dPI_2 * 0.95, dPI_2 * 0.95);
+				SetHead(r3FromAngles(ang2_vr));
+			}
+			else
+			{
 			// Otherwise, maintain body-relative position.
 			CRotate3<> r3_head;
 			if (b_adjusted)
@@ -2200,6 +2233,7 @@ private:
 			r3_head = CRotate3<>(d3YAxis, ang) * r3_head;
 
 			SetHead(r3_head);
+			} // !bVRHead()
 		}
 		else
 		{
@@ -2346,7 +2380,10 @@ private:
 		{
 			// Keep it short and sweet...You're dead. Be thankful you can even move your head.
 			CAngles2 ang2_head = Angles2(p3Head.r3Rot);
-			ang2_head += msgc.v2Rotate;
+			if (bVRHead())
+				ang2_head = ang2VRHead(p3GetPlacement().r3Rot);
+			else
+				ang2_head += msgc.v2Rotate;
 
 			// Update p3Head here directly.
 			SetHead(r3FromAngles(ang2_head));
@@ -2394,6 +2431,9 @@ private:
 
 		CAngles2 ang2_body = Angles2(p3GetPlacement().r3Rot);
 		CAngles2 ang2_head = Angles2(p3Head.r3Rot);
+
+		// Let the VR input mapping know whether the trigger should grab or use.
+		gVR.bHolding = eHandHolding >= ehhHOLDING;
 
 		//
 		// Perform any delayed substitution.
@@ -2985,7 +3025,27 @@ private:
 		// Rotate head.
 		//
 
-		if (eHandActivity == ehaINACTIVE && 
+		if (bVRHead())
+		{
+			// VR: the head is wherever the headset points, regardless of hand state.
+			ang2_head = ang2VRHead(p3GetPlacement().r3Rot);
+
+			if (!bWithin(ang2_head.tX, -PlayerSettings.fAngHeadTurnX, PlayerSettings.fAngHeadTurnX))
+			{
+				// Looking far to the side: turn the body to follow (does not affect the view).
+				if (ang2_head.tX < 0)
+					ang2_body.tX += Max(ang2_head.tX - -PlayerSettings.fAngHeadTurnX, -dPI_2 * 0.95);
+				else 
+					ang2_body.tX += Min(ang2_head.tX -  PlayerSettings.fAngHeadTurnX, dPI_2 * 0.95);
+
+				CRotate3<> r3_body_new = CRotate3<>(d3ZAxis, CAngle(-ang2_body.tX));
+				msgpr.subOrientBody.Set(rt_low_urgency, 1, r3_body_new);
+			}
+
+			SetMinMax(ang2_head.tX, -dPI_2 * 0.95, dPI_2 * 0.95);
+			SetMinMax(ang2_head.tY, -dPI_2 * 0.95, dPI_2 * 0.95);
+		}
+		else if (eHandActivity == ehaINACTIVE && 
 			eHandHolding != ehhDROPPING)
 		{
 			// Apply mouse directly to head (kinda like that scene in 1984).
@@ -3012,6 +3072,33 @@ private:
 		// Pass the requested head rotation.  Also, update p3Head here directly for convenience,
 		// even though the CMessagePhysicsReq handler does it anyway.
 		SetHead(r3FromAngles(ang2_head));
+
+		//
+		// VR: drive the hand target directly from the motion controller.
+		//
+		if (gVR.bActive && gVR.bMotionHand && gVR.bHandValid &&
+			eHandActivity > ehaINACTIVE && !iStowing && !bThrowing && !iSwinging &&
+			!bWithin(eHandHolding, ehhGRABBING, ehhGRABBED))
+		{
+			CPlacement3<> p3_body = p3GetPlacement();
+
+			CVector3<> v3_world(gVR.afHandPosWorld[0], gVR.afHandPosWorld[1], gVR.afHandPosWorld[2]);
+			CVector3<> v3_body = (v3_world - p3_body.v3Pos) / p3_body.r3Rot;
+
+			// Keep the target within arm's reach so physics doesn't fight it.
+			CVector3<> v3_from_shoulder = v3_body - v3Shoulder();
+			TReal r_len = v3_from_shoulder.tLen();
+			if (r_len > PlayerSettings.fHandDistMax)
+				v3_body = v3Shoulder() + v3_from_shoulder * (PlayerSettings.fHandDistMax / r_len);
+
+			p3Hand.v3Pos = v3_body;
+
+			// Orientation is requested in "hand request space" (see r3HandRequestSpace).
+			CRotate3<> r3_hand_body = r3VR(gVR.afHandRotWorld) / p3_body.r3Rot;
+			p3Hand.r3Rot = r3_hand_body / r3HandRequestSpace();
+			p3Hand.r3Rot.Normalise(true);
+			bHandRotate = true;
+		}
 
 		//
 		// Finally, set the hand commands.
@@ -3666,8 +3753,12 @@ private:
 		CVector3<> v3_hand_head = p3Hand.v3Pos / p3Head;
 
 		p3Head.r3Rot = r3_head;
-		p3Head.v3Pos = PlayerSettings.v3NeckOffset +
-					   (PlayerSettings.v3HeadOffset - PlayerSettings.v3NeckOffset) * r3_head;
+		if (bVRHead())
+			// VR: the real neck moves the headset; don't add the game's neck model on top.
+			p3Head.v3Pos = PlayerSettings.v3HeadOffset;
+		else
+			p3Head.v3Pos = PlayerSettings.v3NeckOffset +
+						   (PlayerSettings.v3HeadOffset - PlayerSettings.v3NeckOffset) * r3_head;
 
 		if (!bDead() && eHandActivity == ehaINACTIVE && bHandFollowHead())
 		{

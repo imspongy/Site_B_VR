@@ -20,6 +20,8 @@ ${CMAKE_SOURCE_DIR}/Source/Trespass/tpassglobals.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/uidlgs.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/uiwnd.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/resource.h
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRBackend.h
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRMod.h
 )
 
 list(APPEND trespass_Src    
@@ -41,6 +43,8 @@ ${CMAKE_SOURCE_DIR}/Source/trespass/tpassglobals.cpp
 ${CMAKE_SOURCE_DIR}/Source/trespass/uidlgs.cpp
 ${CMAKE_SOURCE_DIR}/Source/trespass/uiwnd.cpp
 ${CMAKE_SOURCE_DIR}/Source/trespass/video.cpp
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRBackend.cpp
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRMod.cpp
 )
 
 list(APPEND trespass_Rsc
@@ -61,6 +65,10 @@ include_directories(
 )
 
 add_compile_definitions(TRESPASS)
+
+# VR mod: OpenVR (SteamVR) SDK, vendored in lib/openvr.
+set(OPENVR_DIR ${CMAKE_SOURCE_DIR}/lib/openvr)
+include_directories(${OPENVR_DIR})
 
 add_common_options()
 
@@ -90,7 +98,18 @@ target_link_libraries(${PROJECT_NAME}
     dxguid
 
     ${CMAKE_SOURCE_DIR}/lib/smacker/SMACKW32.LIB
+
+    ${OPENVR_DIR}/win32/openvr_api.lib
+    d3d11
+    dxgi
 )
+
+# VRBackend.cpp uses modern Direct3D 11 headers and must not see the game's precompiled header.
+set_source_files_properties(${CMAKE_SOURCE_DIR}/Source/Trespass/VRBackend.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
+# openvr_api.dll must sit next to the exe.
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${OPENVR_DIR}/win32/openvr_api.dll $<TARGET_FILE_DIR:${PROJECT_NAME}>)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "OpenTrespasser")
 
@@ -102,4 +121,5 @@ if (FOUND_TRESPASS_DIR AND USE_TRESPASSER_DIRECTORY)
     set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_INSTALL_PREFIX})
 
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${CMAKE_INSTALL_PREFIX}/$<TARGET_FILE_NAME:${PROJECT_NAME}>)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different ${OPENVR_DIR}/win32/openvr_api.dll ${CMAKE_INSTALL_PREFIX}/openvr_api.dll)
 endif()

@@ -1,0 +1,49 @@
+name: Build Trespasser VR
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        working-directory: jp2_pc
+        run: cmake -G "Visual Studio 17 2022" -A Win32 -S . -B Build/CI -D USE_TRESPASSER_DIRECTORY=false
+
+      - name: Build (Final = fast)
+        working-directory: jp2_pc
+        run: cmake --build Build/CI --config Final --target trespass -- /m
+
+      - name: Build (Release = extra checks and logs)
+        working-directory: jp2_pc
+        run: cmake --build Build/CI --config Release --target trespass -- /m
+
+      - name: Package
+        shell: pwsh
+        working-directory: jp2_pc
+        run: |
+          $out = New-Item -ItemType Directory -Force -Path package
+          Copy-Item Build/CI/cmake/trespass/Final/OpenTrespasser.exe $out
+          Copy-Item Build/CI/cmake/trespass/Release/OpenTrespasser.exe $out/OpenTrespasser-Release.exe
+          Copy-Item Build/CI/cmake/trespass/Final/openvr_api.dll $out
+          Copy-Item Distribution/Binary/SMACKW32.DLL $out
+          Copy-Item Distribution/Binary/README.txt $out/OpenTrespasser-README.txt
+          # VR-friendly config: borderless window with a near-square render size.
+          (Get-Content Distribution/Binary/OpenTrespasser.ini) `
+            -replace '^Width=.*','Width=1024' `
+            -replace '^Height=.*','Height=1024' `
+            -replace '^WindowMode=.*','WindowMode=2' |
+            Set-Content $out/OpenTrespasser.ini
+          Copy-Item ../VR-README.md $out/VR-README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrespasserVR
+          path: jp2_pc/package/

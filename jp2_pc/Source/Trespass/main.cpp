@@ -32,6 +32,7 @@
 #include "Lib/W95/Direct3DCards.hpp"
 #include "version.hpp"
 #include <filesystem>
+#include "VRMod.h"
 
 #if TARGET_PROCESSOR == PROCESSOR_PENTIUM
 	#pragma message("Target build processor : Intel Pentium")
@@ -644,11 +645,16 @@ DoRestartWithRenderDlg:
 
     g_pMainWnd->InitSurface();
 
+    // VR mod: start SteamVR if enabled and a headset is connected.
+    VRMod_Startup();
+
     g_pMainWnd->StartGame();
 
     iRet = 1;
 
 Cleanup:
+
+    VRMod_Shutdown();
 
     if (DirectDraw::pdd4)
     {
