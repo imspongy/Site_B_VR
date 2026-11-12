@@ -56,9 +56,28 @@ struct SVRShared
 	float afAimPosWorld[3] = { 0, 0, 0 };
 	float afAimDirWorld[3] = { 0, 1, 0 };
 
+	// Off (support) hand controller, world space.
+	bool  bOffValid = false;
+	float afOffPosWorld[3] = { 0, 0, 0 };
+	float afOffRotWorld[4] = { 1, 0, 0, 0 };
+	float afOffVelWorld[3] = { 0, 0, 0 };
+	float fOffCurl = 0;				// 0 open .. 1 fist.
+	bool  bOffGrip = false;			// Off-hand grip held.
+	bool  bTwoHandActive = false;	// Off hand is steadying the held gun.
+	bool  bLeftArm = true;			// Show and use the second arm (ini: SecondHand).
+	float fLeftMaxMass = 40.0f;		// Heaviest thing the second hand can lift (kg).
+	float fCurlSign = 1.0f;			// Debug: flips the second hand's finger curl direction.
+
+	// The instance rendered mirrored (the second arm); its polygons have reversed winding.
+	const void* pvMirrorInstance = nullptr;
+
 	//
 	// Written by the player, read by the VR mod (feedback).
 	//
+
+	bool  bHoldingGun = false;		// Main hand holds a gun.
+	bool  bLeftHolding = false;		// Second hand holds something.
+	int   iLeftPickupCount = 0;		// Incremented when the second hand picks something up.
 
 	bool  bForceTarget = false;		// Something is targeted for force grab.
 	int   iForceTargetSerial = 0;	// Changes when the target changes (haptic tick).

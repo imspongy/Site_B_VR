@@ -108,6 +108,20 @@ public:
 
 	//*****************************************************************************************
 	//
+	virtual void VRShowLeftArm
+	(
+		bool b_show			// true just before rendering the VR view, false right after.
+	)
+	//
+	// VR mod: poses the second (mirrored) arm at the off-hand controller and puts it in the
+	// world for rendering, or takes it out again.
+	//
+	//**************************************
+	{
+	}
+
+	//*****************************************************************************************
+	//
 	// Member functions.
 	//
 

@@ -79,6 +79,7 @@
 #include "AsmSupport.hpp"
 
 #include <stdio.h>
+#include "Lib/Control/VRShared.hpp"
 
 //**********************************************************************************************
 //
@@ -217,7 +218,8 @@
 
 		//******************************************************************************************
 		CBioMesh::CPolyIterator::CPolyIterator(const CBioMesh& bmsh, const CInstance* pins, const CRenderContext* prenc)
-			: CMeshAnimating::CPolyIterator(bmsh, pins, prenc), bmshMesh(bmsh)
+			: CMeshAnimating::CPolyIterator(bmsh, pins, prenc), bmshMesh(bmsh),
+			  bMirror(pins && pins == gVR.pvMirrorInstance)
 		{
 			// We must update the bio-mesh with new joint data before rendering.
 			const CPhysicsInfoSkeleton* pphis = pins->pphiGetPhysicsInfo()->ppisCast();

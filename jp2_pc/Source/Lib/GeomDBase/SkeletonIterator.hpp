@@ -75,6 +75,7 @@
 		const CBioMesh& bmshMesh;				// The referenced mesh.
 		CPArray< CTransform3<> > patf3Joints;	// The bones of the instance.
 		CPArray<SClipPoint> paclptPoints;		// Copied pointer to clip-point array.
+		bool bMirror;							// VR mod: instance is drawn mirrored; flip culling.
 
 	public:
 
@@ -106,7 +107,7 @@
 			const CVector3<>& v3_c = paclptPoints[iShapePoint(2)].v3Point;
 
 			TReal r_dist = ((v3_b - v3_c) ^ (v3_a - v3_b)) * v3_b;
-			return CIntFloat(r_dist).bSign();
+			return CIntFloat(r_dist).bSign() != bMirror;
 		}
 
 		//

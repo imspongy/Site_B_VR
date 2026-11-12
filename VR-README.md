@@ -37,7 +37,8 @@ can be rebound in SteamVR > Settings > Controllers > Manage Controller Bindings.
 |---|---|
 | Stick | Walk |
 | Stick click | Recenter view |
-| Grip (near a held long gun) | Two-handed aim |
+| Grip | Grab and carry things with Anne's second hand (let go to drop or throw). Grip the right hand's object to take it over |
+| Grip (on the front of a held gun) | Two-handed aim; the hand wraps the gun hand for pistols |
 | Trigger | Throw (hold to wind up) |
 | Square / X | Swap held item with holster |
 | Triangle / Y | Pause menu |
@@ -71,4 +72,6 @@ Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish 
   SteamVR motion smoothing helps.
 - Walking around your room moves your head up to 0.6 m (`LeanRadius`) from your body; beyond that the
   view stops following. Use the stick to walk.
-- Anne has one arm, so only one hand is visible; in left-handed mode it is still her right arm.
+- The second hand is a mirrored copy of Anne's arm. It can carry things but doesn't push objects
+  around on its own, and it can't fire guns (pass a gun to the right hand by grabbing it there).
+- In left-handed mode the arms don't swap sides.

@@ -72,6 +72,9 @@ namespace
 		bool  bGripToggle     = false;	// false = hold grip to hold; true = press to grab/drop.
 		bool  bForceGrab      = true;
 		bool  bTwoHandAim     = true;
+		bool  bSecondHand     = true;	// Visible second arm that can carry things.
+		float fSecondHandMaxMass = 40.0f;
+		bool  bFlipSecondCurl = false;	// Debug: second hand's fingers bend the wrong way.
 		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
 		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
@@ -123,7 +126,7 @@ namespace
 	int         iLastHolsterNear = -1;
 
 	// Haptic feedback state.
-	int         iSeenShots = 0, iSeenPickups = 0, iSeenForceSerial = 0;
+	int         iSeenShots = 0, iSeenPickups = 0, iSeenForceSerial = 0, iSeenLeftPickups = 0;
 	CVector3<>  v3PrevVel(0, 0, 0);
 
 	// ini hot-reload.
@@ -192,8 +195,12 @@ namespace
 			"GripToggle=0\n"
 			"; Point at an item, hold the trigger and flick your wrist to pull it to you.\n"
 			"ForceGrab=1\n"
-			"; Grab the front of a long gun with your other hand to aim it with both hands.\n"
+			"; Grab the front of a gun with your other hand to aim it with both hands.\n"
 			"TwoHandAim=1\n"
+			"; Show Anne's second arm on your off-hand controller and let it carry things.\n"
+			"SecondHand=1\n"
+			"; Heaviest object (kg) the second hand can lift on its own.\n"
+			"SecondHandMaxMass=40\n"
 			"; How close (metres) your hand must be to a holster (hip / over shoulder).\n"
 			"HolsterRadius=0.25\n"
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
@@ -234,7 +241,9 @@ namespace
 			"FlipFovX=0\n"
 			"FlipFovY=0\n"
 			"; Set to 1 if the menu laser moves up when you point down.\n"
-			"MenuFlipY=0\n", pf);
+			"MenuFlipY=0\n"
+			"; Set to 1 if the second hand's fingers bend backwards when you squeeze.\n"
+			"FlipSecondHandCurl=0\n", pf);
 		std::fclose(pf);
 	}
 
@@ -253,6 +262,9 @@ namespace
 		s.bGripToggle    = fIni(str_file, "GripToggle", 0) != 0;
 		s.bForceGrab     = fIni(str_file, "ForceGrab", 1) != 0;
 		s.bTwoHandAim    = fIni(str_file, "TwoHandAim", 1) != 0;
+		s.bSecondHand    = fIni(str_file, "SecondHand", 1) != 0;
+		s.fSecondHandMaxMass = fIni(str_file, "SecondHandMaxMass", 40);
+		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius = fIni(str_file, "HolsterRadius", 0.25f);
 		s.fHaptics       = fIni(str_file, "Haptics", 1);
 		s.fHandPitchDeg  = fIni(str_file, "HandPitch", 0);
@@ -273,7 +285,10 @@ namespace
 		s.bMenuFlipY     = fIni(str_file, "MenuFlipY", 0) != 0;
 		setVR = s;
 
-		gVR.bMotionHand = setVR.bMotionHand;
+		gVR.bMotionHand  = setVR.bMotionHand;
+		gVR.bLeftArm     = setVR.bSecondHand;
+		gVR.fLeftMaxMass = setVR.fSecondHandMaxMass;
+		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if (GetFileAttributesExA(str_file.c_str(), GetFileExInfoStandard, &fad))
@@ -691,6 +706,11 @@ namespace
 			iSeenPickups = gVR.iPickupCount;
 			Haptic(i_m, 0.05f, 60.0f, 0.5f);
 		}
+		if (gVR.iLeftPickupCount != iSeenLeftPickups)
+		{
+			iSeenLeftPickups = gVR.iLeftPickupCount;
+			Haptic(iOff(), 0.05f, 60.0f, 0.5f);
+		}
 		if (gVR.iForceTargetSerial != iSeenForceSerial)
 		{
 			iSeenForceSerial = gVR.iForceTargetSerial;
@@ -970,7 +990,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		// Two-handed aim: off-hand grip near the held object steadies it along the line
 		// from the main hand to the off hand.
 		const SVRHandInput& hi_o = fr.ctl.ahand[i_o];
-		if (setVR.bTwoHandAim && gVR.bHolding && abHandValid[i_o] && hi_o.bGrip)
+		if (setVR.bTwoHandAim && gVR.bHoldingGun && !gVR.bLeftHolding && abHandValid[i_o] && hi_o.bGrip)
 		{
 			CVector3<> v3_line = av3HandWorld[i_o] - av3HandWorld[i_m];
 			float f_line = fLen(v3_line);
@@ -990,11 +1010,26 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		StoreQ(gVR.afHandRotWorld, r3_offset * r3_hand);
 		StoreV(gVR.afHandPosWorld, av3HandWorld[i_m]);
+		gVR.bTwoHandActive = bTwoHand;
 
 		// Force-grab ray from the main hand.
 		StoreV(gVR.afAimPosWorld, av3HandWorld[i_m]);
 		StoreV(gVR.afAimDirWorld, CVector3<>(0, 1, 0) * ar3HandWorld[i_m]);
 	}
+
+	// Off hand, for the second arm.
+	gVR.bOffValid = abHandValid[i_o];
+	if (abHandValid[i_o])
+	{
+		const SVRHandInput& hi_o = fr.ctl.ahand[i_o];
+		StoreV(gVR.afOffPosWorld, av3HandWorld[i_o]);
+		StoreQ(gVR.afOffRotWorld, ar3HandWorld[i_o]);
+		StoreV(gVR.afOffVelWorld, av3HandVel[i_o] * r3Yaw);
+		gVR.fOffCurl = (std::max)(hi_o.fGrip, (std::min)(1.0f, 0.4f * hi_o.fTrigger + 0.6f * hi_o.fGrip));
+		gVR.bOffGrip = hi_o.bGrip;
+	}
+	else
+		gVR.bOffGrip = false;
 
 	UpdateFeedback(f_dt);
 
@@ -1003,6 +1038,10 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	//
 	CCamera::SProperties camprop_orig = pcam->campropGetProperties();
 	pcam->SetAttached(0);
+
+	// Second arm: posed and put in the world for this frame only.
+	if (gpPlayer && b_player_view)
+		gpPlayer->VRShowLeftArm(true);
 
 	static bool b_logged_format = false;
 
@@ -1046,6 +1085,9 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			VRB_SubmitEye(i_eye, pv, i_pitch, i_w, i_h, i_bits, r, g, b);
 		});
 	}
+
+	if (gpPlayer)
+		gpPlayer->VRShowLeftArm(false);
 
 	// Restore the camera.
 	pcam->SetProperties(camprop_orig);

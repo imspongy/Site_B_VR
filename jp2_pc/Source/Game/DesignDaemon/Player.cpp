@@ -80,6 +80,7 @@
 #include "Lib/Sys/Profile.hpp"
 #include "Lib/EntityDBase/AnimationScript.hpp"
 #include "Lib/Control/VRShared.hpp"
+#include "Game/DesignDaemon/Gun.hpp"
 
 //
 // VR mod helpers.
@@ -614,6 +615,31 @@ namespace
 		}
 
 		return false;
+	}
+};
+
+//**********************************************************************************************
+//
+class CVRLeftArm: public CAnimate
+//
+// Prefix: vrla
+//
+// VR mod: a render-only copy of Anne's skinned mesh, drawn mirrored, posed so that only its
+// arm shows (at the off-hand controller).  It is only in the world while the VR view renders.
+//
+//**************************************
+{
+public:
+	bool bInWorld = false;
+
+	CVRLeftArm(const CInstance::SInit& initins)
+		: CAnimate(initins)
+	{
+		// Purely visual: no game logic, physics or collisions.
+		CMessagePhysicsReq::UnregisterRecipient(this);
+		 CMessageCollision::UnregisterRecipient(this);
+		      CMessageStep::UnregisterRecipient(this);
+		bSkeletonUpdated = true;
 	}
 };
 
@@ -1260,6 +1286,18 @@ private:
 	CInstance* pinsForceTarget = nullptr;
 	TSec sForcePullTime = -100;
 
+	// VR mod: second hand.
+	void HandleLeftHand();
+	void ReleaseLeft(bool b_throw);
+	CPlacement3<> p3VROffHand() const;
+	CVRLeftArm*    pvrlaLeftArm = nullptr;
+	rptr<CRenderType> prdtLeftArmMesh;
+	CInstance*     pinsLeftHeld = nullptr;
+	CPlacement3<>  p3LeftGrab;			// Held object relative to the off hand.
+	CInstance*     pinsLeftReleased = nullptr;
+	TSec           sLeftReleaseTime = -100;
+	bool           bPrevOffGrip = false;
+
 	//*****************************************************************************************
 	void HandleSwing(const CMessageControl& msgc, bool b_use);
 
@@ -1804,6 +1842,10 @@ private:
 	{
 		gVR.iPickupCount++;
 
+		// VR: taking an object from the second hand.
+		if (pins_obj && pins_obj == pinsLeftHeld)
+			ReleaseLeft(false);
+
 		// If there is a preference, set the hand mesh.
 		// Must be done before magneting, so new hand box takes effect.
 		const CMagnetPair* pmp_pickup = NMagnetSystem::pmpFindMagnet(pins_obj, Set(emfHAND_HOLD));
@@ -2145,6 +2187,9 @@ private:
 	}
 
 	//*****************************************************************************************
+	virtual void VRShowLeftArm(bool b_show) override;
+
+	//*****************************************************************************************
 	//
 	// Overrides.
 	//
@@ -2444,6 +2489,7 @@ private:
 		// Let the VR input mapping know whether the trigger should grab or use.
 		gVR.bHolding = eHandHolding >= ehhHOLDING;
 		gVR.fHeldMass = (pinsHeld && eHandHolding >= ehhHOLDING) ? pinsHeld->pphiGetPhysicsInfo()->fMass(pinsHeld) : 0.0f;
+		gVR.bHoldingGun = pinsHeld && eHandHolding >= ehhHOLDING && ptCast<CGun>(pinsHeld) != 0;
 		if (gVR.bActive)
 		{
 			// Holster locations, for the VR mod's proximity test.
@@ -2778,6 +2824,7 @@ private:
 		}
 
 		HandleForceGrab();
+		HandleLeftHand();
 		HandleSwing(msgc, b_use);
 
 		//
@@ -3648,6 +3695,16 @@ private:
 		      CMessageMove::UnregisterRecipient(this);
 		      CMessageStep::UnregisterRecipient(this);
 
+		// VR second arm.
+		if (pvrlaLeftArm)
+		{
+			if (pvrlaLeftArm->bInWorld)
+				wWorld.Remove(pvrlaLeftArm);
+			gVR.pvMirrorInstance = nullptr;
+			delete pvrlaLeftArm;
+			pvrlaLeftArm = nullptr;
+		}
+
 		Assert(gpPlayer == this);
 		gpPlayer = 0;
 	}
@@ -4183,6 +4240,331 @@ private:
 				bHandRotate = true;
 			}
 		}
+	}
+
+	//*****************************************************************************************
+	CPlacement3<> CPlayerPriv::p3VROffHand() const
+	{
+		return CPlacement3<>
+		(
+			CRotate3<>(gVR.afOffRotWorld[0], gVR.afOffRotWorld[1], gVR.afOffRotWorld[2], gVR.afOffRotWorld[3], true),
+			CVector3<>(gVR.afOffPosWorld[0], gVR.afOffPosWorld[1], gVR.afOffPosWorld[2])
+		);
+	}
+
+	//*****************************************************************************************
+	void CPlayerPriv::ReleaseLeft(bool b_throw)
+	{
+		if (!pinsLeftHeld)
+			return;
+
+		CPhysicsInfo* pphi = pinsLeftHeld->pphiGetPhysicsInfoWritable();
+		if (b_throw)
+		{
+			CVector3<> v3_vel(gVR.afOffVelWorld[0], gVR.afOffVelWorld[1], gVR.afOffVelWorld[2]);
+			if (v3_vel.tLen() > 15.0f)
+				v3_vel *= 15.0f / v3_vel.tLen();
+			pphi->ForceVelocity(pinsLeftHeld, v3_vel);
+		}
+
+		// Keep ignoring collisions with Anne briefly, so a throw doesn't hit her.
+		pinsLeftReleased = pinsLeftHeld;
+		sLeftReleaseTime = CMessageStep::sStaticTotal;
+		pinsLeftHeld = nullptr;
+		gVR.bLeftHolding = false;
+	}
+
+	//*****************************************************************************************
+	void CPlayerPriv::HandleLeftHand()
+	{
+		// Restore collisions with a recently released object.
+		if (pinsLeftReleased && CMessageStep::sStaticTotal - sLeftReleaseTime > 0.6)
+		{
+			for (int i = 0; i < (int)ebbEND; i++)
+				if (apbbBoundaryBoxes[i])
+					pphSystem->IgnoreCollisions(apbbBoundaryBoxes[i], pinsLeftReleased, false);
+			pinsLeftReleased = nullptr;
+		}
+
+		bool b_enabled = gVR.bActive && gVR.bLeftArm && gVR.bOffValid && !bDead();
+		bool b_grip = b_enabled && gVR.bOffGrip;
+		bool b_grip_down = b_grip && !bPrevOffGrip;
+		bPrevOffGrip = b_grip;
+
+		if (!b_enabled)
+		{
+			ReleaseLeft(false);
+			return;
+		}
+
+		CPlacement3<> p3_hand = p3VROffHand();
+
+		if (pinsLeftHeld)
+		{
+			if (!b_grip)
+			{
+				ReleaseLeft(true);
+				return;
+			}
+
+			//
+			// Carry: rotation follows the hand exactly; position is driven by velocity so the
+			// object still collides with the world.  Heavier objects lag more.
+			//
+			CPhysicsInfo* pphi = pinsLeftHeld->pphiGetPhysicsInfoWritable();
+			CPlacement3<> p3_target = p3LeftGrab * p3_hand;
+			CVector3<> v3_cur = pinsLeftHeld->v3Pos();
+			CVector3<> v3_delta = p3_target.v3Pos - v3_cur;
+
+			// Dropped it (stuck on something)?
+			if (v3_delta.tLen() > 0.75f)
+			{
+				ReleaseLeft(false);
+				return;
+			}
+
+			float f_mass = pphi->fMass(pinsLeftHeld);
+			float f_follow = 0.05f + 0.006f * f_mass;		// Seconds to close the gap.
+			SetMinMax(f_follow, 0.05f, 0.35f);
+			CVector3<> v3_vel = v3_delta / f_follow;
+			float f_max = 14.0f / (1.0f + f_mass / 20.0f);
+			if (v3_vel.tLen() > f_max)
+				v3_vel *= f_max / v3_vel.tLen();
+
+			// Move resyncs physics (and zeroes velocity), so set velocity afterwards.
+			pinsLeftHeld->Move(CPlacement3<>(p3_target.r3Rot, v3_cur));
+			pphi->ForceVelocity(pinsLeftHeld, v3_vel);
+			return;
+		}
+
+		if (!b_grip_down || gVR.bTwoHandActive)
+			return;
+
+		//
+		// Grab: the right hand's held (non-gun) object, or something touching the off hand.
+		//
+		CInstance* pins_found = nullptr;
+
+		if (pinsHeld && eHandHolding == ehhHOLDING && !gVR.bHoldingGun &&
+			(pinsHeld->v3Pos() - p3_hand.v3Pos).tLen() < 0.4f)
+		{
+			// Hand it over from the right hand.
+			pins_found = pinsHeld;
+			Drop();
+		}
+		else
+		{
+			// Look along the fingers and below the palm.
+			CVector3<> av3_dirs[3] = { CVector3<>(0, 1, 0), CVector3<>(0, 0, -1), CVector3<>(0, 0.7f, -0.7f) };
+			for (int i_dir = 0; i_dir < 3 && !pins_found; i_dir++)
+			{
+				CVector3<> v3_dir = av3_dirs[i_dir] * p3_hand.r3Rot;
+				CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(v3_dir)), p3_hand.v3Pos - v3_dir * 0.08f);
+				CRayCast rc(p3_cast, 0.18f, 0.4f);
+
+				SObjectLoc* pobl;
+				while (pobl = rc.poblNextIntersection())
+				{
+					CInstance* pins = pobl->pinsObject;
+					if (pins == pinsHand || pins == this || pins == pinsHeld)
+						continue;
+					if (ptCast<CBoundaryBox>(pins))
+						continue;
+					if (bPickupable(pins))
+					{
+						pins = NMagnetSystem::pinsFindMaster(pins);
+						if (pins != pinsHeld)
+							pins_found = pins;
+					}
+					break;
+				}
+			}
+		}
+
+		if (!pins_found)
+			return;
+
+		CPhysicsInfo* pphi = pins_found->pphiGetPhysicsInfoWritable();
+		if (pphi->fMass(pins_found) > gVR.fLeftMaxMass)
+			return;		// Too heavy for one hand.
+
+		pinsLeftHeld = pins_found;
+		p3LeftGrab = pins_found->p3GetPlacement() * ~p3_hand;
+		for (int i = 0; i < (int)ebbEND; i++)
+			if (apbbBoundaryBoxes[i])
+				pphSystem->IgnoreCollisions(apbbBoundaryBoxes[i], pins_found, true);
+		if (pinsLeftReleased == pins_found)
+			pinsLeftReleased = nullptr;
+
+		gVR.bLeftHolding = true;
+		gVR.iLeftPickupCount++;
+	}
+
+	//*****************************************************************************************
+	void CPlayerPriv::VRShowLeftArm(bool b_show)
+	{
+		if (!b_show)
+		{
+			if (pvrlaLeftArm && pvrlaLeftArm->bInWorld)
+			{
+				wWorld.Remove(pvrlaLeftArm);
+				pvrlaLeftArm->bInWorld = false;
+			}
+			return;
+		}
+
+		if (!gVR.bActive || !gVR.bLeftArm || !gVR.bOffValid || bDead())
+			return;
+
+		// The mesh to clone: Anne's skinned mesh.
+		rptr<CRenderType> prdt = prdtGetRenderInfoWritable();
+		rptr_const<CBioMesh> pbm = prdt ? prdt->rpbmCast() : rptr_const<CBioMesh>();
+		if (!pbm || sriBones.patf3JointTransforms.size() < 14 || pbm->iJoints < 14)
+			return;
+
+		if (!pvrlaLeftArm || prdtLeftArmMesh != prdt)
+		{
+			delete pvrlaLeftArm;
+			pvrlaLeftArm = new CVRLeftArm(CInstance::SInit(pr3GetPresence(), prdt, 0, 0, "VRLeftArm"));
+			prdtLeftArmMesh = prdt;
+			gVR.pvMirrorInstance = pvrlaLeftArm;
+		}
+
+		CSkeletonRenderInfo& sri_src = sriBones;
+		CSkeletonRenderInfo& sri     = pvrlaLeftArm->sriBones;
+		if (sri.patf3JointTransforms.size() != sri_src.patf3JointTransforms.size())
+			return;
+
+		//
+		// Work in Anne's object space (body local / scale), solving for a RIGHT arm whose target
+		// is the mirror image of the off hand; the result is mirrored back at the end.
+		//
+		CPresence3<> pr3 = pr3GetPresence();
+		TReal r_inv_scale = 1.0f / pr3.rScale;
+		auto v3Obj = [&](const CVector3<>& v3_world) -> CVector3<>
+		{
+			return ((v3_world - pr3.v3Pos) / pr3.r3Rot) * r_inv_scale;
+		};
+
+		// The real right arm, as a reference pose (shoulder, elbow, wrist, fingers).
+		const CTransform3<>* atf3 = &sri_src.patf3JointTransforms[0];
+		CVector3<> v3_s = atf3[10].v3Pos, v3_e = atf3[11].v3Pos, v3_w = atf3[12].v3Pos, v3_f = atf3[13].v3Pos;
+		TReal r_upper = (v3_e - v3_s).tLen(), r_fore = (v3_w - v3_e).tLen();
+		if (r_upper < 0.01f || r_fore < 0.01f)
+			return;
+
+		CVector3<> v3_hand_r = v3Obj(pinsHand->v3Pos());
+		CRotate3<> r3_hand_r = pinsHand->r3Rot() / pr3.r3Rot;
+
+		// Target: off hand, mirrored across Anne's centre plane (x -> -x).
+		CPlacement3<> p3_off = p3VROffHand();
+		CVector3<> v3_t = v3Obj(p3_off.v3Pos);
+		v3_t.tX = -v3_t.tX;
+		CRotate3<> r3_off = p3_off.r3Rot / pr3.r3Rot;
+		CRotate3<> r3_t(r3_off.tC, r3_off.v3S.tX, -r3_off.v3S.tY, -r3_off.v3S.tZ, true);
+
+		// Two-handed pistol grip: cup the gun hand (mirror of its orientation).
+		if (gVR.bTwoHandActive)
+			r3_t = r3_hand_r;
+
+		// Wrist and finger base relative to the hand box, carried over to the target.
+		CRotate3<> r3_delta = ~r3_hand_r * r3_t;
+		CVector3<> v3_w_new = v3_t + ((v3_w - v3_hand_r) / r3_hand_r) * r3_t;
+		CVector3<> v3_f_new = v3_t + ((v3_f - v3_hand_r) / r3_hand_r) * r3_t;
+
+		// Two-bone IK for the elbow.
+		CVector3<> v3_d = v3_w_new - v3_s;
+		TReal r_d = v3_d.tLen();
+		TReal r_max = (r_upper + r_fore) * 0.995f;
+		if (r_d > r_max)
+		{
+			CVector3<> v3_shift = v3_d * (r_max / r_d) - v3_d;
+			v3_w_new += v3_shift;
+			v3_f_new += v3_shift;
+			v3_d = v3_w_new - v3_s;
+			r_d = r_max;
+		}
+		if (r_d < 0.02f)
+			return;
+		CVector3<> v3_dn = v3_d / r_d;
+		TReal r_a = (r_upper * r_upper - r_fore * r_fore + r_d * r_d) / (2 * r_d);
+		TReal r_h = sqrt(Max(r_upper * r_upper - r_a * r_a, 0.0f));
+		CVector3<> v3_pole(0.5f, -0.3f, -1.0f);		// Elbow out, back and down.
+		CVector3<> v3_perp = v3_pole - v3_dn * (v3_pole * v3_dn);
+		if (v3_perp.tLen() < 1e-4f)
+			v3_perp = CVector3<>(1, 0, 0);
+		v3_perp.Normalise();
+		CVector3<> v3_e_new = v3_s + v3_dn * r_a + v3_perp * r_h;
+
+		// Bone rotations relative to the reference pose.
+		CMatrix3<> mx3_upper(CRotate3<>(CDir3<>(v3_e - v3_s), CDir3<>(v3_e_new - v3_s)));
+		CMatrix3<> mx3_fore (CRotate3<>(CDir3<>(v3_w - v3_e), CDir3<>(v3_w_new - v3_e_new)));
+		CMatrix3<> mx3_hand (r3_delta);
+
+		// Finger curl relative to the right hand's current curl.
+		float f_right_curl = (eHandHolding >= ehhHOLDING) ? 0.7f : gVR.fFingerCurl;
+		float f_left_curl  = gVR.bTwoHandActive ? 1.0f : gVR.fOffCurl;
+		if (pinsLeftHeld)
+			f_left_curl = Max(f_left_curl, 0.7f);
+		CVector3<> v3_palm = CVector3<>(0, 0, -1) * r3_t;
+		CVector3<> v3_axis = (v3_f_new - v3_w_new) ^ v3_palm;
+		CMatrix3<> mx3_curl;
+		if (v3_axis.tLen() > 1e-4f)
+		{
+			v3_axis.Normalise();
+			float f_angle = (f_left_curl - f_right_curl) * 1.3f * gVR.fCurlSign;
+			mx3_curl = CMatrix3<>(CRotate3<>(CDir3<>(v3_axis), CAngle(f_angle)));
+		}
+
+		// Everything except the arm collapses to a speck at the shoulder.
+		CTransform3<> tf3_hidden(CMatrix3<>(0.001f, 0, 0, 0, 0.001f, 0, 0, 0, 0.001f), v3_s);
+		for (int j = 0; j < pbm->iJoints; j++)
+			sri.patf3JointTransforms[j] = tf3_hidden;
+
+		sri.patf3JointTransforms[10] = CTransform3<>(atf3[10].mx3Mat * mx3_upper, v3_s);
+		sri.patf3JointTransforms[11] = CTransform3<>(atf3[11].mx3Mat * mx3_fore,  v3_e_new);
+		sri.patf3JointTransforms[12] = CTransform3<>(atf3[12].mx3Mat * mx3_hand,  v3_w_new);
+		sri.patf3JointTransforms[13] = CTransform3<>(atf3[13].mx3Mat * mx3_hand * mx3_curl, v3_f_new);
+
+		// Mirror (x -> -x).
+		for (int j = 0; j < pbm->iJoints; j++)
+		{
+			CTransform3<>& tf3 = sri.patf3JointTransforms[j];
+			tf3.mx3Mat.v3X.tX = -tf3.mx3Mat.v3X.tX;
+			tf3.mx3Mat.v3Y.tX = -tf3.mx3Mat.v3Y.tX;
+			tf3.mx3Mat.v3Z.tX = -tf3.mx3Mat.v3Z.tX;
+			tf3.v3Pos.tX = -tf3.v3Pos.tX;
+		}
+
+		// Double joints: weighted blends of two joints (same as the physics skeleton update).
+		for (int j = 0; j < (int)pbm->afPositionRatios.uLen; ++j)
+		{
+			CTransform3<> tf3_primary   = sri.patf3JointTransforms[pbm->aiDoubleJointsA[j]];
+			CTransform3<> tf3_secondary = sri.patf3JointTransforms[pbm->aiDoubleJointsB[j]];
+			CTransform3<> tf3;
+
+			float f_primary = pbm->afPositionRatios[j];
+			tf3.v3Pos = tf3_primary.v3Pos * f_primary + tf3_secondary.v3Pos * (1 - f_primary);
+
+			f_primary = pbm->afRotationRatios[j];
+			tf3_primary   *= CScaleI3<>(f_primary);
+			tf3_secondary *= CScaleI3<>(1 - f_primary);
+			tf3.mx3Mat.v3X = tf3_primary.mx3Mat.v3X + tf3_secondary.mx3Mat.v3X;
+			tf3.mx3Mat.v3Y = tf3_primary.mx3Mat.v3Y + tf3_secondary.mx3Mat.v3Y;
+			tf3.mx3Mat.v3Z = tf3_primary.mx3Mat.v3Z + tf3_secondary.mx3Mat.v3Z;
+			sri.patf3JointTransforms[j + pbm->iJoints] = tf3;
+		}
+
+		sri.bvbVolume = CBoundVolBox(2, 2, 2);
+		pvrlaLeftArm->bSkeletonUpdated = true;
+
+		// Place it with Anne and put it in the world for this frame's render.
+		if (!pvrlaLeftArm->bInWorld)
+		{
+			wWorld.Add(pvrlaLeftArm, true);
+			pvrlaLeftArm->bInWorld = true;
+		}
+		pvrlaLeftArm->Move(pr3);
 	}
 
 	//*****************************************************************************************
