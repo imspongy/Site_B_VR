@@ -23,6 +23,7 @@
 #include "ctrls.h"
 #include "supportfn.hpp"
 #include "resource.h"
+#include <algorithm>
 
 extern CMainWnd *   g_pMainWnd;
 extern HINSTANCE    g_hInst;
