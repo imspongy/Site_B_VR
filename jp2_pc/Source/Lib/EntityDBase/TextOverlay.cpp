@@ -43,6 +43,7 @@
 #include "common.hpp"
 #include "Lib/W95/WinInclude.hpp"
 #include "TextOverlay.hpp"
+#include <algorithm>
 #include "Lib/View/RasterVid.hpp"
 #include "Lib/W95/DDFont.hpp"
 #include "Lib/Sys/W95/Render.hpp"

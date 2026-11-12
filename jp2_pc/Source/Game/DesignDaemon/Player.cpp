@@ -96,11 +96,6 @@ namespace
 		return CRotate3<>(af_q[0], af_q[1], af_q[2], af_q[3], true);
 	}
 
-	// Headset orientation relative to the given body rotation, as yaw/pitch (no roll).
-	inline CAngles2 ang2VRHead(const CRotate3<>& r3_body)
-	{
-		return Angles2(r3VR(gVR.afHeadRotWorld) / r3_body);
-	}
 }
 
 // PREVENT CODE GEN BUG!
@@ -294,6 +289,13 @@ namespace
 	//**********************************
 	{
 		return Angles2(d3YAxis * r3);
+	}
+
+	//*****************************************************************************************
+	// VR: headset orientation relative to the given body rotation, as yaw/pitch (no roll).
+	inline CAngles2 ang2VRHead(const CRotate3<>& r3_body)
+	{
+		return Angles2(r3VR(gVR.afHeadRotWorld) / r3_body);
 	}
 
 	//*****************************************************************************************
