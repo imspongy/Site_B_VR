@@ -607,6 +607,8 @@ protected:
 // constant-speed "modern VR" locomotion.  Vertical motion (gravity, stairs, jumps) is untouched.
 // Returns false if the instance has no active skeleton.
 //
-bool bVRSetSkeletonHorizontalVelocity(const CInstance* pins, float f_vx, float f_vy);
+// VR: the skeleton walks (with its own legs and balance) at this horizontal velocity on its next
+// control message.  Returns false if the instance isn't a skeleton.
+bool bVRSetSkeletonWalkVelocity(const CInstance* pins, float f_vx, float f_vy);
 
 #endif

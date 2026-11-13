@@ -143,6 +143,27 @@
 #include "Lib/View/Clut.hpp"
 #include "Lib/Renderer/Clip.hpp"
 #include "Lib/GeomDBase/PlaneAxis.hpp"
+#include "Lib/Control/VRShared.hpp"
+#include <math.h>
+
+//*********************************************************************************************
+// VR: the fog "depth" of a normalised camera space point.  Normally just y (depth along the view
+// direction), which makes fog change as you turn your head.  In VR it is the true distance,
+// expressed in the same units, so fog stays put in the world.
+forceinline TReal rFogY(const CVector3<>& v3)
+{
+	if (!gVR.bRadialFog)
+		return v3.tY;
+	const float* m = gVR.afFogMat;
+	float x = v3.tX * m[0] + v3.tY * m[3] + v3.tZ * m[6];
+	float y = v3.tX * m[1] + v3.tY * m[4] + v3.tZ * m[7];
+	float z = v3.tX * m[2] + v3.tY * m[5] + v3.tZ * m[8];
+	const float* f = gVR.afFogFwd;
+	float d = x * f[0] + y * f[1] + z * f[2];
+	if (d < 1e-6f)
+		return v3.tY;
+	return v3.tY * sqrtf(x * x + y * y + z * z) / d;
+}
 
 
 //*********************************************************************************************
@@ -472,15 +493,16 @@ private:
 		// Only if fogging is enabled, calculate the fog bands of the closest and furthest vertex.
 		TReal r_near, r_far;
 
-		r_near = r_far = rpoly.paprvPolyVertices[0]->v3Cam.tY;
+		r_near = r_far = rFogY(rpoly.paprvPolyVertices[0]->v3Cam);
 
 		for (int i = 1; i < rpoly.paprvPolyVertices.uLen; i++)
 		{
-			SetMin(r_near, rpoly.paprvPolyVertices[i]->v3Cam.tY);
-			SetMax(r_far,  rpoly.paprvPolyVertices[i]->v3Cam.tY);
+			TReal r_y = rFogY(rpoly.paprvPolyVertices[i]->v3Cam);
+			SetMin(r_near, r_y);
+			SetMax(r_far,  r_y);
 		}
 
-		if (rpoly.seterfFace[erfFOG_SHADE])
+		if (rpoly.seterfFace[erfFOG_SHADE] && !gVR.bRadialFog)
 		{
 			ri_fog_level_near = iGetFogLevel(r_near);
 			ri_fog_level_far  = iGetFogLevel(r_far);
@@ -509,6 +531,13 @@ private:
 
 		bGetFogLevels(rpoly, i_fog_near, i_fog_far);
 		Assert(i_fog_near <= i_fog_far);
+
+		// VR: one fog level per polygon (the splitting planes are flat, the fog isn't).
+		if (gVR.bRadialFog)
+		{
+			rpoly.iFogBand = i_fog_near;
+			return;
+		}
 
 		for (;;)
 		{
@@ -552,12 +581,13 @@ private:
 		// Only if fogging is enabled, calculate the fog bands of the closest and furthest vertex.
 		TReal r_near, r_far;
 
-		r_near = r_far = rpoly.paprvPolyVertices[0]->v3Cam.tY;
+		r_near = r_far = rFogY(rpoly.paprvPolyVertices[0]->v3Cam);
 
 		for (int i = 1; i < rpoly.paprvPolyVertices.uLen; i++)
 		{
-			SetMin(r_near, rpoly.paprvPolyVertices[i]->v3Cam.tY);
-			SetMax(r_far,  rpoly.paprvPolyVertices[i]->v3Cam.tY);
+			TReal r_y = rFogY(rpoly.paprvPolyVertices[i]->v3Cam);
+			SetMin(r_near, r_y);
+			SetMax(r_far,  r_y);
 		}
 
 		if (r_far <= fFogTerrainThreshold)
@@ -577,8 +607,9 @@ private:
 			}
 			return;
 		}
-		else if (r_near >= fFogTerrainThreshold)
+		else if (r_near >= fFogTerrainThreshold || gVR.bRadialFog)
 		{
+			// (VR: no flat split; the per-vertex fog below is 0 inside the threshold.)
 			// No need to clip.
 			rpoly.iFogBand = 1;
 		}
@@ -605,7 +636,7 @@ private:
 		for (uint u_vertex = 0; u_vertex < rpoly.paprvPolyVertices.uLen; ++u_vertex)
 		{
 			SRenderVertex* prv = rpoly.paprvPolyVertices[u_vertex];
-			prv->cvIntensity = fGetFogLevel(prv->v3Cam.tY);
+			prv->cvIntensity = fGetFogLevel(rFogY(prv->v3Cam));
 		}
 	}
 

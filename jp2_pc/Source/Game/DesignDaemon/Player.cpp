@@ -4623,17 +4623,15 @@ private:
 		CVector3<> v3_to(gVR.afBodyTarget[0] - v3_body.tX, gVR.afBodyTarget[1] - v3_body.tY, 0);
 		float f_dist = v3_to.tLen();
 
-		if (f_dist > 0.03f)
+		// Within a few centimetres: no walk command, so her own braking holds her still.
+		if (f_dist > 0.04f)
 		{
+			// Walk with her own legs (the walk controller keeps her balanced) at the speed that
+			// closes the gap in about a tenth of a second.
 			CVector3<> v3_vel = v3_to / 0.1f;
-			if (v3_vel.tLen() > 9.0f)
-				v3_vel *= 9.0f / v3_vel.tLen();
-			bVRSetSkeletonHorizontalVelocity(this, v3_vel.tX, v3_vel.tY);
-			sVRBrakeUntil = CMessageStep::sStaticTotal + 0.15;
-		}
-		else if (CMessageStep::sStaticTotal < sVRBrakeUntil)
-		{
-			bVRSetSkeletonHorizontalVelocity(this, 0, 0);
+			if (v3_vel.tLen() > 8.0f)
+				v3_vel *= 8.0f / v3_vel.tLen();
+			bVRSetSkeletonWalkVelocity(this, v3_vel.tX, v3_vel.tY);
 		}
 	}
 
@@ -4676,8 +4674,10 @@ private:
 
 		// Wrist and finger base relative to the hand box, carried over to the target.
 		CRotate3<> r3_delta = ~r3_hand_r * r3_t;
-		CVector3<> v3_w_new = v3_t + ((v3_w - v3_hand_r) / r3_hand_r) * r3_t;
-		CVector3<> v3_f_new = v3_t + ((v3_f - v3_hand_r) / r3_hand_r) * r3_t;
+		// The hand is drawn smaller than Anne's original (oversized) hand (ini: HandScale).
+		TReal r_hs = gVR.fHandScale;
+		CVector3<> v3_w_new = v3_t + ((v3_w - v3_hand_r) / r3_hand_r) * r_hs * r3_t;
+		CVector3<> v3_f_new = v3_t + ((v3_f - v3_hand_r) / r3_hand_r) * r_hs * r3_t;
 
 		// Two-bone IK for the elbow.
 		CVector3<> v3_d = v3_w_new - v3_s;
@@ -4732,8 +4732,12 @@ private:
 
 		sri.patf3JointTransforms[10] = CTransform3<>(atf3[10].mx3Mat * mx3_upper, v3_s);
 		sri.patf3JointTransforms[11] = CTransform3<>(atf3[11].mx3Mat * mx3_fore,  v3_e_new);
-		sri.patf3JointTransforms[12] = CTransform3<>(atf3[12].mx3Mat * mx3_hand,  v3_w_new);
-		sri.patf3JointTransforms[13] = CTransform3<>(atf3[13].mx3Mat * mx3_hand * mx3_curl, v3_f_new);
+		CMatrix3<> mx3_hscale;
+		mx3_hscale.v3X = CVector3<>(r_hs, 0, 0);
+		mx3_hscale.v3Y = CVector3<>(0, r_hs, 0);
+		mx3_hscale.v3Z = CVector3<>(0, 0, r_hs);
+		sri.patf3JointTransforms[12] = CTransform3<>(mx3_hscale * atf3[12].mx3Mat * mx3_hand,  v3_w_new);
+		sri.patf3JointTransforms[13] = CTransform3<>(mx3_hscale * atf3[13].mx3Mat * mx3_hand * mx3_curl, v3_f_new);
 
 		if (b_mirror)
 		{
@@ -4860,7 +4864,19 @@ private:
 			{
 				for (int j = 0; j < i_transforms; j++)
 					sri.patf3JointTransforms[j] = atf3_ref[j];
-				PoseVRArm(sri, &atf3_ref[0], i_transforms, pbm, true, ap3_target[1], af_curl[1]);
+				if (gVR.bLeftArmTest)
+				{
+					// Debug: an unmirrored copy of the right arm, 25 cm to the left of the right hand.
+					CPlacement3<> p3_test = ap3_target[0];
+					p3_test.v3Pos += CVector3<>(-0.25f, 0, 0) * pr3GetPresence().r3Rot;
+					gVR.pvMirrorInstance = nullptr;
+					PoseVRArm(sri, &atf3_ref[0], i_transforms, pbm, false, p3_test, af_curl[0]);
+				}
+				else
+				{
+					gVR.pvMirrorInstance = pvrlaLeftArm;
+					PoseVRArm(sri, &atf3_ref[0], i_transforms, pbm, true, ap3_target[1], af_curl[1]);
+				}
 				sri.bvbVolume = CBoundVolBox(2, 2, 2);
 				pvrlaLeftArm->bSkeletonUpdated = true;
 
@@ -4888,6 +4904,24 @@ private:
 			gVR.pfnLog("Arms: shown (%d joints, %d transforms, left arm %s).", pbm->iJoints, i_transforms,
 			           pvrlaLeftArm && pvrlaLeftArm->bInWorld ? "in world" : "not shown");
 		i_last_reason = 0;
+
+		// Every few seconds: where the second arm's hand is drawn versus the left controller.
+		static TSec s_last_report = -100;
+		if (gVR.pfnLog && CMessageStep::sStaticTotal - s_last_report > 5.0)
+		{
+			s_last_report = CMessageStep::sStaticTotal;
+			if (pvrlaLeftArm && pvrlaLeftArm->bInWorld && (int)pvrlaLeftArm->sriBones.patf3JointTransforms.size() > 12)
+			{
+				CVector3<> v3_wrist = pvrlaLeftArm->sriBones.patf3JointTransforms[12].v3Pos * pvrlaLeftArm->pr3GetPresence();
+				CVector3<> v3_rwrist = sriBones.patf3JointTransforms[12].v3Pos * pr3GetPresence();
+				gVR.pfnLog("Arms: left wrist drawn at (%.2f %.2f %.2f), left controller (%.2f %.2f %.2f), right wrist (%.2f %.2f %.2f), right controller (%.2f %.2f %.2f).",
+					v3_wrist.tX, v3_wrist.tY, v3_wrist.tZ, ap3_target[1].v3Pos.tX, ap3_target[1].v3Pos.tY, ap3_target[1].v3Pos.tZ,
+					v3_rwrist.tX, v3_rwrist.tY, v3_rwrist.tZ, ap3_target[0].v3Pos.tX, ap3_target[0].v3Pos.tY, ap3_target[0].v3Pos.tZ);
+			}
+			else
+				gVR.pfnLog("Arms: left arm not drawn (enabled %d, left controller %s, instance %s).",
+					(int)gVR.bLeftArm, gVR.abHandValid[1] ? "tracked" : "NOT tracked", pvrlaLeftArm ? "exists" : "none");
+		}
 	}
 
 	//*****************************************************************************************

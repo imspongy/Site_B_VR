@@ -130,6 +130,8 @@
 #include "Lib/Groff/VTParse.hpp"
 #include "Lib/Control/VRShared.hpp"
 
+static void VRWalkOverride(int i_index, CDir3<>& d3_move, float& f_move_sp);
+
 #define bVERIFY_MATRICES	VER_DEBUG
 
 static CColour clrBONES(1.0, 0.0, 0.0);
@@ -424,6 +426,9 @@ static int aiPhysicsElements[] =
 			f_move_sp = 12.0 * 5 * msgpr.subMoveBody.rtSpeed * rSpeedMultiplier;
 			//f_move_sp = msgpr.subMoveBody.rtSpeed;
 		}
+
+		// VR: Anne walks to stay under the headset.
+		VRWalkOverride(i_index, d3_move, f_move_sp);
 
 		if (msgpr.subOrientBody.rtUrgency != 0)
 		{
@@ -1578,14 +1583,47 @@ extern int	 iKontrol_Jump[NUM_PELVISES];
 
 
 //**********************************************************************************************
-bool bVRSetSkeletonHorizontalVelocity(const CInstance* pins, float f_vx, float f_vy)
+static bool  abVRWalk[NUM_PELVISES];
+static float afVRWalk[NUM_PELVISES][2];
+
+bool bVRSetSkeletonWalkVelocity(const CInstance* pins, float f_vx, float f_vy)
 {
 	int i_pel = pphSystem->iGetSkeletonIndex(pins);
-	if (i_pel < 0)
+	if (i_pel < 0 || i_pel >= NUM_PELVISES)
 		return false;
-
-	// Pel[pelvis][dof][derivative]: dof 0/1 are the body's x/y, derivative 1 is velocity.
-	Pel[i_pel][0][1] = f_vx;
-	Pel[i_pel][1][1] = f_vy;
+	abVRWalk[i_pel] = true;
+	afVRWalk[i_pel][0] = f_vx;
+	afVRWalk[i_pel][1] = f_vy;
 	return true;
+}
+
+//
+// The human walk controller (foot.cpp) pushes the pelvis with 0.5 * Drive and damps it with
+// 200 * velocity, where Drive = Kontrol * 10 * 2.45.  So a steady speed v needs
+// Kontrol = v * 400 / 24.5.  A little extra is added while speeding up, so the body keeps up.
+//
+static void VRWalkOverride(int i_index, CDir3<>& d3_move, float& f_move_sp)
+{
+	if (i_index < 0 || i_index >= NUM_PELVISES || !abVRWalk[i_index])
+		return;
+	abVRWalk[i_index] = false;
+
+	float f_vx = afVRWalk[i_index][0], f_vy = afVRWalk[i_index][1];
+	float f_cx = Pel[i_index][0][1], f_cy = Pel[i_index][1][1];
+	float f_wx = f_vx + 0.6f * (f_vx - f_cx);
+	float f_wy = f_vy + 0.6f * (f_vy - f_cy);
+	float f_speed = sqrtf(f_wx * f_wx + f_wy * f_wy);
+	if (f_speed > 10.0f)
+	{
+		f_wx *= 10.0f / f_speed;
+		f_wy *= 10.0f / f_speed;
+		f_speed = 10.0f;
+	}
+	if (f_speed < 0.05f)
+	{
+		f_move_sp = 0;
+		return;
+	}
+	d3_move = CDir3<>(CVector3<>(f_wx, f_wy, 0));
+	f_move_sp = f_speed * (400.0f / 24.5f);
 }

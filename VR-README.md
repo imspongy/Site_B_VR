@@ -60,6 +60,8 @@ the new defaults (the old one is kept as `TrespasserVR.ini.old`). Highlights:
 - `GripToggle=1` if you'd rather press grip once to grab and again to drop.
 - `HandPitch` / `HandYaw` / `HandRoll` to adjust how guns sit in your hand.
 - `SkyMode` (0 solid, 1 gradient, 2 clouds) and `Haptics` (vibration strength).
+- `HandScale` for the size of the drawn hands.
+- `RadialFog` (haze by real distance) and `SharpTextures` (less texture wobble up close).
 
 Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish size such as
 1024x1024 suits headsets best. Bigger looks sharper but costs frame rate (the game renders twice).

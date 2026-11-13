@@ -96,6 +96,7 @@
 #include "Lib/GeomDBase/Mesh.hpp"
 #include "Lib/EntityDBase/Water.hpp"
 #include "Lib/Loader/ImageLoader.hpp"
+#include "Lib/Control/VRShared.hpp"
 
 #include <memory.h>
 #include <stdio.h>
@@ -480,7 +481,10 @@ uint32 *CLightBlend::au4MakeDitherTable
 		{
 			for (int frac = 0; frac < size; frac++)
 			{
-				int dither_add = (dither_matrix[entry] + frac*(256/size) > 255);
+				// VR: no ordered dither.  The fixed screen pattern doesn't line up between the eyes
+				// and shows as a cross-hatch floating in front of you; round instead.
+				int i_dither = gVR.bActive ? 128 : dither_matrix[entry];
+				int dither_add = (i_dither + frac*(256/size) > 255);
 
 				table_ptr[index++] = au2AlphaReference[shade + dither_add];
 			}

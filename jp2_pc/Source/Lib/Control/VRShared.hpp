@@ -32,6 +32,11 @@ struct SVRShared
 	bool  bMotionHand = true;
 	bool  bLeftArm = true;			// Second arm enabled (ini: SecondHand).
 	float fCurlSign = 1.0f;			// Debug: flips finger curl direction on the arms.
+	float fHandScale = 0.75f;		// Size of the drawn hands relative to Anne's original hand.
+	bool  bLeftArmTest = false;		// Debug: draw the second arm unmirrored next to the right hand.
+	bool  bRadialFog = false;		// Fog by true distance (same in every direction).
+	float afFogMat[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };	// Normalised camera -> camera-relative world (rows).
+	float afFogFwd[3] = { 0, 1, 0 };	// Camera forward (world).
 
 	// Finger curl for the game's own (physics) hand; unused in VR, kept at 0.
 	float fFingerCurl = 0;

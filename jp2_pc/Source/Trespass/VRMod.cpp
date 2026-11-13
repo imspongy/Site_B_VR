@@ -49,6 +49,11 @@
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Renderer/RenderCacheInterface.hpp"
+#include "Lib/Types/FixedP.hpp"
+#include "Lib/Renderer/Primitives/DrawTriangle.hpp"
+#include "Lib/Renderer/Primitives/Walk.hpp"
+#include "Lib/Renderer/Primitives/IndexT.hpp"
+#include "Lib/Renderer/Primitives/IndexPerspectiveT.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -59,6 +64,8 @@
 #include <string>
 
 extern HWND g_hwnd;
+extern float fPerspectivePixelError;
+extern float fAltPerspectivePixelError;
 
 namespace
 {
@@ -69,7 +76,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 2;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 3;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -86,6 +93,8 @@ namespace
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
 		float fHandYawDeg     = 0.0f;
 		float fHandRollDeg    = 0.0f;
+		float fHandScale      = 0.75f;	// Drawn hand size (Anne's original hand is oversized).
+		bool  bLeftArmTest    = false;	// Debug.
 
 		bool  bMoveWithHand   = false;	// Stick moves toward where the off hand points.
 		float fMoveSpeed      = 2.2f;	// m/s at full stick.
@@ -101,6 +110,8 @@ namespace
 		float fHeightSmoothing = 0.15f;	// Seconds; smooths view height on stairs and slopes.
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
+		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
+		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
 		float fOverlayWidth   = 2.4f;	// Menu screen width in metres.
@@ -319,6 +330,8 @@ namespace
 			"HandPitch=0\n"
 			"HandYaw=0\n"
 			"HandRoll=0\n"
+			"; Size of the drawn hands (1 = Anne's original, rather large, hands).\n"
+			"HandScale=0.75\n"
 			"\n"
 			"; --- View ---\n"
 			"; Sky: 0 = solid colour, 1 = smooth gradient, 2 = clouds.\n"
@@ -326,6 +339,10 @@ namespace
 			"; 1 = use the game's low-detail stand-ins for distant objects (faster, but causes\n"
 			";     pop-in and blocky distant objects in VR).\n"
 			"ImageCaches=0\n"
+			"; 1 = haze depends on real distance, so it doesn't change as you turn your head.\n"
+			"RadialFog=1\n"
+			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
+			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
 			";     'Display VR View' to watch or record instead.\n"
 			"MirrorToMonitor=0\n"
@@ -342,7 +359,9 @@ namespace
 			"; Set to 1 if the menu laser moves up when you point down.\n"
 			"MenuFlipY=0\n"
 			"; Set to 1 if the left hand's fingers bend backwards when you squeeze.\n"
-			"FlipSecondHandCurl=0\n", pf);
+			"FlipSecondHandCurl=0\n"
+			"; Set to 1 to draw a test copy of the right arm 25 cm left of your right hand.\n"
+			"LeftArmTest=0\n", pf);
 		std::fclose(pf);
 	}
 
@@ -375,6 +394,10 @@ namespace
 		s.fHandPitchDeg   = fIni(str_file, "HandPitch", 0);
 		s.fHandYawDeg     = fIni(str_file, "HandYaw", 0);
 		s.fHandRollDeg    = fIni(str_file, "HandRoll", 0);
+		s.fHandScale      = fIni(str_file, "HandScale", 0.75f);
+		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
+		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
+		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
 		s.fRunSpeed       = fIni(str_file, "RunSpeed", 4.5f);
@@ -407,6 +430,8 @@ namespace
 		gVR.bLeftArm     = setVR.bSecondHand;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 		gVR.fFingerCurl  = 0;
+		gVR.fHandScale   = (std::min)((std::max)(setVR.fHandScale, 0.3f), 1.5f);
+		gVR.bLeftArmTest = setVR.bLeftArmTest;
 
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if (GetFileAttributesExA(str_file.c_str(), GetFileExInfoStandard, &fad))
@@ -1223,6 +1248,19 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (!setVR.bImageCaches)
 		rcsRenderCacheSettings.erctMode = ercmCACHE_OFF;
 
+	// Texture perspective: the original tolerances wobble badly in a headset.
+	float f_persp_orig = fPerspectivePixelError, f_alt_persp_orig = fAltPerspectivePixelError;
+	int i_sub_orig = persetSettings.iMinSubdivision, i_alt_sub_orig = persetSettings.iAltMinSubdivision;
+	int i_adapt_orig = persetSettings.iAdaptiveMinSubdivision;
+	if (setVR.bSharpTextures)
+	{
+		fPerspectivePixelError    = (std::min)(fPerspectivePixelError, 0.35f);
+		fAltPerspectivePixelError = (std::min)(fAltPerspectivePixelError, 0.5f);
+		persetSettings.iMinSubdivision         = (std::min)(persetSettings.iMinSubdivision, 16);
+		persetSettings.iAltMinSubdivision      = (std::min)(persetSettings.iAltMinSubdivision, 16);
+		persetSettings.iAdaptiveMinSubdivision = (std::min)(persetSettings.iAdaptiveMinSubdivision, 16);
+	}
+
 	// Both arms: posed to the controllers for this frame.
 	if (b_player_view)
 		gpPlayer->VRShowLeftArm(true);
@@ -1253,6 +1291,19 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		CVector3<> v3_eye = v3World(v3Game(fr.aposEye[i_eye].afP));
 		pcam->Move(CPlacement3<>(r3_eye, v3_eye));
 
+		// Radial fog: how to get from normalised camera space back to real distances.
+		if (setVR.bRadialFog)
+		{
+			CTransform3<> tf3_inv = ~pcam->tf3ToNormalisedCamera();
+			const CMatrix3<>& mx3 = tf3_inv.mx3Mat;
+			float* m = gVR.afFogMat;
+			m[0] = mx3.v3X.tX; m[1] = mx3.v3X.tY; m[2] = mx3.v3X.tZ;
+			m[3] = mx3.v3Y.tX; m[4] = mx3.v3Y.tY; m[5] = mx3.v3Y.tZ;
+			m[6] = mx3.v3Z.tX; m[7] = mx3.v3Z.tY; m[8] = mx3.v3Z.tZ;
+			StoreV(gVR.afFogFwd, CVector3<>(0, 1, 0) * r3_eye);
+			gVR.bRadialFog = true;
+		}
+
 		// The first eye's image is still in the colour/Z buffers; clear before the second.
 		if (i_eye == 1)
 			d3dDriver.ClearZBuffer();
@@ -1278,6 +1329,13 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 	if (gpPlayer)
 		gpPlayer->VRShowLeftArm(false);
+
+	gVR.bRadialFog = false;
+	fPerspectivePixelError    = f_persp_orig;
+	fAltPerspectivePixelError = f_alt_persp_orig;
+	persetSettings.iMinSubdivision         = i_sub_orig;
+	persetSettings.iAltMinSubdivision      = i_alt_sub_orig;
+	persetSettings.iAdaptiveMinSubdivision = i_adapt_orig;
 
 	if (gpskyRender)
 		gpskyRender->SetDrawMode(sdm_orig);
