@@ -245,6 +245,8 @@
 #include "Lib/View/Direct3DRenderState.hpp"
 #include "Lib/Renderer/ScreenRenderAuxD3D.hpp"
 #include "Lib/Renderer/ScreenRenderAuxD3DUtilities.hpp"
+#include "Lib/Control/VRShared.hpp"
+#include <cmath>
 
 #pragma warning(disable:4786)
 
@@ -504,7 +506,12 @@ void CSkyRender::DrawSkyToHorizon()
 	pu2Raster = (uint16*)prasRenderSurface->pSurface;
 	i4Pitch	= prasRenderSurface->iLinePixels;
 
-	if ( fabs(av3FrustTran[0].tZ - av3FrustTran[1].tZ) < fSKY_HORIZONTAL)
+	if (gVR.bActive && sdmMode == sdmTextured && prasSkyTexture)
+	{
+		// VR: the original sky approximations differ between the two eyes.
+		DrawSkyTexturedVR();
+	}
+	else if ( fabs(av3FrustTran[0].tZ - av3FrustTran[1].tZ) < fSKY_HORIZONTAL)
 	{
 		// Draw a Linear Sky....
 		if (sdmMode == sdmTextured)
@@ -3695,6 +3702,134 @@ DONE:
 	}
 }
 
+
+
+//**********************************************************************************************
+//
+void CSkyRender::DrawSkyTexturedVR()
+//
+//**************************************
+{
+	CWDbQueryActiveCamera wqcam(wWorld);
+	CCamera* pcam = wqcam.tGet();
+	if (!pcam || !pu2Raster)
+		return;
+
+	// Unnormalised corner rays: they lie on a plane, so they interpolate exactly across the screen.
+	CTransform3<> tf3_invcam = ~pcam->tf3ToNormalisedCamera();
+	CVector3<> v3_cam = pcam->pr3Presence().v3Pos;
+	CVector3<> v3_tl = (av3Frustum[u4FRUST_TL] * tf3_invcam) - v3_cam;
+	CVector3<> v3_tr = (av3Frustum[u4FRUST_TR] * tf3_invcam) - v3_cam;
+	CVector3<> v3_bl = (av3Frustum[u4FRUST_BL] * tf3_invcam) - v3_cam;
+
+	const int i_w = (int)u4ScreenWidth;
+	const int i_h = (int)u4ScreenHeight;
+	if (i_w <= 0 || i_h <= 0)
+		return;
+
+	CVector3<> v3_dx = (v3_tr - v3_tl) * (1.0f / (float)i_w);
+	CVector3<> v3_dy = (v3_bl - v3_tl) * (1.0f / (float)i_h);
+
+	const uint8* pu1_tex = (const uint8*)prasSkyTexture->pSurface;
+	const uint16 u2_fill = (uint16)(u4Fog & 0xffff);
+	const double d_inv_fixed = 1.0 / 65536.0;
+	const int iSPAN = 16;
+	const float f_fog_max = (float)(iNUM_SKY_FOG_BANDS << u4DEFAULT_SKY_FOG_BITS);
+
+	struct SSample
+	{
+		bool   bSky;		// Above the horizon.
+		double dU, dV;		// Texel coordinates (unwrapped).
+		int32  i4Fog;		// Fixed-point fog band.
+	};
+
+	auto sample = [&](const CVector3<>& d, SSample& s)
+	{
+		float f_len = std::sqrt(d.tX * d.tX + d.tY * d.tY + d.tZ * d.tZ);
+		float f_zn = f_len > 0 ? d.tZ / f_len : 0.0f;
+		s.bSky = f_zn > fSKY_HORIZON_Z;
+		s.dU = s.dV = 0;
+		s.i4Fog = 0;
+		if (!s.bSky)
+			return;
+		double d_t = (double)fSkyHeight / (double)d.tZ;
+		s.dU = (((double)v3Camera.tX + d.tX * d_t) * fScale + fSkyOffsetU) * d_inv_fixed;
+		s.dV = (((double)v3Camera.tY + d.tY * d_t) * fScale + fSkyOffsetV) * d_inv_fixed;
+		float f_fog = (1.0f - f_zn - fFogNear) * fFogScale;
+		if (f_fog < 0)
+			f_fog = 0;
+		if (f_fog > f_fog_max)
+			f_fog = f_fog_max;
+		s.i4Fog = (int32)f_fog;
+	};
+
+	auto texel = [&](uint32 fp_u, uint32 fp_v, int32 i4_fog) -> uint16
+	{
+		int32 i_band = i4_fog >> u4DEFAULT_SKY_FOG_BITS;
+		if (i_band >= iNUM_SKY_FOG_BANDS - 1)
+			return u2_fill;
+		if (i_band < 0)
+			i_band = 0;
+		uint32 u4_adr = (((fp_v >> 16) & 0xff) << 9) | ((fp_u >> 16) & 0xff);
+		return u2FogTable[i_band][pu1_tex[u4_adr]];
+	};
+
+	auto fixed_wrapped = [](double d) -> uint32
+	{
+		d -= 256.0 * std::floor(d / 256.0);
+		return (uint32)(d * 65536.0);
+	};
+
+	for (int i_y = 0; i_y < i_h; i_y++)
+	{
+		uint16* pu2_line = pu2Raster + i_y * i4Pitch;
+		CVector3<> v3_row = v3_tl + v3_dy * ((float)i_y + 0.5f) + v3_dx * 0.5f;
+
+		SSample s0;
+		sample(v3_row, s0);
+		for (int i_x0 = 0; i_x0 < i_w; i_x0 += iSPAN)
+		{
+			int i_n = (std::min)(iSPAN, i_w - i_x0);
+			SSample s1;
+			sample(v3_row + v3_dx * (float)(i_x0 + i_n), s1);
+
+			if (s0.bSky && s1.bSky)
+			{
+				// Perspective-correct at both ends, linear in between.
+				uint32 fp_u = fixed_wrapped(s0.dU);
+				uint32 fp_v = fixed_wrapped(s0.dV);
+				int32 i4_du = (int32)((s1.dU - s0.dU) * 65536.0 / i_n);
+				int32 i4_dv = (int32)((s1.dV - s0.dV) * 65536.0 / i_n);
+				int32 i4_fog = s0.i4Fog;
+				int32 i4_dfog = (s1.i4Fog - s0.i4Fog) / i_n;
+				for (int i = 0; i < i_n; i++)
+				{
+					pu2_line[i_x0 + i] = texel(fp_u, fp_v, i4_fog);
+					fp_u += (uint32)i4_du;
+					fp_v += (uint32)i4_dv;
+					i4_fog += i4_dfog;
+				}
+			}
+			else if (!s0.bSky && !s1.bSky)
+			{
+				// Below the horizon (the terrain covers it).
+				for (int i = 0; i < i_n; i++)
+					pu2_line[i_x0 + i] = u2_fill;
+			}
+			else
+			{
+				// The horizon crosses this span: do each pixel.
+				for (int i = 0; i < i_n; i++)
+				{
+					SSample s;
+					sample(v3_row + v3_dx * (float)(i_x0 + i), s);
+					pu2_line[i_x0 + i] = s.bSky ? texel(fixed_wrapped(s.dU), fixed_wrapped(s.dV), s.i4Fog) : u2_fill;
+				}
+			}
+			s0 = s1;
+		}
+	}
+}
 
 
 //**********************************************************************************************

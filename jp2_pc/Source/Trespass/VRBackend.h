@@ -20,6 +20,7 @@ struct SVRPose
 	bool  bValid = false;
 	float afQ[4] = { 1, 0, 0, 0 };	// Orientation (w, x, y, z).
 	float afP[3] = { 0, 0, 0 };		// Position.
+	float afV[3] = { 0, 0, 0 };		// Velocity (m/s), controllers only.
 };
 
 struct SVRFov

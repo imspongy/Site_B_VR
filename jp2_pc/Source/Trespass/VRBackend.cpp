@@ -775,7 +775,11 @@ namespace
 		pose.bValid = false;
 		if (vr::VRInput()->GetPoseActionDataForNextFrame(h, vr::TrackingUniverseStanding, &d, sizeof(d), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None &&
 			d.bActive && d.pose.bPoseIsValid)
+		{
 			PoseFromMatrix(d.pose.mDeviceToAbsoluteTracking, pose);
+			for (int i = 0; i < 3; i++)
+				pose.afV[i] = d.pose.vVelocity.v[i];
+		}
 	}
 
 	//******************************************************************************************

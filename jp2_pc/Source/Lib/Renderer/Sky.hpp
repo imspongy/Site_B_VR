@@ -249,6 +249,12 @@ public:
 	}
 
 	//******************************************************************************************
+	SkyDrawMode sdmGetDrawMode() const
+	{
+		return sdmMode;
+	}
+
+	//******************************************************************************************
 	bool bSkyTextured()
 	{
 		return sdmMode == sdmTextured;
@@ -353,6 +359,11 @@ protected:
 
 	//******************************************************************************************
 	void DrawSkyTexturedPerspective();
+
+	//******************************************************************************************
+	// VR: exact clouds (ray/sky-plane intersection every 16 pixels, any roll or off-axis
+	// frustum), so both eyes see the same sky.
+	void DrawSkyTexturedVR();
 
 	//******************************************************************************************
 	void DrawSkyFlatPerspective();
