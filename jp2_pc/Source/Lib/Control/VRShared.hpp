@@ -84,6 +84,13 @@ struct SVRShared
 	double dStepMs = 0;				// Game simulation steps.
 	int    iSteps = 0;
 
+	// Constant-speed stick locomotion (ini: SmoothLocomotion), full run speed in m/s.
+	bool  bSmoothLoco = true;
+	float fRunSpeed = 4.5f;
+
+	// Writes a line to TrespasserVR.log (null when the VR mod isn't running).
+	void (*pfnLog)(const char* str_fmt, ...) = nullptr;
+
 	// Skip drawing to the monitor while in VR (ini: MirrorToMonitor=0).
 	bool  bSkipMonitor = false;
 

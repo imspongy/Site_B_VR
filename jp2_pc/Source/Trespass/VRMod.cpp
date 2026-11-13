@@ -37,6 +37,8 @@
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
 #include "Lib/EntityDBase/Instance.hpp"
 #include "Game/DesignDaemon/Player.hpp"
+#include "Lib/Renderer/Sky.hpp"
+#include "Lib/Renderer/RenderCacheInterface.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -87,6 +89,12 @@ namespace
 		bool  bFlipFovY       = false;
 		bool  bMenuFlipY      = false;	// Debug: laser pointer Y inverted on the menu screen.
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
+		bool  bSmoothLoco     = true;	// Constant-speed locomotion.
+		float fRunSpeed       = 4.5f;	// m/s at full stick with run on.
+		bool  bStableView     = true;	// View follows the body, not the bobbing physics head.
+		float fHeightSmoothing = 0.25f;	// Seconds; smooths view height while walking.
+		int   iSkyMode        = 1;		// 0 = solid colour, 1 = gradient, 2 = textured clouds.
+		bool  bImageCaches    = false;	// The game's distant-object image caches.
 	};
 
 	SSettings setVR;
@@ -291,6 +299,19 @@ namespace
 			"TurnDeadzone=0.2\n"
 			"\n"
 			"; --- Comfort / view ---\n"
+			"; 1 = steady walking speed with instant start/stop (modern VR style).\n"
+			"SmoothLocomotion=1\n"
+			"; Running speed in metres per second (walking is WalkSpeed x this).\n"
+			"RunSpeed=4.5\n"
+			"; 1 = the view follows Anne's body smoothly instead of her bobbing physics head.\n"
+			"StableView=1\n"
+			"; Seconds of smoothing on view height while walking (0 = none).\n"
+			"HeightSmoothing=0.25\n"
+			"; Sky: 0 = solid colour, 1 = smooth gradient (comfortable), 2 = original clouds.\n"
+			"SkyMode=1\n"
+			"; 1 = use the game's low-detail stand-ins for distant objects (faster, but causes\n"
+			";     pop-in and blocky distant objects in VR).\n"
+			"ImageCaches=0\n"
 			"; 1 = also show the game on your monitor (slower).\n"
 			"MirrorToMonitor=0\n"
 			"; How far (metres) you can physically lean before the view stops following.\n"
@@ -347,10 +368,18 @@ namespace
 		s.bFlipFovY      = fIni(str_file, "FlipFovY", 0) != 0;
 		s.bMenuFlipY     = fIni(str_file, "MenuFlipY", 0) != 0;
 		s.bMirrorToMonitor = fIni(str_file, "MirrorToMonitor", 0) != 0;
+		s.bSmoothLoco    = fIni(str_file, "SmoothLocomotion", 1) != 0;
+		s.fRunSpeed      = fIni(str_file, "RunSpeed", 4.5f);
+		s.bStableView    = fIni(str_file, "StableView", 1) != 0;
+		s.fHeightSmoothing = fIni(str_file, "HeightSmoothing", 0.25f);
+		s.iSkyMode       = (int)fIni(str_file, "SkyMode", 1);
+		s.bImageCaches   = fIni(str_file, "ImageCaches", 0) != 0;
 		setVR = s;
 
 		gVR.bMotionHand  = setVR.bMotionHand;
 		gVR.bSkipMonitor = !setVR.bMirrorToMonitor;
+		gVR.bSmoothLoco  = setVR.bSmoothLoco;
+		gVR.fRunSpeed    = setVR.fRunSpeed;
 		gVR.bLeftArm     = setVR.bSecondHand;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 
@@ -958,6 +987,7 @@ void VRMod_Startup()
 	gVR.bMotionHand  = setVR.bMotionHand;
 	gpfnVRInputHook  = InputHook;
 	gpfnVRFlipHook   = FlipHook;
+	gVR.pfnLog       = Log;
 }
 
 //**********************************************************************************************
@@ -965,6 +995,7 @@ void VRMod_Shutdown()
 {
 	gpfnVRInputHook = nullptr;
 	gpfnVRFlipHook  = nullptr;
+	gVR.pfnLog      = nullptr;
 	gVR.bActive     = false;
 	gVR.bHeadValid  = false;
 	gVR.bHandValid  = false;
@@ -1037,16 +1068,20 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	CPlacement3<> p3_camera_relative  = pcam->p3Relative();
 	bool          b_camera_on_head    = pcam->bHead();
 	CVector3<>    v3_cam_pos          = pcam->pr3Presence().v3Pos;
+	const CVector3<> v3_cam_restore   = v3_cam_pos;
 	CRotate3<>    r3_cam_rot          = pcam->pr3Presence().r3Rot;
 	bool          b_player_view       = pins_camera_on && pins_camera_on == (CInstance*)gpPlayer && b_camera_on_head;
 
-	// Re-align when the camera changes owner (cutscene/death cams), or on first frame.
-	if (pins_camera_on != pvLastCamAttach || b_camera_on_head != bLastCamHead)
-	{
+	// Re-align only when switching between the player's own view and a scripted camera
+	// (cutscenes, death), or between scripted cameras.  Never during normal play: a sudden
+	// change of heading is very disorienting.
+	static bool b_last_player_view = false;
+	if (b_player_view != b_last_player_view ||
+		(!b_player_view && (pins_camera_on != pvLastCamAttach || b_camera_on_head != bLastCamHead)))
 		bNeedAlign = true;
-		pvLastCamAttach = pins_camera_on;
-		bLastCamHead    = b_camera_on_head;
-	}
+	b_last_player_view = b_player_view;
+	pvLastCamAttach = pins_camera_on;
+	bLastCamHead    = b_camera_on_head;
 
 	// Recenter: off-hand stick click.
 	const SVRHandInput& hi_off = fr.ctl.ahand[iOff()];
@@ -1054,8 +1089,30 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (hi_off.bStickClick && !b_prev_recenter)
 		Align(b_player_view && gpPlayer ? gpPlayer->r3Rot() : r3_cam_rot, fr, true);
 	else if (bNeedAlign)
-		Align(r3_cam_rot, fr, true);
+		Align(b_player_view && gpPlayer ? gpPlayer->r3Rot() : r3_cam_rot, fr, true);
 	b_prev_recenter = hi_off.bStickClick;
+
+	//
+	// Where the view sits.  For the player, it follows the body's position rather than the
+	// physically simulated head, with the height smoothed, so walking doesn't bob or sway.
+	//
+	if (b_player_view && gpPlayer && setVR.bStableView)
+	{
+		static float f_height = 0;
+		static bool b_height_init = false;
+		CVector3<> v3_body = gpPlayer->v3Pos();
+		float f_target = v3_cam_pos.tZ;
+		if (!b_height_init || bNeedAlign || std::fabs(f_target - f_height) > 1.5f)
+			f_height = f_target;
+		else
+		{
+			float f_tau = (std::max)(setVR.fHeightSmoothing, 0.001f);
+			float f_k = 1.0f - std::exp(-f_dt / f_tau);
+			f_height += (f_target - f_height) * f_k;
+		}
+		b_height_init = true;
+		v3_cam_pos = CVector3<>(v3_body.tX, v3_body.tY, f_height);
+	}
 
 	CVector3<> v3_head_track = v3Game(fr.posHead.afP);
 	CVector3<> v3_lean       = v3Lean(v3_head_track);
@@ -1198,6 +1255,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	CCamera::SProperties camprop_orig = pcam->campropGetProperties();
 	pcam->SetAttached(0);
 
+	// Sky and image-cache overrides for VR, restored afterwards.
+	bool b_sky_textured = gpskyRender && gpskyRender->bSkyTextured();
+	if (gpskyRender && setVR.iSkyMode >= 0 && setVR.iSkyMode <= 2)
+		gpskyRender->SetDrawMode((CSkyRender::SkyDrawMode)setVR.iSkyMode);
+	ERenderCacheModes ercm_orig = rcsRenderCacheSettings.erctMode;
+	if (!setVR.bImageCaches)
+		rcsRenderCacheSettings.erctMode = ercmCACHE_OFF;
+
 	// Second arm: posed and put in the world for this frame only.
 	if (gpPlayer && b_player_view)
 		gpPlayer->VRShowLeftArm(true);
@@ -1254,9 +1319,13 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (gpPlayer)
 		gpPlayer->VRShowLeftArm(false);
 
+	if (gpskyRender)
+		gpskyRender->SetDrawMode(b_sky_textured ? CSkyRender::sdmTextured : (CSkyRender::SkyDrawMode)(std::min)((std::max)(setVR.iSkyMode, 0), 1));
+	rcsRenderCacheSettings.erctMode = ercm_orig;
+
 	// Restore the camera.
 	pcam->SetProperties(camprop_orig);
-	pcam->Move(CPlacement3<>(r3_cam_rot, v3_cam_pos));
+	pcam->Move(CPlacement3<>(r3_cam_rot, v3_cam_restore));
 	pcam->SetAttached(pins_camera_on, b_camera_on_head);
 	pcam->SetRelative(p3_camera_relative);
 

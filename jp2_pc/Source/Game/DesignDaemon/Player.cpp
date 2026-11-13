@@ -80,6 +80,7 @@
 #include "Lib/Sys/Profile.hpp"
 #include "Lib/EntityDBase/AnimationScript.hpp"
 #include "Lib/Control/VRShared.hpp"
+#include "Lib/Physics/InfoSkeleton.hpp"
 #include "Game/DesignDaemon/Gun.hpp"
 
 //
@@ -1304,6 +1305,7 @@ private:
 	CInstance*     pinsLeftIgnoreRight = nullptr;	// Right-held object the left box ignores.
 	bool           bPrevLeftGrip = false;
 	bool           bPrevLeftTrigger = false;
+	TSec           sVRBrakeUntil = -100;		// Stop quickly after the stick is released.
 
 	//*****************************************************************************************
 	void HandleSwing(const CMessageControl& msgc, bool b_use);
@@ -3251,6 +3253,32 @@ private:
 			msgpr.subOrientBody.Set(rt_low_urgency, 1, r3_head_global);
 		}
 
+		//
+		// VR: constant-speed locomotion with instant start and stop, like modern VR games.
+		// (The body physics still handles slopes, stairs, jumping and collisions.)
+		//
+		if (gVR.bActive && gVR.bSmoothLoco && !bDead())
+		{
+			if (!msgc.v2Move.bIsZero())
+			{
+				CRotate3<> r3_head_global = p3Head.r3Rot * p3GetPlacement().r3Rot;
+				CVector3<> v3_dir = CVector3<>(msgc.v2Move) * r3_head_global;
+				v3_dir.tZ = 0;
+				float f_len = v3_dir.tLen();
+				if (f_len > 0.001f)
+				{
+					float f_speed = Min(msgc.v2Move.tLen(), 1.0f) * gVR.fRunSpeed;
+					v3_dir *= f_speed / f_len;
+					bVRSetSkeletonHorizontalVelocity(this, v3_dir.tX, v3_dir.tY);
+				}
+				sVRBrakeUntil = CMessageStep::sStaticTotal + 0.2;
+			}
+			else if (CMessageStep::sStaticTotal < sVRBrakeUntil)
+			{
+				bVRSetSkeletonHorizontalVelocity(this, 0, 0);
+			}
+		}
+
 		// Pass crouch command.  'Crouch' really sounds funny after you think the word a lot.
 		if (!bWithin(eHandHolding, ehhSEEKING, ehhGRABBING))
 			// Turn off auto-crouch whenever leaving grab state.
@@ -4598,6 +4626,8 @@ private:
 
 		gVR.bLeftHolding = true;
 		gVR.iLeftPickupCount++;
+		if (gVR.pfnLog)
+			gVR.pfnLog("Left hand picked up %s.", pins_found->strGetInstanceName());
 		pins_found->PickedUp();
 		CMessagePickUp(pins_found, epuPICKUP).Dispatch();
 	}
@@ -4615,14 +4645,35 @@ private:
 			return;
 		}
 
+		static int i_last_reason = -1;
+		auto log_once = [&](int i_reason, const char* str)
+		{
+			if (i_reason != i_last_reason && gVR.pfnLog)
+				gVR.pfnLog("Second arm: %s", str);
+			i_last_reason = i_reason;
+		};
+
 		if (!gVR.bActive || !gVR.bLeftArm || !gVR.bLeftValid || bDead())
+		{
+			log_once(1, gVR.bLeftValid ? "disabled or player dead." : "no left controller pose.");
 			return;
+		}
 
 		// The mesh to clone: Anne's skinned mesh.
 		rptr<CRenderType> prdt = prdtGetRenderInfoWritable();
 		rptr_const<CBioMesh> pbm = prdt ? prdt->rpbmCast() : rptr_const<CBioMesh>();
-		if (!pbm || sriBones.patf3JointTransforms.size() < 14 || pbm->iJoints < 14)
+		if (!pbm)
+		{
+			log_once(2, "Anne's mesh is not a skinned mesh.");
 			return;
+		}
+		if (sriBones.patf3JointTransforms.size() < 14 || pbm->iJoints < 14)
+		{
+			if (gVR.pfnLog && i_last_reason != 3)
+				gVR.pfnLog("Second arm: skeleton too small (%d joints, %d transforms).", pbm->iJoints, (int)sriBones.patf3JointTransforms.size());
+			i_last_reason = 3;
+			return;
+		}
 
 		if (!pvrlaLeftArm || prdtLeftArmMesh != prdt)
 		{
@@ -4635,7 +4686,12 @@ private:
 		CSkeletonRenderInfo& sri_src = sriBones;
 		CSkeletonRenderInfo& sri     = pvrlaLeftArm->sriBones;
 		if (sri.patf3JointTransforms.size() != sri_src.patf3JointTransforms.size())
+		{
+			if (gVR.pfnLog && i_last_reason != 4)
+				gVR.pfnLog("Second arm: joint count mismatch (%d vs %d).", (int)sri.patf3JointTransforms.size(), (int)sri_src.patf3JointTransforms.size());
+			i_last_reason = 4;
 			return;
+		}
 
 		//
 		// Work in Anne's object space (body local / scale), solving for a RIGHT arm whose target
@@ -4653,7 +4709,10 @@ private:
 		CVector3<> v3_s = atf3[10].v3Pos, v3_e = atf3[11].v3Pos, v3_w = atf3[12].v3Pos, v3_f = atf3[13].v3Pos;
 		TReal r_upper = (v3_e - v3_s).tLen(), r_fore = (v3_w - v3_e).tLen();
 		if (r_upper < 0.01f || r_fore < 0.01f)
+		{
+			log_once(5, "arm bones have no length.");
 			return;
+		}
 
 		CVector3<> v3_hand_r = v3Obj(pinsHand->v3Pos());
 		CRotate3<> r3_hand_r = pinsHand->r3Rot() / pr3.r3Rot;
@@ -4774,6 +4833,10 @@ private:
 			pvrlaLeftArm->bInWorld = true;
 		}
 		pvrlaLeftArm->Move(pr3);
+
+		if (gVR.pfnLog && i_last_reason != 0)
+			gVR.pfnLog("Second arm: shown (upper %.2f, fore %.2f, scale %.2f, %d joints).", r_upper, r_fore, pr3.rScale, pbm->iJoints);
+		i_last_reason = 0;
 	}
 
 	//*****************************************************************************************
@@ -4826,7 +4889,11 @@ private:
 			{
 				pins_target = pins_found;
 				if (pins_found)
+				{
 					gVR.aiForceTargetSerial[i_hand]++;
+					if (gVR.pfnLog)
+						gVR.pfnLog("Force grab (%s hand): target %s", i_hand ? "left" : "right", pins_found->strGetInstanceName());
+				}
 			}
 		}
 		else if (CMessageStep::sStaticTotal - s_pull_time > 2.0)
@@ -4855,6 +4922,8 @@ private:
 				float f_mass = pphi->fMass(pins_target);
 				pphi->ApplyImpulse(pins_target, 0, v3_obj, (v3_vel - v3_cur) * f_mass);
 				s_pull_time = CMessageStep::sStaticTotal;
+				if (gVR.pfnLog)
+					gVR.pfnLog("Force grab (%s hand): pulled %s (%.1f kg, %.1f m).", i_hand ? "left" : "right", pins_target->strGetInstanceName(), f_mass, f_dist);
 			}
 		}
 

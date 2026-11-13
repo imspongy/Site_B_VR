@@ -601,4 +601,12 @@ protected:
 	) const override;
 };
 
+//**********************************************************************************************
+//
+// VR mod: sets the horizontal velocity of a physics skeleton (the player) directly, for
+// constant-speed "modern VR" locomotion.  Vertical motion (gravity, stairs, jumps) is untouched.
+// Returns false if the instance has no active skeleton.
+//
+bool bVRSetSkeletonHorizontalVelocity(const CInstance* pins, float f_vx, float f_vy);
+
 #endif

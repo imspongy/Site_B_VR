@@ -1575,3 +1575,17 @@ extern int	 iKontrol_Jump[NUM_PELVISES];
 		Control_Arms(i_index, cta);
 	}
 
+
+
+//**********************************************************************************************
+bool bVRSetSkeletonHorizontalVelocity(const CInstance* pins, float f_vx, float f_vy)
+{
+	int i_pel = pphSystem->iGetSkeletonIndex(pins);
+	if (i_pel < 0)
+		return false;
+
+	// Pel[pelvis][dof][derivative]: dof 0/1 are the body's x/y, derivative 1 is velocity.
+	Pel[i_pel][0][1] = f_vx;
+	Pel[i_pel][1][1] = f_vy;
+	return true;
+}
