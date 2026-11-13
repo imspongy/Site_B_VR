@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-2022
@@ -47,3 +50,14 @@ jobs:
         with:
           name: TrespasserVR
           path: jp2_pc/package/
+
+      # Latest build as a downloadable release (a direct link that needs no GitHub sign-in).
+      - name: Publish latest build
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/vr-mod'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path jp2_pc/package/* -DestinationPath SiteB-VR.zip -Force
+          gh release delete latest --yes --cleanup-tag 2>$null
+          gh release create latest SiteB-VR.zip --target $env:GITHUB_SHA --prerelease --title "Site B VR (latest build)" --notes "Automatic build of $env:GITHUB_SHA"
