@@ -79,6 +79,14 @@ struct SVRShared
 	// The instance rendered mirrored (the second arm); its polygons have reversed winding.
 	const void* pvMirrorInstance = nullptr;
 
+	// Performance diagnostics: accumulated milliseconds, read and reset by the VR mod.
+	double dFlipMs = 0;				// Showing frames on the monitor.
+	double dStepMs = 0;				// Game simulation steps.
+	int    iSteps = 0;
+
+	// Skip drawing to the monitor while in VR (ini: MirrorToMonitor=0).
+	bool  bSkipMonitor = false;
+
 	// The left hand's physics box (bullets pass through it).
 	const void* pvLeftHandBox = nullptr;
 

@@ -1433,6 +1433,29 @@ rptr<CRaster> prasReadBMP(const char* str_bitmap_name, bool b_vid)
 		if (pddsPrimary4 == pddsDraw4)
 			return;
 
+		// VR mod: optionally don't show anything on the monitor.
+		if (gVR.bActive && gVR.bSkipMonitor)
+		{
+			Unlock();
+			if (d3dDriver.bGetFlipClear())
+				d3dDriver.ClearZBuffer();
+			return;
+		}
+
+		LARGE_INTEGER li_vr_t0;
+		QueryPerformanceCounter(&li_vr_t0);
+		struct SVRFlipTimer
+		{
+			LARGE_INTEGER& t0;
+			~SVRFlipTimer()
+			{
+				LARGE_INTEGER t1, f;
+				QueryPerformanceCounter(&t1);
+				QueryPerformanceFrequency(&f);
+				gVR.dFlipMs += double(t1.QuadPart - t0.QuadPart) * 1000.0 / double(f.QuadPart);
+			}
+		} vr_flip_timer{ li_vr_t0 };
+
 		// Force an unlock.
 		Unlock();
 

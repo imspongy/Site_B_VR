@@ -30,6 +30,7 @@
 #include "../Lib/EntityDBase/MessageTypes/MsgStep.hpp"
 #include "../Game/AI/AIMain.hpp"
 #include "VRMod.h"
+#include "Lib/Control/VRShared.hpp"
 
 BOOL bQuitGame = FALSE;
 
@@ -735,7 +736,16 @@ void CGameWnd::InnerLoopCall()
 		return;
 	}
 
-	gmlGameLoop.Step();
+	{
+		// VR mod: time the simulation for the performance log.
+		LARGE_INTEGER li_t0, li_t1, li_f;
+		QueryPerformanceCounter(&li_t0);
+		gmlGameLoop.Step();
+		QueryPerformanceCounter(&li_t1);
+		QueryPerformanceFrequency(&li_f);
+		gVR.dStepMs += double(li_t1.QuadPart - li_t0.QuadPart) * 1000.0 / double(li_f.QuadPart);
+		gVR.iSteps++;
+	}
 	InvalidateRect(NULL);
 }
 

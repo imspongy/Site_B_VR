@@ -86,6 +86,7 @@ namespace
 		bool  bFlipFovX       = false;	// Debug: invert the off-axis direction.
 		bool  bFlipFovY       = false;
 		bool  bMenuFlipY      = false;	// Debug: laser pointer Y inverted on the menu screen.
+		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 	};
 
 	SSettings setVR;
@@ -210,6 +211,12 @@ namespace
 			if (i_n > 0 && adTimingMs[i] > 0 && i_len < (int)sizeof(str) - 64)
 				i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " %s %.1fms;", astrTIMING[i], adTimingMs[i] / i_n);
 		}
+		if (i_len < (int)sizeof(str) - 96)
+			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " monitor %.1fms/flip; game step %.1fms x%d/s;",
+				iTimingFlips ? gVR.dFlipMs / iTimingFlips : 0.0,
+				gVR.iSteps ? gVR.dStepMs / gVR.iSteps : 0.0, int(gVR.iSteps / d_secs));
+		gVR.dFlipMs = gVR.dStepMs = 0;
+		gVR.iSteps = 0;
 		Log("%s", str);
 
 		for (int i = 0; i < etCOUNT; i++)
@@ -284,6 +291,8 @@ namespace
 			"TurnDeadzone=0.2\n"
 			"\n"
 			"; --- Comfort / view ---\n"
+			"; 1 = also show the game on your monitor (slower).\n"
+			"MirrorToMonitor=0\n"
 			"; How far (metres) you can physically lean before the view stops following.\n"
 			"LeanRadius=0.6\n"
 			"; Size and distance (metres) of the floating menu screen.\n"
@@ -337,9 +346,11 @@ namespace
 		s.bFlipFovX      = fIni(str_file, "FlipFovX", 0) != 0;
 		s.bFlipFovY      = fIni(str_file, "FlipFovY", 0) != 0;
 		s.bMenuFlipY     = fIni(str_file, "MenuFlipY", 0) != 0;
+		s.bMirrorToMonitor = fIni(str_file, "MirrorToMonitor", 0) != 0;
 		setVR = s;
 
 		gVR.bMotionHand  = setVR.bMotionHand;
+		gVR.bSkipMonitor = !setVR.bMirrorToMonitor;
 		gVR.bLeftArm     = setVR.bSecondHand;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 
