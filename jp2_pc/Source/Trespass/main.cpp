@@ -456,6 +456,8 @@ int DoWinMain(HINSTANCE hInstance,
         return -1;
     }
 
+    VRMod_PreInit();
+
     if ( !IsDisplayConfigurationValid( GetSystemBitDepth(g_hwnd), bGetD3D(), GetWindowModeActive()))
     {
         if (MsgDlg(g_hwnd,

@@ -48,6 +48,7 @@
 #include "Lib/EntityDBase/Instance.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Renderer/Sky.hpp"
+#include "Lib/Sys/RegInit.hpp"
 #include "Lib/Renderer/RenderCacheInterface.hpp"
 #include "Lib/Types/FixedP.hpp"
 #include "Lib/Renderer/Primitives/DrawTriangle.hpp"
@@ -130,6 +131,7 @@ namespace
 	bool        bStarted    = false;	// Startup attempted.
 	bool        bActive     = false;	// Session running.
 	bool        bStereoThisFrame = false;
+	bool        bHardwareWanted = false;	// ini: HardwareRendering.
 	bool        bOverlayShown = false;
 
 	SVRFrame    frLast;					// Most recent frame data (also read by the input hook).
@@ -351,6 +353,10 @@ namespace
 			"; Size and distance (metres) of the floating menu screen.\n"
 			"MenuScreenWidth=2.4\n"
 			"MenuScreenDistance=2.0\n"
+			"\n"
+			"; EXPERIMENTAL: 1 = draw with the graphics card (the game's Direct3D mode) instead of\n"
+			";     the CPU.  Needed for high resolutions at high frame rates.  Takes effect on restart.\n"
+			"HardwareRendering=0\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -837,6 +843,31 @@ namespace
 }
 
 //**********************************************************************************************
+void VRMod_PreInit()
+{
+	std::string str_file = strIniPath();
+	if (GetFileAttributesA(str_file.c_str()) == INVALID_FILE_ATTRIBUTES)
+		return;
+	if (fIni(str_file, "Enabled", 1) == 0)
+		return;
+
+	bHardwareWanted = fIni(str_file, "HardwareRendering", 0) != 0;
+	if (bHardwareWanted)
+	{
+		// The standard hardware (HAL) Direct3D device on the primary display.
+		static const GUID guid_hal = { 0x84E63dE0, 0x46AA, 0x11CF, { 0x81, 0x6F, 0x00, 0x00, 0xC0, 0x20, 0x15, 0x6E } };
+		GUID guid_primary;
+		std::memset(&guid_primary, 0, sizeof(guid_primary));
+		SetD3D(TRUE);
+		WriteDDGUID(guid_primary);
+		WriteD3DGUID(guid_hal);
+		SetZBufferBitdepth(16);
+	}
+	else if (bGetD3D())
+		SetD3D(FALSE);
+}
+
+//**********************************************************************************************
 void VRMod_Startup()
 {
 	if (bStarted)
@@ -861,6 +892,8 @@ void VRMod_Startup()
 	Log("SteamVR started. Recommended eye size %dx%d.", i_w, i_h);
 	if (prasMainScreen)
 		Log("Game render size %dx%d, %d bpp.", prasMainScreen->iWidth, prasMainScreen->iHeight, prasMainScreen->iPixelBits);
+	Log("Renderer: %s%s.", d3dDriver.bUseD3D() ? "graphics card (Direct3D)" : "CPU (software)",
+		bHardwareWanted && !d3dDriver.bUseD3D() ? " - hardware rendering was requested but could not be started" : "");
 
 	bActive          = true;
 	bNeedAlign       = true;

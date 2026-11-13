@@ -12,6 +12,9 @@
 
 // Starts VR if enabled in TrespasserVR.ini and a headset is present.  Safe to call repeatedly;
 // only the first call does anything.
+// Call before the display is set up: applies the VR mod's renderer choice (hardware/software).
+void VRMod_PreInit();
+
 void VRMod_Startup();
 
 void VRMod_Shutdown();
