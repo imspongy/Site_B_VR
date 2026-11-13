@@ -275,7 +275,7 @@ namespace
 			"; --- Movement ---\n"
 			"; Walking speed (metres per second) with the stick pushed all the way.\n"
 			"MoveSpeed=2.2\n"
-			"; Running speed (click the turn stick to toggle run).\n"
+			"; Sprint speed (click the walk stick to sprint; letting go of the stick stops sprinting).\n"
 			"RunSpeed=4.5\n"
 			"; How quickly you speed up and slow down (seconds). 0 = instant.\n"
 			"MoveAcceleration=0.15\n"
@@ -654,10 +654,6 @@ namespace
 
 		uint32 u4 = 0;
 
-		// Run toggle: turn-stick click.
-		if (m.bStickClick && !mp.bStickClick)
-			bRunToggle = !bRunToggle;
-
 		if (m.bLower)
 			u4 |= uCMD_JUMP;
 		if (m.bUpper && !mp.bUpper)
@@ -945,10 +941,12 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	const CVector3<> v3_head_track = v3Game(fr.posHead.afP);
 	const CRotate3<> r3_head_track = r3Game(fr.posHead.afQ);
 
-	// Recenter: walk-stick click.
+	// Recenter: turn-stick click.  Sprint: walk-stick click.
 	const SVRHandInput& hi_off  = fr.ctl.ahand[iOffCtl()];
 	const SVRHandInput& hi_main = fr.ctl.ahand[iMainCtl()];
-	bool b_recenter = hi_off.bStickClick && !ctlPrevFrame.ahand[iOffCtl()].bStickClick;
+	bool b_recenter = hi_main.bStickClick && !ctlPrevFrame.ahand[iMainCtl()].bStickClick;
+	if (hi_off.bStickClick && !ctlPrevFrame.ahand[iOffCtl()].bStickClick)
+		bRunToggle = !bRunToggle;
 
 	if (bNeedAlign || b_recenter)
 	{
@@ -1030,6 +1028,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 					f_y *= 0.8f;	// A little slower backwards.
 				v3_want = (v3_fwd * f_y + v3_right * f_x) * f_speed;
 			}
+			else
+				bRunToggle = false;		// Sprint ends when you let go of the stick.
 		}
 		float f_k = setVR.fMoveAccel > 0.001f ? 1.0f - std::exp(-f_dt / setVR.fMoveAccel) : 1.0f;
 		v3MoveVel += (v3_want - v3MoveVel) * f_k;

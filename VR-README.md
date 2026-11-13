@@ -36,9 +36,9 @@ Held items sit exactly in your hand with no lag, and your hands push and knock t
 | Input | Action |
 |---|---|
 | Left stick | Walk (the further you push, the faster) |
-| Left stick click | Recenter view |
+| Left stick click | Sprint (until you let go of the stick) |
 | Right stick | Turn (snap or smooth) |
-| Right stick click | Toggle run |
+| Right stick click | Recenter view |
 | Cross / A | Jump |
 | Circle / B | Crouch (toggle) |
 | Triangle / Y | Pause menu |
