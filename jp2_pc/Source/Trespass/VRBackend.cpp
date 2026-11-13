@@ -927,7 +927,9 @@ namespace
 		desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
 		desc.SampleDesc.Count = 1;
 		desc.Usage            = D3D11_USAGE_DEFAULT;
-		desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+		desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+		// Shareable, so SteamVR can use it directly instead of making its own slow copy.
+		desc.MiscFlags        = D3D11_RESOURCE_MISC_SHARED;
 		if (FAILED(pd3dDevice->CreateTexture2D(&desc, nullptr, &ptex)))
 			return false;
 		i_tw = i_w;

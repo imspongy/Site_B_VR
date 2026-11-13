@@ -171,6 +171,54 @@ namespace
 	}
 
 	//******************************************************************************************
+	//
+	// Performance timing, written to the log every few seconds.
+	//
+	double dNowMs()
+	{
+		static LARGE_INTEGER li_freq = { 0 };
+		if (!li_freq.QuadPart)
+			QueryPerformanceFrequency(&li_freq);
+		LARGE_INTEGER li;
+		QueryPerformanceCounter(&li);
+		return (double)li.QuadPart * 1000.0 / (double)li_freq.QuadPart;
+	}
+
+	enum ETiming { etWAIT, etPAINT, etREADBACK, etSUBMIT, etFRAME, etGAP, etOVERLAY, etCOUNT };
+	const char* astrTIMING[etCOUNT] = { "wait poses", "paint (both eyes)", "readback+convert", "submit", "whole VR frame", "game outside render", "menu screen update" };
+	double adTimingMs[etCOUNT] = { 0 };
+	int    iTimingFrames = 0, iTimingFlips = 0;
+	double dTimingStart = 0, dLastFrameEnd = 0;
+
+	void TimingReport()
+	{
+		double d_now = dNowMs();
+		if (dTimingStart == 0)
+		{
+			dTimingStart = d_now;
+			return;
+		}
+		if (d_now - dTimingStart < 5000)
+			return;
+
+		double d_secs = (d_now - dTimingStart) / 1000.0;
+		char str[512];
+		int i_len = std::snprintf(str, sizeof(str), "Perf: %.1f VR fps, %.1f flips/s.", iTimingFrames / d_secs, iTimingFlips / d_secs);
+		for (int i = 0; i < etCOUNT; i++)
+		{
+			int i_n = i == etOVERLAY ? iTimingFlips : iTimingFrames;
+			if (i_n > 0 && adTimingMs[i] > 0 && i_len < (int)sizeof(str) - 64)
+				i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " %s %.1fms;", astrTIMING[i], adTimingMs[i] / i_n);
+		}
+		Log("%s", str);
+
+		for (int i = 0; i < etCOUNT; i++)
+			adTimingMs[i] = 0;
+		iTimingFrames = iTimingFlips = 0;
+		dTimingStart = d_now;
+	}
+
+	//******************************************************************************************
 	float fIni(const std::string& str_file, const char* str_key, float f_default)
 	{
 		char str_def[32], str_val[64];
@@ -451,24 +499,35 @@ namespace
 		if (pdds->GetSurfaceDesc(&sd) != DD_OK)
 			return false;
 
-		bool b_was_locked = prasMainScreen->bIsLocked();
-		prasMainScreen->Lock();
-		if (!prasMainScreen->pSurface)
+		uint32_t u4_r = sd.ddpfPixelFormat.dwRBitMask;
+		uint32_t u4_g = sd.ddpfPixelFormat.dwGBitMask;
+		uint32_t u4_b = sd.ddpfPixelFormat.dwBBitMask;
+
+		if (prasMainScreen->bIsLocked() && prasMainScreen->pSurface)
 		{
-			if (!b_was_locked)
-				prasMainScreen->Unlock();
-			return false;
+			// The renderer still has it locked; use that.
+			f(prasMainScreen->pSurface,
+			  prasMainScreen->iLinePixels * prasMainScreen->iPixelBytes(),
+			  prasMainScreen->iWidth, prasMainScreen->iHeight, prasMainScreen->iPixelBits,
+			  u4_r, u4_g, u4_b);
+			return true;
 		}
 
-		f(prasMainScreen->pSurface,
-		  prasMainScreen->iLinePixels * prasMainScreen->iPixelBytes(),
-		  prasMainScreen->iWidth, prasMainScreen->iHeight, prasMainScreen->iPixelBits,
-		  (uint32_t)sd.ddpfPixelFormat.dwRBitMask,
-		  (uint32_t)sd.ddpfPixelFormat.dwGBitMask,
-		  (uint32_t)sd.ddpfPixelFormat.dwBBitMask);
+		// Read-only lock: nothing gets written back to the GPU when we unlock.
+		DDSURFACEDESC2 sdl;
+		std::memset(&sdl, 0, sizeof(sdl));
+		sdl.dwSize = sizeof(sdl);
+		HRESULT hr = pdds->Lock(nullptr, &sdl, DDLOCK_WAIT | DDLOCK_READONLY | DDLOCK_SURFACEMEMORYPTR | DDLOCK_NOSYSLOCK, nullptr);
+		if (hr != DD_OK || !sdl.lpSurface)
+			return false;
 
-		if (!b_was_locked)
-			prasMainScreen->Unlock();
+		f(sdl.lpSurface, (int)sdl.lPitch,
+		  (std::min)((int)sdl.dwWidth,  prasMainScreen->iWidth),
+		  (std::min)((int)sdl.dwHeight, prasMainScreen->iHeight),
+		  (int)sdl.ddpfPixelFormat.dwRGBBitCount,
+		  u4_r, u4_g, u4_b);
+
+		pdds->Unlock(nullptr);
 		return true;
 	}
 
@@ -833,16 +892,26 @@ namespace
 		}
 		else
 		{
-			bool b_place = !bOverlayShown;
-			bReadBackBuffer([&](const void* pv, int i_pitch, int i_w, int i_h, int i_bits, uint32_t r, uint32_t g, uint32_t b)
+			// Menu screen: at most ~45 updates a second.
+			static double d_last_update = 0;
+			double d_start = dNowMs();
+			if (!bOverlayShown || d_start - d_last_update > 22)
 			{
-				VRB_ShowOverlay(pv, i_pitch, i_w, i_h, i_bits, r, g, b,
-				                setVR.fOverlayWidth, setVR.fOverlayDist, b_place);
-			});
-			bOverlayShown = true;
+				bool b_place = !bOverlayShown;
+				bReadBackBuffer([&](const void* pv, int i_pitch, int i_w, int i_h, int i_bits, uint32_t r, uint32_t g, uint32_t b)
+				{
+					VRB_ShowOverlay(pv, i_pitch, i_w, i_h, i_bits, r, g, b,
+					                setVR.fOverlayWidth, setVR.fOverlayDist, b_place);
+				});
+				bOverlayShown = true;
+				d_last_update = d_start;
+				adTimingMs[etOVERLAY] += dNowMs() - d_start;
+			}
 			PumpMenuLaser();
 		}
 		bStereoThisFrame = false;
+		iTimingFlips++;
+		TimingReport();
 	}
 }
 
@@ -908,8 +977,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (!bActive)
 		return false;
 
+	double d_frame_start = dNowMs();
+	if (dLastFrameEnd > 0)
+		adTimingMs[etGAP] += d_frame_start - dLastFrameEnd;
+
 	SVRFrame fr;
-	if (!VRB_BeginFrame(fr))
+	bool b_frame_ok = VRB_BeginFrame(fr);
+	adTimingMs[etWAIT] += dNowMs() - d_frame_start;
+	if (!b_frame_ok)
 	{
 		if (VRB_QuitRequested())
 		{
@@ -1146,7 +1221,10 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		if (i_eye == 1)
 			d3dDriver.ClearZBuffer();
 
+		double d_t0 = dNowMs();
 		paint_scene();
+		double d_t1 = dNowMs();
+		adTimingMs[etPAINT] += d_t1 - d_t0;
 
 		bReadBackBuffer([&](const void* pv, int i_pitch, int i_w, int i_h, int i_bits, uint32_t r, uint32_t g, uint32_t b)
 		{
@@ -1155,7 +1233,10 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 				Log("Back buffer %dx%d, %d bpp, masks R%08X G%08X B%08X.", i_w, i_h, i_bits, r, g, b);
 				b_logged_format = true;
 			}
+			double d_t2 = dNowMs();
+			adTimingMs[etREADBACK] += d_t2 - d_t1;
 			VRB_SubmitEye(i_eye, pv, i_pitch, i_w, i_h, i_bits, r, g, b);
+			adTimingMs[etSUBMIT] += dNowMs() - d_t2;
 		});
 	}
 
@@ -1169,5 +1250,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	pcam->SetRelative(p3_camera_relative);
 
 	bStereoThisFrame = true;
+	iTimingFrames++;
+	dLastFrameEnd = dNowMs();
+	adTimingMs[etFRAME] += dLastFrameEnd - d_frame_start;
 	return true;
 }

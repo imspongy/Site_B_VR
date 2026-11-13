@@ -25,6 +25,7 @@
 #include "../Lib/Sys/reg.h"
 #include "../Lib/Sys/RegInit.hpp"
 #include "Lib/Sys/DWSizeStruct.hpp"
+#include "VRMod.h"
 
 
 extern HINSTANCE    g_hInst;
@@ -308,8 +309,9 @@ BOOL CVideoWnd::Play(LPCSTR pszFile)
 		}
 		while (hr == DDERR_SURFACELOST);
 
-        if ((LPBYTE)dds.lpSurface == NULL)
+        if ((LPBYTE)dds.lpSurface == NULL && !VRMod_Active())
         {
+            // (In VR, videos must go through the back buffer so they reach the headset.)
             Trace(("Video going Direct to primary surface"));
             m_fDirect = TRUE;
         }
