@@ -654,8 +654,10 @@ public:
 				// VR: Anne's body is steered to follow the headset, which knocks her feet and body
 				// against the ground far harder than normal walking.  Only a real fall hurts.
 				if (gVR.bActive && this == gpPlayer &&
-					((pbb_us && pbb_us->ebbElement == ebbFOOT) || ptCast<CTerrain>(pins_other)))
+					(gVR.pvKinInstance || (pbb_us && pbb_us->ebbElement == ebbFOOT) || ptCast<CTerrain>(pins_other)))
 				{
+					// (While the VR character controller holds her body, the physics boxes can be
+					// pressed into things; bumps from objects don't hurt.  Dinosaurs and guns do.)
 					// (Falls are handled by the VR character controller.)
 					return;
 				}

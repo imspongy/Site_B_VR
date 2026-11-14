@@ -135,6 +135,7 @@ namespace
 	bool        bStereoThisFrame = false;
 	bool        bHardwareWanted = false;	// ini: HardwareRendering.
 	bool        bOverlayShown = false;
+	int         iOverlayX0 = 0, iOverlayY0 = 0, iOverlayH = 480;	// Part of the screen shown on the menu overlay.
 
 	SVRFrame    frLast;					// Most recent frame data (also read by the input hook).
 
@@ -465,7 +466,8 @@ namespace
 				qdQualitySettings[i].fCullDistScale        = aqd_orig[i].fCullDistScale * f_dd;
 				qdQualitySettings[i].fCullShadowDistScale  = aqd_orig[i].fCullShadowDistScale * (std::min)(f_dd, 2.0f);
 				qdQualitySettings[i].fDetailReductionScale = aqd_orig[i].fDetailReductionScale * f_dd * f_dd;
-				qdQualitySettings[i].fFarClipScale         = (std::min)(1.0f, aqd_orig[i].fFarClipScale * f_dd);
+				// (Fog is a fraction of the far clip distance, so the haze moves out with it.)
+				qdQualitySettings[i].fFarClipScale         = f_dd <= 1.0f ? aqd_orig[i].fFarClipScale * f_dd : (std::min)(2.5f, 1.0f + (f_dd - 1.0f) * 0.3f);
 				qdQualitySettings[i].fTerrainDistanceScale = aqd_orig[i].fTerrainDistanceScale * (std::min)(f_dd, 2.0f);
 			}
 		}
@@ -807,9 +809,9 @@ namespace
 				continue;
 
 			// In game screen pixels: the menus don't depend on the monitor or window size.
-			float f_y = setVR.bMenuFlipY ? (prasMainScreen->iHeight - ev.fY) : ev.fY;
-			int i_x = (int)ev.fX;
-			int i_y = (int)f_y;
+			float f_y = setVR.bMenuFlipY ? (iOverlayH - ev.fY) : ev.fY;
+			int i_x = (int)ev.fX + iOverlayX0;
+			int i_y = (int)f_y + iOverlayY0;
 			gVR.aiMenuCursor[0] = i_x;
 			gVR.aiMenuCursor[1] = i_y;
 			gVR.bMenuCursor = true;
@@ -859,7 +861,14 @@ namespace
 				bool b_place = !bOverlayShown;
 				bReadBackBuffer([&](const void* pv, int i_pitch, int i_w, int i_h, int i_bits, uint32_t r, uint32_t g, uint32_t b)
 				{
-					VRB_ShowOverlay(pv, i_pitch, i_w, i_h, i_bits, r, g, b,
+					// Menus, loading screens and videos are 640x480 in the middle of the screen:
+					// show just that part, so they stay the same size at any render resolution.
+					int i_cw = (std::min)(i_w, 656), i_ch = (std::min)(i_h, 496);
+					iOverlayX0 = (i_w - i_cw) / 2;
+					iOverlayY0 = (i_h - i_ch) / 2;
+					iOverlayH  = i_ch;
+					const void* pv_crop = (const unsigned char*)pv + (size_t)iOverlayY0 * i_pitch + (size_t)iOverlayX0 * (i_bits / 8);
+					VRB_ShowOverlay(pv_crop, i_pitch, i_cw, i_ch, i_bits, r, g, b,
 					                setVR.fOverlayWidth, setVR.fOverlayDist, b_place);
 				});
 				bOverlayShown = true;

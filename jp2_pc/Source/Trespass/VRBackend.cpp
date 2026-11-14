@@ -22,6 +22,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <thread>
 
 #include "openvr.h"
 #include "VRBackend.h"
@@ -870,12 +871,28 @@ namespace
 		{
 			BuildLut16(u4_red_mask, u4_green_mask, u4_blue_mask);
 			const uint32_t* pu4_lut = au4Lut16.data();
-			for (int y = 0; y < i_height; y++)
+			auto rows = [=](int y0, int y1)
 			{
-				const uint16_t* pu2_src = (const uint16_t*)((const uint8_t*)pv_pixels + (size_t)y * i_pitch_bytes);
-				uint32_t* pu4_row = pu4_dst + (size_t)y * i_width;
-				for (int x = 0; x < i_width; x++)
-					pu4_row[x] = pu4_lut[pu2_src[x]];
+				for (int y = y0; y < y1; y++)
+				{
+					const uint16_t* pu2_src = (const uint16_t*)((const uint8_t*)pv_pixels + (size_t)y * i_pitch_bytes);
+					uint32_t* pu4_row = pu4_dst + (size_t)y * i_width;
+					for (int x = 0; x < i_width; x++)
+						pu4_row[x] = pu4_lut[pu2_src[x]];
+				}
+			};
+			// Big frames are converted on several cores.
+			const int iTHREADS = (size_t)i_width * i_height > 600000 ? 6 : 1;
+			if (iTHREADS == 1)
+				rows(0, i_height);
+			else
+			{
+				std::thread ath[8];
+				for (int t = 1; t < iTHREADS; t++)
+					ath[t] = std::thread(rows, i_height * t / iTHREADS, i_height * (t + 1) / iTHREADS);
+				rows(0, i_height / iTHREADS);
+				for (int t = 1; t < iTHREADS; t++)
+					ath[t].join();
 			}
 		}
 		else if (i_bits == 32 || i_bits == 24)

@@ -2109,9 +2109,13 @@ private:
 	virtual void HandleDamage(float f_damage, const CInstance* pins_aggressor, const CInstance* pins_me) override
 	{
 		if (gVR.pfnLog)
+		{
+			// (The name function reuses one buffer, so copy each name.)
+			std::string str_me  = pins_me ? pins_me->strGetInstanceName() : "?";
+			std::string str_agg = pins_aggressor ? pins_aggressor->strGetInstanceName() : "?";
 			gVR.pfnLog("Damage: %.1f to %s from %s (health now %.1f of %.1f).", f_damage,
-				pins_me ? pins_me->strGetInstanceName() : "?",
-				pins_aggressor ? pins_aggressor->strGetInstanceName() : "?", fHitPoints, fMaxHitPoints);
+				str_me.c_str(), str_agg.c_str(), fHitPoints, fMaxHitPoints);
+		}
 
 		// What were my hit points before?
 		Assert(fMaxHitPoints > 0.0f);
@@ -4785,6 +4789,14 @@ private:
 					float f_room = pobl->rDist - 0.15f - fRADIUS;
 					if (f_room < f_allowed)
 					{
+						static TSec s_last_block = -100;
+						if (gVR.pfnLog && f_room < f_len * 0.5f && CMessageStep::sStaticTotal - s_last_block > 2.0)
+						{
+							s_last_block = CMessageStep::sStaticTotal;
+							std::string str_name = pobl->pinsObject->strGetInstanceName();
+							gVR.pfnLog("Body: blocked by %s at %.2f m (height %.2f, face %.2f %.2f %.2f).", str_name.c_str(),
+								pobl->rDist, af_heights[i], pobl->d3Face.tX, pobl->d3Face.tY, pobl->d3Face.tZ);
+						}
 						f_allowed = f_room;
 						v3_normal = CVector3<>(pobl->d3Face.tX, pobl->d3Face.tY, 0);
 					}
