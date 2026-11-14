@@ -614,7 +614,9 @@ namespace
 		// Terrain textures, lowest first.
 		std::stable_sort(apins_trr.begin(), apins_trr.end(), [](CInstance* a, CInstance* b)
 		{
-			return ptCast<CTerrainObj>(a)->iHeight < ptCast<CTerrainObj>(b)->iHeight;
+			CTerrainObj* pa = ptCast<CTerrainObj>(a);
+			CTerrainObj* pb = ptCast<CTerrainObj>(b);
+			return pa->iHeight < pb->iHeight;
 		});
 		int i_decals = 0;
 		for (CInstance* pins : apins_trr)
