@@ -1321,6 +1321,8 @@ private:
 	CVRLeftArm*    pvrlaLeftArm = nullptr;
 	rptr<CRenderType> prdtLeftArmMesh;
 	TSec           sVRBrakeUntil = -100;
+	bool           bVRBodyShifted = false;
+	CPresence3<>   pr3VRRealPresence;
 
 	//*****************************************************************************************
 	void HandleSwing(const CMessageControl& msgc, bool b_use);
@@ -4625,6 +4627,21 @@ private:
 			return;
 
 		CVector3<> v3_body = p3GetPlacement().v3Pos;
+
+		// Track how fast she has recently been falling (decays over about half a second).
+		{
+			static float f_prev_z = 0;
+			static bool  b_prev = false;
+			float f_dt = (float)CMessageStep::sStaticStep;
+			float f_down = (b_prev && f_dt > 0.0001f) ? (f_prev_z - v3_body.tZ) / f_dt : 0.0f;
+			if (f_down > 30.0f)
+				f_down = 0;		// Teleported.
+			gVR.fFallSpeed = Max(f_down, gVR.fFallSpeed - 12.0f * f_dt);
+			if (gVR.fFallSpeed < 0)
+				gVR.fFallSpeed = 0;
+			f_prev_z = v3_body.tZ;
+			b_prev = true;
+		}
 		CVector3<> v3_to(gVR.afBodyTarget[0] - v3_body.tX, gVR.afBodyTarget[1] - v3_body.tY, 0);
 		float f_dist = v3_to.tLen();
 
@@ -4782,6 +4799,11 @@ private:
 		// (Despite the name, this poses both arms for the VR view.)
 		if (!b_show)
 		{
+			if (bVRBodyShifted)
+			{
+				SetPresence(pr3VRRealPresence);
+				bVRBodyShifted = false;
+			}
 			if (pvrlaLeftArm && pvrlaLeftArm->bInWorld)
 			{
 				wWorld.Remove(pvrlaLeftArm);
@@ -4831,6 +4853,43 @@ private:
 		atf3_ref.resize(i_transforms);
 		for (int j = 0; j < i_transforms; j++)
 			atf3_ref[j] = sriBones.patf3JointTransforms[j];
+
+		// Draw the body directly under the headset, wherever the physics body has got to (it
+		// trails a little when you move).  Put back after the view is drawn.
+		if (gVR.bBodyTargetValid && !bVRBodyShifted)
+		{
+			pr3VRRealPresence = pr3GetPresence();
+			CVector3<> v3_shift(gVR.afBodyTarget[0] - pr3VRRealPresence.v3Pos.tX,
+			                    gVR.afBodyTarget[1] - pr3VRRealPresence.v3Pos.tY, 0);
+			if (v3_shift.tLen() < 1.0f)
+			{
+				CPresence3<> pr3_shifted = pr3VRRealPresence;
+				pr3_shifted.v3Pos += v3_shift;
+				SetPresence(pr3_shifted);
+				bVRBodyShifted = true;
+			}
+		}
+
+		// The stub of Anne's own left arm is hidden while the VR left arm is shown.
+		if (gVR.bLeftArm && gVR.abHandValid[1] && !gVR.bLeftArmTest)
+		{
+			float f_right_x = atf3_ref[10].v3Pos.tX;
+			for (int j = 14; j < pbm->iJoints && j < i_transforms; j++)
+			{
+				float f_x = atf3_ref[j].v3Pos.tX;
+				if (f_x * f_right_x < 0 && fabs(f_x) > 0.5f * fabs(f_right_x))
+				{
+					CMatrix3<> mx3_tiny;
+					mx3_tiny.v3X = CVector3<>(0.001f, 0, 0);
+					mx3_tiny.v3Y = CVector3<>(0, 0.001f, 0);
+					mx3_tiny.v3Z = CVector3<>(0, 0, 0.001f);
+					CVector3<> v3_in = atf3_ref[j].v3Pos;
+					v3_in.tX *= 0.5f;		// Tucked inside the chest.
+					sriBones.patf3JointTransforms[j] = CTransform3<>(mx3_tiny, v3_in);
+					bSkeletonUpdated = true;
+				}
+			}
+		}
 
 		// Hand targets: the controllers, or under the gun grip when steadying a pistol.
 		CPlacement3<> ap3_target[2] = { p3VRController(0), p3VRController(1) };

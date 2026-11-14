@@ -49,6 +49,7 @@
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Sys/RegInit.hpp"
+#include "Lib/EntityDBase/QualitySettings.hpp"
 #include "Lib/Renderer/RenderCacheInterface.hpp"
 #include "Lib/Types/FixedP.hpp"
 #include "Lib/Renderer/Primitives/DrawTriangle.hpp"
@@ -77,7 +78,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 3;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 4;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -112,6 +113,7 @@ namespace
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
+		float fDrawDistance   = 3.0f;	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -343,6 +345,9 @@ namespace
 			"ImageCaches=0\n"
 			"; 1 = haze depends on real distance, so it doesn't change as you turn your head.\n"
 			"RadialFog=1\n"
+			"; How far away objects and buildings are drawn, and how far they keep full detail\n"
+			";     (1 = original game, 3 = three times as far).  Higher costs frame rate.\n"
+			"DrawDistance=3\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -404,6 +409,7 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
+		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 3), 0.5f), 8.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
 		s.fRunSpeed       = fIni(str_file, "RunSpeed", 4.5f);
@@ -439,6 +445,27 @@ namespace
 		gVR.bLeftArm     = setVR.bSecondHand;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 		gVR.fFingerCurl  = 0;
+
+		// Draw distance: scale the game's quality tables (all levels) from their original values.
+		{
+			static QualityData aqd_orig[5];
+			static bool b_saved = false;
+			if (!b_saved)
+			{
+				for (int i = 0; i < 5; i++)
+					aqd_orig[i] = qdQualitySettings[i];
+				b_saved = true;
+			}
+			float f_dd = setVR.bEnabled ? setVR.fDrawDistance : 1.0f;
+			for (int i = 0; i < 5; i++)
+			{
+				qdQualitySettings[i].fCullDistScale        = aqd_orig[i].fCullDistScale * f_dd;
+				qdQualitySettings[i].fCullShadowDistScale  = aqd_orig[i].fCullShadowDistScale * (std::min)(f_dd, 2.0f);
+				qdQualitySettings[i].fDetailReductionScale = aqd_orig[i].fDetailReductionScale * f_dd * f_dd;
+				qdQualitySettings[i].fFarClipScale         = (std::min)(1.0f, aqd_orig[i].fFarClipScale * f_dd);
+				qdQualitySettings[i].fTerrainDistanceScale = aqd_orig[i].fTerrainDistanceScale * (std::min)(f_dd, 2.0f);
+			}
+		}
 		gVR.fHandScale   = (std::min)((std::max)(setVR.fHandScale, 0.3f), 1.5f);
 		gVR.bLeftArmTest = setVR.bLeftArmTest;
 

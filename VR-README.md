@@ -61,6 +61,8 @@ the new defaults (the old one is kept as `TrespasserVR.ini.old`). Highlights:
 - `HandPitch` / `HandYaw` / `HandRoll` to adjust how guns sit in your hand.
 - `SkyMode` (0 solid, 1 gradient, 2 clouds) and `Haptics` (vibration strength).
 - `HandScale` for the size of the drawn hands.
+- `DrawDistance` for how far away objects are drawn (1 = original game).
+- `HardwareRendering=1` (experimental) to draw with the graphics card; restart to apply.
 - `RadialFog` (haze by real distance) and `SharpTextures` (less texture wobble up close).
 
 Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish size such as

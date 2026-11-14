@@ -68,6 +68,7 @@
 #include "Lib/Sys/Profile.hpp"
 #include "Lib/Loader/SaveFile.hpp"
 #include "Lib/GeomDBase/Skeleton.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Lib/GeomDBase/RayCast.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/EntityDBase/Query/QTerrain.hpp"
@@ -650,6 +651,12 @@ public:
 			}
 			else
 			{
+				// VR: Anne's body is steered to follow the headset, which knocks her feet and body
+				// against the ground far harder than normal walking.  Only a real fall hurts.
+				if (gVR.bActive && this == gpPlayer && gVR.fFallSpeed < 6.0f &&
+					((pbb_us && pbb_us->ebbElement == ebbFOOT) || ptCast<CTerrain>(pins_other)))
+					return;
+
 				// Have we already felt this pain?
 				if (f_damage <= fCollideDamageThisFrame)
 					return;

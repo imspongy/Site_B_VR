@@ -70,6 +70,7 @@ struct SVRShared
 	// Where Anne's body should be (under the headset), world space.
 	bool  bBodyTargetValid = false;
 	float afBodyTarget[3] = { 0, 0, 0 };
+	float fFallSpeed = 0;				// Anne's recent downward speed (m/s), for fall damage.
 	float afBodyVel[2] = { 0, 0 };		// How fast the player is moving (stick), world x/y.
 
 	// Instances: the mirrored second arm (flipped culling) and the hand boxes (bullets pass).
