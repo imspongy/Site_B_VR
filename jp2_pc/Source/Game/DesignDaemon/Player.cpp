@@ -1333,6 +1333,8 @@ private:
 	bool           bVRPrevJump = false;
 	TSec           sVRKinStart = 0;
 	bool           bVRBodyShifted = false;
+	bool           bVRYawInit = false;
+	float          fVRYaw = 0;
 	CPresence3<>   pr3VRRealPresence;
 
 	//*****************************************************************************************
@@ -4829,6 +4831,7 @@ private:
 		{
 			fVRVz = sqrtf(2.0f * fGRAVITY * gVR.fJumpHeight);
 			bVRGrounded = false;
+			JumpSound();
 		}
 
 		float f_floor;
@@ -4888,7 +4891,47 @@ private:
 		gVR.afKinVel[1] = v3_vel.tY;
 		gVR.afKinVel[2] = bVRGrounded ? 0.0f : fVRVz;
 		gVR.pvKinInstance = (const void*)static_cast<const CInstance*>(this);
-		PhysicsActivate();
+		gVR.bKinGrounded = bVRGrounded;
+
+		//
+		// Put her body there.  A move from outside the physics system makes it rebuild her
+		// physics body (and its collision boxes) at the new place, standing, every step; the
+		// leg simulation never gets to move her.
+		//
+		CPlacement3<> p3_new = p3GetPlacement();
+
+		// The body turns to face where you look once your head is about 25 degrees off.
+		if (gVR.bHeadValid)
+		{
+			CRotate3<> r3_head(gVR.afHeadRotWorld[0], gVR.afHeadRotWorld[1], gVR.afHeadRotWorld[2], gVR.afHeadRotWorld[3], true);
+			CVector3<> v3_fwd = CVector3<>(0, 1, 0) * r3_head;
+			if (v3_fwd.tX * v3_fwd.tX + v3_fwd.tY * v3_fwd.tY > 0.05f)
+			{
+				float f_head = atan2f(-v3_fwd.tX, v3_fwd.tY);
+				if (!bVRYawInit)
+				{
+					fVRYaw = f_head;
+					bVRYawInit = true;
+				}
+				float f_d = f_head - fVRYaw;
+				while (f_d > 3.14159265f)  f_d -= 6.2831853f;
+				while (f_d < -3.14159265f) f_d += 6.2831853f;
+				const float fTURN = 0.45f;
+				if (f_d > fTURN)
+					fVRYaw += f_d - fTURN;
+				else if (f_d < -fTURN)
+					fVRYaw += f_d + fTURN;
+
+				CRotate3<> r3_yaw(d3ZAxis, CAngle(fVRYaw));
+				CVector3<> v3_test = CVector3<>(0, 1, 0) * r3_yaw;
+				if (v3_test.tX * -sinf(fVRYaw) + v3_test.tY * cosf(fVRYaw) < 0.9f)
+					r3_yaw = CRotate3<>(d3ZAxis, CAngle(-fVRYaw));
+				p3_new.r3Rot = r3_yaw;
+			}
+		}
+
+		p3_new.v3Pos = CVector3<>(gVR.afKinPos[0], gVR.afKinPos[1], gVR.afKinPos[2]);
+		Move(p3_new);
 	}
 
 	//*****************************************************************************************

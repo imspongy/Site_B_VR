@@ -74,6 +74,7 @@ struct SVRShared
 	const void* pvKinInstance = nullptr;	// The player, while pinned.
 	float afKinPos[3] = { 0, 0, 0 };		// Body origin.
 	float afKinVel[3] = { 0, 0, 0 };
+	bool  bKinGrounded = true;			// Controller: standing on something.
 	bool  bJump = false;				// Jump button held.
 	bool  bCrouch = false;				// Crouch toggled on.
 	float fJumpHeight = 1.1f;			// Metres.

@@ -1222,28 +1222,61 @@ void VRB_ShowOverlay
 	pd3dContext->UpdateSubresource(pd3dOverlayTex, 0, nullptr, au4Convert.data(), i_width * 4, 0);
 	pd3dContext->Flush();
 
+	// Where the head is and which way it faces.
+	vr::TrackedDevicePose_t tdp;
+	pvrSystem->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &tdp, 1);
+	float fx = 0, fz = -1, px = 0, py = 1.6f, pz = 0;
+	if (tdp.bPoseIsValid)
+	{
+		const vr::HmdMatrix34_t& m = tdp.mDeviceToAbsoluteTracking;
+		fx = -m.m[0][2];
+		fz = -m.m[2][2];
+		float f_len = std::sqrt(fx * fx + fz * fz);
+		if (f_len < 1e-3f)
+		{
+			fx = 0; fz = -1;
+		}
+		else
+		{
+			fx /= f_len; fz /= f_len;
+		}
+		px = m.m[0][3]; py = m.m[1][3]; pz = m.m[2][3];
+	}
+
+	// Bring the screen back in front of you if you have turned or walked away from it for a
+	// second or so (or the headset was not being worn when it was placed).
+	{
+		static float f_sx = 0, f_sy = 0, f_sz = 0;
+		static ULONGLONG u8_away_since = 0;
+		static bool b_was_valid = false;
+		bool b_away = false;
+		if (tdp.bPoseIsValid && !b_place)
+		{
+			float dx = f_sx - px, dz = f_sz - pz;
+			float f_dist = std::sqrt(dx * dx + dz * dz);
+			float f_dot = f_dist > 0.01f ? (dx * fx + dz * fz) / f_dist : 1.0f;
+			b_away = f_dot < 0.6f || f_dist > f_distance_m + 1.2f || std::fabs(f_sy - py) > 0.6f || !b_was_valid;
+		}
+		ULONGLONG u8_now = GetTickCount64();
+		if (!b_away)
+			u8_away_since = 0;
+		else if (u8_away_since == 0)
+			u8_away_since = u8_now;
+		else if (u8_now - u8_away_since > 1200)
+			b_place = true;
+		if (b_place)
+		{
+			f_sx = px + fx * f_distance_m;
+			f_sy = py;
+			f_sz = pz + fz * f_distance_m;
+			u8_away_since = 0;
+			b_was_valid = tdp.bPoseIsValid;
+		}
+	}
+
 	if (b_place)
 	{
 		// Place the screen in front of the head, level, facing the player.
-		vr::TrackedDevicePose_t tdp;
-		pvrSystem->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &tdp, 1);
-		float fx = 0, fz = -1, px = 0, py = 1.6f, pz = 0;
-		if (tdp.bPoseIsValid)
-		{
-			const vr::HmdMatrix34_t& m = tdp.mDeviceToAbsoluteTracking;
-			fx = -m.m[0][2];
-			fz = -m.m[2][2];
-			float f_len = std::sqrt(fx * fx + fz * fz);
-			if (f_len < 1e-3f)
-			{
-				fx = 0; fz = -1;
-			}
-			else
-			{
-				fx /= f_len; fz /= f_len;
-			}
-			px = m.m[0][3]; py = m.m[1][3]; pz = m.m[2][3];
-		}
 		// Overlay faces +z; rotate about y so +z points back at the player (-forward).
 		vr::HmdMatrix34_t mx = {};
 		// x axis = right = (-fz, 0, fx); z axis = -forward = (-fx, 0, -fz).

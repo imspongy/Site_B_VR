@@ -1143,6 +1143,15 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		float f_target_z = v3_cam_pos.tZ;
 		if (!bBaseZInit || std::fabs(f_target_z - fBaseZ) > 1.5f)
 			fBaseZ = f_target_z;
+		else if (gVR.pvKinInstance)
+		{
+			// Character controller: jumps and falls are followed exactly; steps and crouching
+			// are eased just enough not to jolt.
+			if (!gVR.bKinGrounded)
+				fBaseZ = f_target_z;
+			else
+				fBaseZ += (f_target_z - fBaseZ) * (1.0f - std::exp(-f_dt / 0.07f));
+		}
 		else if (setVR.fHeightSmoothing > 0.001f)
 		{
 			// Small changes (her walking bob) are smoothed away; big ones (crouch, jump, a
