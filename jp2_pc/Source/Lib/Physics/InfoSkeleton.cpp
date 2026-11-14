@@ -1592,6 +1592,7 @@ bool bVRSetSkeletonWalkVelocity(const CInstance* pins, float f_vx, float f_vy)
 	if (i_pel < 0 || i_pel >= NUM_PELVISES)
 		return false;
 	abVRWalk[i_pel] = true;
+	gVR.iPlayerPelvis = i_pel;
 	afVRWalk[i_pel][0] = f_vx;
 	afVRWalk[i_pel][1] = f_vy;
 	return true;
@@ -1615,7 +1616,7 @@ static void VRWalkOverride(int i_index, CDir3<>& d3_move, float& f_move_sp)
 	float f_speed = sqrtf(f_wx * f_wx + f_wy * f_wy);
 	// Never push harder than the original game's full run (Kontrol 60, about 3.7 m/s): more
 	// than that tips her over and hurts her feet.
-	const float f_max = 60.0f * 24.5f / 400.0f;
+	const float f_max = 76.0f * 24.5f / 400.0f;
 	if (f_speed > f_max)
 	{
 		f_wx *= f_max / f_speed;

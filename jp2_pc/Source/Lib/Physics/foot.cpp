@@ -6,6 +6,7 @@
 #include "Lib/Sys/ConIO.hpp"
 #include "pelvis.h"
 #include "futil.h"
+#include "Lib/Control/VRShared.hpp"
 #include "Xob_bc.hpp"
 #include "PhysicsImport.hpp"
 #include "Lib/Std/Set.hpp"
@@ -1317,7 +1318,7 @@ extern bool	OKtoJUMP;
 				{
 					Pel[pelvis][(RIGHT_FOOT+0)][1] = Pel[pelvis][(BODY+0)][1] += 4 * Pelvis_Jump[0];
 					Pel[pelvis][(RIGHT_FOOT+1)][1] = Pel[pelvis][(BODY+1)][1] += 4 * Pelvis_Jump[1];
-					Pel[pelvis][(RIGHT_FOOT+2)][1] = Pel[pelvis][(BODY+2)][1]  = 4 * Pelvis_Jump[2];
+					Pel[pelvis][(RIGHT_FOOT+2)][1] = Pel[pelvis][(BODY+2)][1]  = 4 * Pelvis_Jump[2] * (gVR.bActive && pelvis == gVR.iPlayerPelvis ? gVR.fJumpScale : 1.0f);
 					Pelvis_Jump[0] = Pelvis_Jump[1] = Pelvis_Jump[2] = 0;
 					if (Pelvis_Jump_Voluntary)
 						NPhysImport::MakePlayerJumpNoise();

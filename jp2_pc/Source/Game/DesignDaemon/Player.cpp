@@ -4651,8 +4651,8 @@ private:
 			// Walk with her own legs (the walk controller keeps her balanced): at the player's
 			// own speed, plus a gentle pull to close the gap.
 			CVector3<> v3_vel = CVector3<>(gVR.afBodyVel[0], gVR.afBodyVel[1], 0) + v3_to / 0.3f;
-			if (v3_vel.tLen() > 3.7f)
-				v3_vel *= 3.7f / v3_vel.tLen();
+			if (v3_vel.tLen() > 4.65f)
+				v3_vel *= 4.65f / v3_vel.tLen();
 			bVRSetSkeletonWalkVelocity(this, v3_vel.tX, v3_vel.tY);
 		}
 	}
@@ -4683,8 +4683,10 @@ private:
 			return;
 
 		// The reference hand frame (the physics hand box).
-		CVector3<> v3_hand_r = v3Obj(pinsHand->v3Pos());
-		CRotate3<> r3_hand_r = pinsHand->r3Rot() / pr3.r3Rot;
+		// (Measured from where the physics body really is, not where the body is drawn.)
+		const CPresence3<>& pr3_real = bVRBodyShifted ? pr3VRRealPresence : pr3;
+		CVector3<> v3_hand_r = ((pinsHand->v3Pos() - pr3_real.v3Pos) / pr3_real.r3Rot) * r_inv_scale;
+		CRotate3<> r3_hand_r = pinsHand->r3Rot() / pr3_real.r3Rot;
 
 		CVector3<> v3_t = v3Obj(p3_target.v3Pos);
 		CRotate3<> r3_t = p3_target.r3Rot / pr3.r3Rot;
@@ -4860,7 +4862,7 @@ private:
 		{
 			pr3VRRealPresence = pr3GetPresence();
 			CVector3<> v3_shift(gVR.afBodyTarget[0] - pr3VRRealPresence.v3Pos.tX,
-			                    gVR.afBodyTarget[1] - pr3VRRealPresence.v3Pos.tY, 0);
+			                    gVR.afBodyTarget[1] - pr3VRRealPresence.v3Pos.tY, gVR.fBodyZShift);
 			if (v3_shift.tLen() < 1.0f)
 			{
 				CPresence3<> pr3_shifted = pr3VRRealPresence;
@@ -4870,25 +4872,46 @@ private:
 			}
 		}
 
-		// The stub of Anne's own left arm is hidden while the VR left arm is shown.
-		if (gVR.bLeftArm && gVR.abHandValid[1] && !gVR.bLeftArmTest)
+		// The stub of Anne's own left arm is not drawn while the VR left arm is shown: every
+		// polygon lying wholly beyond the left shoulder is flagged, once per mesh.
 		{
-			float f_right_x = atf3_ref[10].v3Pos.tX;
-			for (int j = 14; j < pbm->iJoints && j < i_transforms; j++)
+			static std::vector<unsigned char> au1_stub;
+			static const void* pv_stub_mesh = nullptr;
+			if (pv_stub_mesh != (const void*)pbm.ptGet())
 			{
-				float f_x = atf3_ref[j].v3Pos.tX;
-				if (f_x * f_right_x < 0 && fabs(f_x) > 0.5f * fabs(f_right_x))
+				pv_stub_mesh = (const void*)pbm.ptGet();
+				au1_stub.assign(pbm->pampPolygons.uLen, 0);
+				float f_xs = atf3_ref[10].v3Pos.tX;
+				float f_sign = f_xs >= 0 ? 1.0f : -1.0f;
+				float f_limit = 0.85f * fabs(f_xs);
+				int i_count = 0;
+				for (uint u = 0; u < pbm->pampPolygons.uLen; u++)
 				{
-					CMatrix3<> mx3_tiny;
-					mx3_tiny.v3X = CVector3<>(0.001f, 0, 0);
-					mx3_tiny.v3Y = CVector3<>(0, 0.001f, 0);
-					mx3_tiny.v3Z = CVector3<>(0, 0, 0.001f);
-					CVector3<> v3_in = atf3_ref[j].v3Pos;
-					v3_in.tX *= 0.5f;		// Tucked inside the chest.
-					sriBones.patf3JointTransforms[j] = CTransform3<>(mx3_tiny, v3_in);
-					bSkeletonUpdated = true;
+					const CMesh::SPolygon& mp = pbm->pampPolygons[u];
+					bool b_stub = mp.papmvVertices.uLen > 0;
+					for (uint v = 0; v < mp.papmvVertices.uLen && b_stub; v++)
+					{
+						uint u_pt = mp.papmvVertices[v]->u4ShapePoint;
+						int i_joint = pbm->pauJoints[u_pt];
+						if (i_joint < 0 || i_joint >= i_transforms)
+						{
+							b_stub = false;
+							break;
+						}
+						CVector3<> v3 = pbm->pav3Points[u_pt] * atf3_ref[i_joint];
+						if (v3.tX * f_sign > -f_limit)
+							b_stub = false;
+					}
+					au1_stub[u] = b_stub ? 1 : 0;
+					i_count += b_stub ? 1 : 0;
 				}
+				if (gVR.pfnLog)
+					gVR.pfnLog("Arms: hiding %d of %d polygons as the left arm stub (shoulder x %.3f).", i_count, (int)au1_stub.size(), f_xs);
 			}
+			bool b_hide = gVR.bLeftArm && gVR.abHandValid[1] && !gVR.bLeftArmTest && !au1_stub.empty();
+			gVR.pu1StubPolys = b_hide ? &au1_stub[0] : nullptr;
+			gVR.iStubPolys = (int)au1_stub.size();
+			gVR.pvStubInstance = b_hide ? (const void*)static_cast<const CInstance*>(this) : nullptr;
 		}
 
 		// Hand targets: the controllers, or under the gun grip when steadying a pistol.

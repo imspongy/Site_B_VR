@@ -60,7 +60,7 @@
 // Constants.
 //
 const float fMinCullingDistance       = 20.0f;
-const float fMaxCullingDistance       = 900.0f;
+const float fMaxCullingDistance       = 2500.0f;
 const float fMinCullingDistanceShadow = 10.0f;
 const float fMaxCullingDistanceShadow = 200.0f;
 

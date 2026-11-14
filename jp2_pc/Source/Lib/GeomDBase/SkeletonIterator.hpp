@@ -77,6 +77,7 @@
 		CPArray< CTransform3<> > patf3Joints;	// The bones of the instance.
 		CPArray<SClipPoint> paclptPoints;		// Copied pointer to clip-point array.
 		bool bMirror;							// VR mod: instance is drawn mirrored.
+		bool bHideStub;							// VR mod: skip the polygons flagged in gVR.pu1StubPolys.
 		CMesh::SVertex* apmvMirror[32];			// VR mod: the current polygon's vertices, reversed.
 
 	public:
@@ -94,8 +95,12 @@
 		// rasteriser rejects.  Hand out the vertices in reverse order to put them right.
 		bool bNext()
 		{
-			if (!CMesh::CPolyIterator::bNext())
-				return false;
+			do
+			{
+				if (!CMesh::CPolyIterator::bNext())
+					return false;
+			}
+			while (bHideStub && gVR.pu1StubPolys[pmpCurrent - &mshMesh.pampPolygons[0]]);
 			if (bMirror)
 			{
 				int i_n = papmvVertices.uLen;

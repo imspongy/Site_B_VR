@@ -219,7 +219,8 @@
 		//******************************************************************************************
 		CBioMesh::CPolyIterator::CPolyIterator(const CBioMesh& bmsh, const CInstance* pins, const CRenderContext* prenc)
 			: CMeshAnimating::CPolyIterator(bmsh, pins, prenc), bmshMesh(bmsh),
-			  bMirror(pins && pins == gVR.pvMirrorInstance)
+			  bMirror(pins && pins == gVR.pvMirrorInstance),
+			  bHideStub(pins && pins == gVR.pvStubInstance && gVR.pu1StubPolys && gVR.iStubPolys == (int)bmsh.pampPolygons.uLen)
 		{
 			// We must update the bio-mesh with new joint data before rendering.
 			const CPhysicsInfoSkeleton* pphis = pins->pphiGetPhysicsInfo()->ppisCast();

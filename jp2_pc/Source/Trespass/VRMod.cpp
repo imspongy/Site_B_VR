@@ -109,11 +109,11 @@ namespace
 		float fTurnDeadzone   = 0.2f;
 
 		float fBodyLeash      = 0.4f;	// How far your head may get from Anne's body (blocked).
-		float fHeightSmoothing = 0.15f;	// Seconds; smooths view height on stairs and slopes.
+		float fHeightSmoothing = 0.5f;	// Seconds; smooths view height on stairs and slopes.
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
-		float fDrawDistance   = 3.0f;	// Multiplier on how far away objects are drawn.
+		float fDrawDistance   = 6.0f;	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -290,17 +290,19 @@ namespace
 			"; --- Movement ---\n"
 			"; Walking speed (metres per second) with the stick pushed all the way.\n"
 			"MoveSpeed=2.2\n"
-			"; Sprint speed, 3.6 at most (click the walk stick to sprint; letting go of the stick stops it).\n"
-			"RunSpeed=3.6\n"
+			"; Sprint speed, 4.5 at most (click the walk stick to sprint; letting go of the stick stops it).\n"
+			"RunSpeed=4.5\n"
 			"; How quickly you speed up and slow down (seconds). 0 = instant.\n"
 			"MoveAcceleration=0.15\n"
 			"MoveDeadzone=0.12\n"
+			"; Jump height (1 = original game).\n"
+			"JumpHeight=2\n"
 			"; 0 = walk where you look, 1 = walk where your off hand points.\n"
 			"MoveWithHand=0\n"
 			"; How far (metres) your head can go from Anne's body when she is blocked by a wall.\n"
 			"BodyLeash=0.4\n"
 			"; Seconds of smoothing on view height over stairs and slopes (0 = none).\n"
-			"HeightSmoothing=0.15\n"
+			"HeightSmoothing=0.5\n"
 			"\n"
 			"; --- Turning ---\n"
 			"; 0 = snap turn, 1 = smooth turn.\n"
@@ -347,7 +349,7 @@ namespace
 			"RadialFog=1\n"
 			"; How far away objects and buildings are drawn, and how far they keep full detail\n"
 			";     (1 = original game, 3 = three times as far).  Higher costs frame rate.\n"
-			"DrawDistance=3\n"
+			"DrawDistance=6\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -409,7 +411,7 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
-		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 3), 0.5f), 8.0f);
+		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 6), 0.5f), 8.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
 		s.fRunSpeed       = fIni(str_file, "RunSpeed", 4.5f);
@@ -420,7 +422,7 @@ namespace
 		s.fSmoothTurnDeg  = fIni(str_file, "SmoothTurnSpeed", 150);
 		s.fTurnDeadzone   = fIni(str_file, "TurnDeadzone", 0.2f);
 		s.fBodyLeash      = fIni(str_file, "BodyLeash", 0.4f);
-		s.fHeightSmoothing = fIni(str_file, "HeightSmoothing", 0.15f);
+		s.fHeightSmoothing = fIni(str_file, "HeightSmoothing", 0.5f);
 		s.iSkyMode        = (int)fIni(str_file, "SkyMode", 2);
 		s.bImageCaches    = fIni(str_file, "ImageCaches", 0) != 0;
 		s.bMirrorToMonitor = fIni(str_file, "MirrorToMonitor", 0) != 0;
@@ -436,8 +438,8 @@ namespace
 		s.fTurnDeadzone = (std::min)((std::max)(s.fTurnDeadzone, 0.0f), 0.9f);
 		s.fBodyLeash    = (std::max)(s.fBodyLeash, 0.1f);
 		// Anne's legs top out at about 3.7 m/s (the original game's run).
-		s.fRunSpeed     = (std::min)(s.fRunSpeed, 3.6f);
-		s.fMoveSpeed    = (std::min)(s.fMoveSpeed, 3.6f);
+		s.fRunSpeed     = (std::min)(s.fRunSpeed, 4.5f);
+		s.fMoveSpeed    = (std::min)(s.fMoveSpeed, 4.5f);
 		setVR = s;
 
 		gVR.bMotionHand  = true;
@@ -445,6 +447,7 @@ namespace
 		gVR.bLeftArm     = setVR.bSecondHand;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 		gVR.fFingerCurl  = 0;
+		gVR.fJumpScale   = std::sqrt((std::min)((std::max)(fIni(str_file, "JumpHeight", 2), 0.5f), 6.0f));
 
 		// Draw distance: scale the game's quality tables (all levels) from their original values.
 		{
@@ -1133,11 +1136,19 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		if (!bBaseZInit || std::fabs(f_target_z - fBaseZ) > 1.5f)
 			fBaseZ = f_target_z;
 		else if (setVR.fHeightSmoothing > 0.001f)
-			fBaseZ += (f_target_z - fBaseZ) * (1.0f - std::exp(-f_dt / setVR.fHeightSmoothing));
+		{
+			// Small changes (her walking bob) are smoothed away; big ones (crouch, jump, a
+			// drop) are followed quickly.
+			float f_diff = std::fabs(f_target_z - fBaseZ);
+			float f_t = (std::min)(1.0f, (std::max)(0.0f, (f_diff - 0.12f) / 0.25f));
+			float f_tau = setVR.fHeightSmoothing + (0.05f - setVR.fHeightSmoothing) * f_t;
+			fBaseZ += (f_target_z - fBaseZ) * (1.0f - std::exp(-f_dt / (std::max)(f_tau, 0.01f)));
+		}
 		else
 			fBaseZ = f_target_z;
 		bBaseZInit = true;
 		v3Origin.tZ = fBaseZ - v3Calib.tZ;
+		gVR.fBodyZShift = fBaseZ - f_target_z;
 
 		//
 		// Body: Anne stands under your head.  If she can't get there (blocked), pull the room

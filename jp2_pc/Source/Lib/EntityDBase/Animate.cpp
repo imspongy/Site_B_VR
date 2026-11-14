@@ -653,9 +653,14 @@ public:
 			{
 				// VR: Anne's body is steered to follow the headset, which knocks her feet and body
 				// against the ground far harder than normal walking.  Only a real fall hurts.
-				if (gVR.bActive && this == gpPlayer && gVR.fFallSpeed < 6.0f &&
+				if (gVR.bActive && this == gpPlayer &&
 					((pbb_us && pbb_us->ebbElement == ebbFOOT) || ptCast<CTerrain>(pins_other)))
-					return;
+				{
+					// Falls: nothing below about 4 m (9 m/s), and a third of the original beyond.
+					if (gVR.fFallSpeed < 9.0f)
+						return;
+					f_damage *= 0.35f;
+				}
 
 				// Have we already felt this pain?
 				if (f_damage <= fCollideDamageThisFrame)

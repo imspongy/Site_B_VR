@@ -70,6 +70,12 @@ struct SVRShared
 	// Where Anne's body should be (under the headset), world space.
 	bool  bBodyTargetValid = false;
 	float afBodyTarget[3] = { 0, 0, 0 };
+	float fBodyZShift = 0;				// Drawn body height minus physics body height (view smoothing).
+	int   iPlayerPelvis = -1;			// Physics skeleton index of the player.
+	float fJumpScale = 1.4f;			// Jump take-off speed multiplier.
+	const void* pvStubInstance = nullptr;		// Instance whose flagged polygons are not drawn (Anne's arm stub).
+	const unsigned char* pu1StubPolys = nullptr;	// One flag per mesh polygon.
+	int   iStubPolys = 0;
 	float fFallSpeed = 0;				// Anne's recent downward speed (m/s), for fall damage.
 	float afBodyVel[2] = { 0, 0 };		// How fast the player is moving (stick), world x/y.
 
