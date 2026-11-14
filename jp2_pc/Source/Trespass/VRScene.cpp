@@ -33,6 +33,7 @@
 #include "Lib/GeomDBase/Skeleton.hpp"
 #include "Lib/GeomDBase/Terrain.hpp"
 #include "Lib/GeomDBase/TerrainObj.hpp"
+#include "Lib/GeomDBase/WaveletQuadTreeQuery.hpp"
 #include "Lib/Physics/InfoSkeleton.hpp"
 #include "Lib/Renderer/Camera.hpp"
 #include "Lib/Renderer/Light.hpp"
@@ -534,6 +535,18 @@ namespace
 	}
 
 	//******************************************************************************************
+	// Frees the parts of the game's terrain height tree that no query uses.
+	void ReleaseQueries(CTerrain* ptrr)
+	{
+		NMultiResolution::CQuadRootQuery* pqnq = ptrr->pqnqGetQueryRoot();
+		if (pqnq)
+		{
+			pqnq->Update();
+			pqnq->Update();
+		}
+	}
+
+	//******************************************************************************************
 	//
 	// Terrain: height grid and texture atlas, once per level.
 	//
@@ -575,6 +588,7 @@ namespace
 			for (int i = 0; i < 400; i++)
 				ptrr->rHeight(f_x0 + (i % 20) * f_w / 20.0f, f_y0 + (i / 20) * f_h / 20.0f);
 			QueryPerformanceCounter(&li_1);
+			ReleaseQueries(ptrr);
 			double d_each = double(li_1.QuadPart - li_0.QuadPart) / double(li_f.QuadPart) / 400.0;
 			double d_points = (f_w / f_spacing) * (f_h / f_spacing);
 			if (d_each * d_points > 6.0)
@@ -587,15 +601,25 @@ namespace
 		int i_nx = (int)(f_w / f_spacing) + 2, i_ny = (int)(f_h / f_spacing) + 2;
 
 		std::vector<float> af_h((size_t)i_nx * i_ny);
+		int i_since_release = 0;
 		std::vector<SVRRTerrainVertex> atv((size_t)i_nx * i_ny);
 		for (int y = 0; y < i_ny; y++)
 		{
 			for (int x = 0; x < i_nx; x++)
 			{
-				float f_x = f_x0 + x * f_spacing, f_y = f_y0 + y * f_spacing;
+				float f_x = std::min(f_x0 + x * f_spacing, f_x1), f_y = std::min(f_y0 + y * f_spacing, f_y1);
 				af_h[(size_t)y * i_nx + x] = (float)ptrr->rHeight(f_x, f_y);
+
+				// Each lookup builds part of the game's height tree in a fixed-size memory
+				// area; let it free what isn't needed any more before that fills up.
+				if (++i_since_release >= 500)
+				{
+					ReleaseQueries(ptrr);
+					i_since_release = 0;
+				}
 			}
 		}
+		ReleaseQueries(ptrr);
 		for (int y = 0; y < i_ny; y++)
 		{
 			for (int x = 0; x < i_nx; x++)
