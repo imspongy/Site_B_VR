@@ -67,6 +67,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <vector>
 
 extern HWND g_hwnd;
 extern float fPerspectivePixelError;
@@ -689,6 +691,118 @@ namespace
 
 		pdds->Unlock(nullptr);
 		return true;
+	}
+
+
+	//******************************************************************************************
+	//
+	// Frame capture: the left eye's last ~12 seconds at 5 frames a second, kept in memory and
+	// written to the VRCapture folder as pictures when both stick clicks are pressed together
+	// (and one picture every 20 seconds automatically).  For diagnosing what you see in the
+	// headset.
+	//
+	const int iCAP_SIZE   = 512;
+	const int iCAP_FRAMES = 60;
+	std::vector<uint32_t> au4CapRing;		// iCAP_FRAMES frames of iCAP_SIZE^2 pixels (0x00RRGGBB).
+	int    iCapNext = 0, iCapCount = 0;
+	double dCapLast = 0, dCapAutoLast = 0;
+	int    iCapSession = 0;
+	bool   bCapBusy = false;
+
+	void WriteBmp(const std::string& str_file, const uint32_t* pu4, int i_size)
+	{
+		FILE* pf = std::fopen(str_file.c_str(), "wb");
+		if (!pf)
+			return;
+		int i_row = i_size * 3;
+		unsigned u_data = (unsigned)(i_row * i_size);
+		unsigned char ah[54] = { 'B', 'M' };
+		auto put4 = [&](int i_at, unsigned u) { for (int i = 0; i < 4; i++) ah[i_at + i] = (unsigned char)(u >> (8 * i)); };
+		put4(2, 54 + u_data); put4(10, 54); put4(14, 40); put4(18, i_size); put4(22, (unsigned)i_size);
+		ah[26] = 1; ah[28] = 24; put4(34, u_data);
+		std::fwrite(ah, 1, 54, pf);
+		std::vector<unsigned char> au1(i_row);
+		for (int y = i_size - 1; y >= 0; y--)
+		{
+			for (int x = 0; x < i_size; x++)
+			{
+				uint32_t u = pu4[y * i_size + x];
+				au1[x * 3 + 0] = (unsigned char)(u);
+				au1[x * 3 + 1] = (unsigned char)(u >> 8);
+				au1[x * 3 + 2] = (unsigned char)(u >> 16);
+			}
+			std::fwrite(&au1[0], 1, i_row, pf);
+		}
+		std::fclose(pf);
+	}
+
+	// Store one eye image (16 bit 565) in the ring, scaled down.
+	void CaptureEye(const void* pv, int i_pitch, int i_w, int i_h, int i_bits)
+	{
+		if (i_bits != 16)
+			return;
+		double d_now = dNowMs();
+		if (d_now - dCapLast < 200)
+			return;
+		dCapLast = d_now;
+		if (au4CapRing.empty())
+			au4CapRing.resize((size_t)iCAP_FRAMES * iCAP_SIZE * iCAP_SIZE);
+		uint32_t* pu4 = &au4CapRing[(size_t)iCapNext * iCAP_SIZE * iCAP_SIZE];
+		for (int y = 0; y < iCAP_SIZE; y++)
+		{
+			const uint16_t* pu2 = (const uint16_t*)((const unsigned char*)pv + (size_t)(y * i_h / iCAP_SIZE) * i_pitch);
+			for (int x = 0; x < iCAP_SIZE; x++)
+			{
+				uint16_t u = pu2[x * i_w / iCAP_SIZE];
+				pu4[y * iCAP_SIZE + x] = ((uint32_t)((u >> 11) << 3) << 16) | ((uint32_t)(((u >> 5) & 63) << 2) << 8) | (uint32_t)((u & 31) << 3);
+			}
+		}
+		iCapNext = (iCapNext + 1) % iCAP_FRAMES;
+		if (iCapCount < iCAP_FRAMES)
+			iCapCount++;
+
+		// One picture every 20 seconds.
+		if (d_now - dCapAutoLast > 20000 && !bCapBusy)
+		{
+			dCapAutoLast = d_now;
+			std::string str_dir = strExeDir() + "\\VRCapture";
+			CreateDirectoryA(str_dir.c_str(), nullptr);
+			char str[64];
+			std::snprintf(str, sizeof(str), "\\auto_%06d.bmp", (int)(d_now / 1000.0));
+			WriteBmp(str_dir + str, pu4, iCAP_SIZE);
+		}
+	}
+
+	// Write the ring to disk (in the background).
+	void SaveCapture()
+	{
+		if (bCapBusy || iCapCount == 0)
+			return;
+		bCapBusy = true;
+		int i_session = ++iCapSession;
+		std::vector<uint32_t> au4_copy;
+		int i_n = iCapCount, i_first = (iCapNext - iCapCount + iCAP_FRAMES) % iCAP_FRAMES;
+		au4_copy.reserve((size_t)i_n * iCAP_SIZE * iCAP_SIZE);
+		for (int i = 0; i < i_n; i++)
+		{
+			const uint32_t* pu4 = &au4CapRing[(size_t)((i_first + i) % iCAP_FRAMES) * iCAP_SIZE * iCAP_SIZE];
+			au4_copy.insert(au4_copy.end(), pu4, pu4 + iCAP_SIZE * iCAP_SIZE);
+		}
+		std::string str_dir = strExeDir() + "\\VRCapture";
+		Log("Capture %d: saving %d frames (the last %.0f seconds) to VRCapture.", i_session, i_n, i_n * 0.2);
+		std::thread([au4_copy, i_n, i_session, str_dir]()
+		{
+			CreateDirectoryA(str_dir.c_str(), nullptr);
+			for (int i = 0; i < i_n; i++)
+			{
+				char str[64];
+				std::snprintf(str, sizeof(str), "\\cap%02d_%03d.bmp", i_session, i);
+				WriteBmp(str_dir + str, &au4_copy[(size_t)i * iCAP_SIZE * iCAP_SIZE], iCAP_SIZE);
+			}
+			bCapBusy = false;
+		}).detach();
+		Haptic(0, 0.15f, 60.0f, 0.5f);
+		Haptic(1, 0.15f, 60.0f, 0.5f);
 	}
 
 	//******************************************************************************************
@@ -1351,6 +1465,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	}
 
 	UpdateFeedback();
+
+	// Both stick clicks together: save the last few seconds of what you saw.
+	{
+		bool b_both = fr.ctl.ahand[0].bStickClick && fr.ctl.ahand[1].bStickClick;
+		bool b_both_prev = ctlPrevFrame.ahand[0].bStickClick && ctlPrevFrame.ahand[1].bStickClick;
+		if (b_both && !b_both_prev)
+			SaveCapture();
+	}
 	ctlPrevFrame = fr.ctl;
 
 	//
@@ -1444,6 +1566,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		bReadBackBuffer([&](const void* pv, int i_pitch, int i_w, int i_h, int i_bits, uint32_t r, uint32_t g, uint32_t b)
 		{
+			if (i_eye == 0)
+				CaptureEye(pv, i_pitch, i_w, i_h, i_bits);
 			if (!b_logged_format)
 			{
 				Log("Back buffer %dx%d, %d bpp, masks R%08X G%08X B%08X.", i_w, i_h, i_bits, r, g, b);
