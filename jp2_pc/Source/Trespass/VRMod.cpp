@@ -1310,7 +1310,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 	CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, (setVR.fHandPitchDeg - 90.0f) * fDEG) *
 	                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
-	                       r3AxisAngle(0, 0, 1, (setVR.fHandYawDeg + 90.0f) * fDEG);
+	                       r3AxisAngle(0, 0, 1, (setVR.fHandYawDeg - 90.0f) * fDEG);
 	// The same offset, mirrored for the left hand.
 	CRotate3<> r3_offset_l(r3_offset.tC, r3_offset.v3S.tX, -r3_offset.v3S.tY, -r3_offset.v3S.tZ, true);
 
