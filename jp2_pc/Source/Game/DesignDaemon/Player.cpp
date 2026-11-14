@@ -4925,10 +4925,16 @@ private:
 				else if (f_d < -fTURN)
 					fVRYaw += f_d + fTURN;
 
-				CRotate3<> r3_yaw(d3ZAxis, CAngle(fVRYaw));
+				// Keep the angle within half a turn either way, and the rotation in its plain form
+				// (positive scalar part): the physics mishandles the equivalent "long way round"
+				// form, which is what stopped her turning past a certain point.
+				while (fVRYaw > 3.14159265f)  fVRYaw -= 6.2831853f;
+				while (fVRYaw < -3.14159265f) fVRYaw += 6.2831853f;
+				float f_s = sinf(fVRYaw * 0.5f), f_c = cosf(fVRYaw * 0.5f);
+				CRotate3<> r3_yaw(f_c, 0, 0, f_s, true);
 				CVector3<> v3_test = CVector3<>(0, 1, 0) * r3_yaw;
 				if (v3_test.tX * -sinf(fVRYaw) + v3_test.tY * cosf(fVRYaw) < 0.9f)
-					r3_yaw = CRotate3<>(d3ZAxis, CAngle(-fVRYaw));
+					r3_yaw = CRotate3<>(f_c, 0, 0, -f_s, true);
 				p3_new.r3Rot = r3_yaw;
 			}
 		}

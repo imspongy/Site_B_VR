@@ -105,7 +105,7 @@ namespace
 		float fRunSpeed       = 4.5f;	// m/s at full stick with run on.
 		float fMoveAccel      = 0.15f;	// Seconds to (mostly) reach the stick's speed.
 		float fMoveDeadzone   = 0.12f;
-		bool  bSmoothTurn     = false;	// false = snap turn.
+		bool  bSmoothTurn     = true;	// false = snap turn.
 		float fSnapTurnDeg    = 45.0f;	// Degrees per snap.
 		float fSmoothTurnDeg  = 150.0f;	// Degrees per second at full stick.
 		float fTurnDeadzone   = 0.2f;
@@ -115,7 +115,7 @@ namespace
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
-		float fDrawDistance   = 3.0f;	// Multiplier on how far away objects are drawn.
+		float fDrawDistance   = 8.0f;	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -309,7 +309,7 @@ namespace
 			"\n"
 			"; --- Turning ---\n"
 			"; 0 = snap turn, 1 = smooth turn.\n"
-			"SmoothTurn=0\n"
+			"SmoothTurn=1\n"
 			"; Degrees per snap.\n"
 			"SnapTurnDegrees=45\n"
 			"; Degrees per second at full stick (smooth turn).\n"
@@ -352,7 +352,7 @@ namespace
 			"RadialFog=1\n"
 			"; How far away objects and buildings are drawn, and how far they keep full detail\n"
 			";     (1 = original game, 3 = three times as far).  Higher costs frame rate.\n"
-			"DrawDistance=3\n"
+			"DrawDistance=8\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -414,13 +414,13 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
-		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 3), 0.5f), 8.0f);
+		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
 		s.fRunSpeed       = fIni(str_file, "RunSpeed", 4.5f);
 		s.fMoveAccel      = fIni(str_file, "MoveAcceleration", 0.15f);
 		s.fMoveDeadzone   = fIni(str_file, "MoveDeadzone", 0.12f);
-		s.bSmoothTurn     = fIni(str_file, "SmoothTurn", 0) != 0;
+		s.bSmoothTurn     = fIni(str_file, "SmoothTurn", 1) != 0;
 		s.fSnapTurnDeg    = fIni(str_file, "SnapTurnDegrees", 45);
 		s.fSmoothTurnDeg  = fIni(str_file, "SmoothTurnSpeed", 150);
 		s.fTurnDeadzone   = fIni(str_file, "TurnDeadzone", 0.2f);
@@ -470,7 +470,7 @@ namespace
 				qdQualitySettings[i].fCullShadowDistScale  = aqd_orig[i].fCullShadowDistScale * (std::min)(f_dd, 2.0f);
 				qdQualitySettings[i].fDetailReductionScale = aqd_orig[i].fDetailReductionScale * f_dd * f_dd;
 				// (Fog is a fraction of the far clip distance, so the haze moves out with it.)
-				qdQualitySettings[i].fFarClipScale         = f_dd <= 1.0f ? aqd_orig[i].fFarClipScale * f_dd : (std::min)(2.5f, 1.0f + (f_dd - 1.0f) * 0.3f);
+				qdQualitySettings[i].fFarClipScale         = f_dd <= 1.0f ? aqd_orig[i].fFarClipScale * f_dd : (std::min)(3.0f, 1.0f + (f_dd - 1.0f) * 0.3f);
 				qdQualitySettings[i].fTerrainDistanceScale = aqd_orig[i].fTerrainDistanceScale * (std::min)(f_dd, 2.0f);
 			}
 		}
