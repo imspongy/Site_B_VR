@@ -70,6 +70,13 @@ struct SVRShared
 	// Where Anne's body should be (under the headset), world space.
 	bool  bBodyTargetValid = false;
 	float afBodyTarget[3] = { 0, 0, 0 };
+	// VR character controller (Player.cpp): Anne's physics body is pinned to this each step.
+	const void* pvKinInstance = nullptr;	// The player, while pinned.
+	float afKinPos[3] = { 0, 0, 0 };		// Body origin.
+	float afKinVel[3] = { 0, 0, 0 };
+	bool  bJump = false;				// Jump button held.
+	bool  bCrouch = false;				// Crouch toggled on.
+	float fJumpHeight = 1.1f;			// Metres.
 	float fBodyZShift = 0;				// Drawn body height minus physics body height (view smoothing).
 	int   iPlayerPelvis = -1;			// Physics skeleton index of the player.
 	float fJumpScale = 1.4f;			// Jump take-off speed multiplier.

@@ -656,10 +656,8 @@ public:
 				if (gVR.bActive && this == gpPlayer &&
 					((pbb_us && pbb_us->ebbElement == ebbFOOT) || ptCast<CTerrain>(pins_other)))
 				{
-					// Falls: nothing below about 4 m (9 m/s), and a third of the original beyond.
-					if (gVR.fFallSpeed < 9.0f)
-						return;
-					f_damage *= 0.35f;
+					// (Falls are handled by the VR character controller.)
+					return;
 				}
 
 				// Have we already felt this pain?

@@ -475,6 +475,55 @@ extern int	 iKontrol_Jump[NUM_PELVISES];
 			return;
 		abUpdatingSkeleton[i_index] = true;
 
+		// VR character controller: the body is pinned where the controller says, upright, with
+		// the feet carried along.  The leg and balance simulation no longer moves Anne.
+		if (gVR.pvKinInstance && (const void*)pins == gVR.pvKinInstance)
+		{
+			float (*pel)[3] = Pel[i_index];
+			float af_d[3];
+			for (int k = 0; k < 3; k++)
+				af_d[k] = gVR.afKinPos[k] - pel[BODY + k][0];
+			float f_d2 = af_d[0] * af_d[0] + af_d[1] * af_d[1] + af_d[2] * af_d[2];
+			// (A big jump means something else moved her, e.g. a script: leave it alone.)
+			if (f_d2 < 2.0f * 2.0f)
+			{
+				for (int k = 0; k < 3; k++)
+				{
+					pel[BODY + k][0] = gVR.afKinPos[k];
+					pel[BODY + k][1] = gVR.afKinVel[k];
+					pel[BODY + k][2] = 0;
+					pel[RIGHT_FOOT + k][0] += af_d[k];
+					pel[LEFT_FOOT + k][0]  += af_d[k];
+				}
+				// A foot that has wandered off is put back under the body.
+				for (int i_foot = 0; i_foot < 2; i_foot++)
+				{
+					int i_f = i_foot ? LEFT_FOOT : RIGHT_FOOT;
+					float f_fx = pel[i_f][0] - pel[BODY][0], f_fy = pel[i_f + 1][0] - pel[BODY + 1][0];
+					float f_fz = pel[i_f + 2][0] - pel[BODY + 2][0];
+					if (f_fx * f_fx + f_fy * f_fy > 0.6f * 0.6f || f_fz > 0.2f || f_fz < -2.0f)
+					{
+						pel[i_f][0]     = pel[BODY][0];
+						pel[i_f + 1][0] = pel[BODY + 1][0];
+						for (int k = 0; k < 3; k++)
+							pel[i_f + k][1] = gVR.afKinVel[k];
+					}
+				}
+				// Upright: keep only the turn about the vertical axis.
+				float f_w = pel[BODY_EULER][0], f_z = pel[BODY_EULER + 3][0];
+				float f_len = sqrtf(f_w * f_w + f_z * f_z);
+				if (f_len > 0.01f)
+				{
+					pel[BODY_EULER][0]     = f_w / f_len;
+					pel[BODY_EULER + 1][0] = 0;
+					pel[BODY_EULER + 2][0] = 0;
+					pel[BODY_EULER + 3][0] = f_z / f_len;
+					pel[BODY_EULER + 1][1] = 0;
+					pel[BODY_EULER + 2][1] = 0;
+				}
+			}
+		}
+
 		// Move the object in the world partitioning structure.
 		pins->Move(p3Convert(Pel[i_index], 0), pphSystem);
 

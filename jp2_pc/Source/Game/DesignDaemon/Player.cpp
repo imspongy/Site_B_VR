@@ -44,6 +44,7 @@
 #include "Game/AI/AIInfo.hpp"
 #include "Lib/GeomDBase/PartitionPriv.hpp"
 #include "Lib/GeomDBase/RayCast.hpp"
+#include "Lib/EntityDBase/Water.hpp"
 #include "Lib/GeomDBase/Skeleton.hpp"
 #include "Lib/EntityDBase/Entity.hpp"
 #include "Lib/EntityDBase/Animal.hpp"
@@ -1321,6 +1322,16 @@ private:
 	CVRLeftArm*    pvrlaLeftArm = nullptr;
 	rptr<CRenderType> prdtLeftArmMesh;
 	TSec           sVRBrakeUntil = -100;
+	CVector3<>     v3VRFeet;
+	float          fVRVz = 0;
+	float          fVRCrouch = 0;
+	float          fVRBodyAboveFeet = 0.95f;
+	bool           bVRHaveBodyHeight = false;
+	bool           bVRGrounded = true;
+	bool           bVRKinInit = false;
+	bool           bVRKinSettled = false;
+	bool           bVRPrevJump = false;
+	TSec           sVRKinStart = 0;
 	bool           bVRBodyShifted = false;
 	CPresence3<>   pr3VRRealPresence;
 
@@ -4620,41 +4631,252 @@ private:
 	//*****************************************************************************************
 	void CPlayerPriv::BodyFollow()
 	{
-		// Anne's body is moved to stay under the headset, at the speed the player moves.  The
-		// body physics still deals with slopes, stairs, jumping and collisions; the VR mod pulls
-		// the view back if the body can't follow (walls).
-		if (!gVR.bActive || !gVR.bBodyTargetValid || bDead())
+		//
+		// VR character controller.  Anne no longer walks on the game's simulated legs: her feet
+		// position is moved here (collide-and-slide against walls, step up and down, gravity,
+		// jumping), and her physics body is pinned to it (InfoSkeleton.cpp, UpdateWDBase).
+		//
+		gVR.fFallSpeed = 0;
+		if (!gVR.bActive || bDead())
+		{
+			gVR.pvKinInstance = nullptr;
+			bVRKinInit = false;
 			return;
+		}
+
+		const float fRADIUS = 0.22f, fSTEP = 0.5f, fGRAVITY = 14.0f;
+		float f_dt = (float)CMessageStep::sStaticStep;
+		if (f_dt <= 0)
+			return;
+		if (f_dt > 0.05f)
+			f_dt = 0.05f;
 
 		CVector3<> v3_body = p3GetPlacement().v3Pos;
 
-		// Track how fast she has recently been falling (decays over about half a second).
+		// What counts as solid for the controller.
+		CInstance* apins_held[2] =
 		{
-			static float f_prev_z = 0;
-			static bool  b_prev = false;
-			float f_dt = (float)CMessageStep::sStaticStep;
-			float f_down = (b_prev && f_dt > 0.0001f) ? (f_prev_z - v3_body.tZ) / f_dt : 0.0f;
-			if (f_down > 30.0f)
-				f_down = 0;		// Teleported.
-			gVR.fFallSpeed = Max(f_down, gVR.fFallSpeed - 12.0f * f_dt);
-			if (gVR.fFallSpeed < 0)
-				gVR.fFallSpeed = 0;
-			f_prev_z = v3_body.tZ;
-			b_prev = true;
-		}
-		CVector3<> v3_to(gVR.afBodyTarget[0] - v3_body.tX, gVR.afBodyTarget[1] - v3_body.tY, 0);
-		float f_dist = v3_to.tLen();
+			avrh[0].pinsHeld ? NMagnetSystem::pinsFindMaster(avrh[0].pinsHeld) : 0,
+			avrh[1].pinsHeld ? NMagnetSystem::pinsFindMaster(avrh[1].pinsHeld) : 0
+		};
+		auto b_solid = [&](CInstance* pins, bool b_wall) -> bool
+		{
+			if (!pins || pins == this || pins == pinsHand || pins == avrh[0].pinsBox || pins == avrh[1].pinsBox)
+				return false;
+			CBoundaryBox* pbb = ptCast<CBoundaryBox>(pins);
+			if (pbb)
+				return b_wall && pbb->paniAnimate != this && pbb->paniAnimate && !pbb->paniAnimate->bDead();
+			if (ptCast<CEntityWater>(pins))
+				return false;
+			const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+			if (!pphi || !pphi->bIsTangible())
+				return false;
+			if (pphi->bIsMovable())
+			{
+				CInstance* pins_master = NMagnetSystem::pinsFindMaster(pins);
+				if (pins_master && (pins_master == apins_held[0] || pins_master == apins_held[1]))
+					return false;
+				// Light things are pushed aside, not walked into; small ones aren't stood on.
+				float f_mass = pphi->fMass(pins);
+				return f_mass >= (b_wall ? 60.0f : 12.0f);
+			}
+			return true;
+		};
 
-		// Within a few centimetres: no walk command, so her own braking holds her still.
-		if (f_dist > 0.04f)
+		// The floor under a point: looks from f_top downwards for f_len.
+		auto b_floor = [&](float f_x, float f_y, float f_top, float f_len, float& f_z) -> bool
 		{
-			// Walk with her own legs (the walk controller keeps her balanced): at the player's
-			// own speed, plus a gentle pull to close the gap.
-			CVector3<> v3_vel = CVector3<>(gVR.afBodyVel[0], gVR.afBodyVel[1], 0) + v3_to / 0.3f;
-			if (v3_vel.tLen() > 4.65f)
-				v3_vel *= 4.65f / v3_vel.tLen();
-			bVRSetSkeletonWalkVelocity(this, v3_vel.tX, v3_vel.tY);
+			CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(0, 0, -1)), CVector3<>(f_x, f_y, f_top));
+			CRayCast rc(p3_cast, 0.12f, f_len);
+			SObjectLoc* pobl;
+			while (pobl = rc.poblNextIntersection())
+			{
+				if (!b_solid(pobl->pinsObject, false))
+					continue;
+				f_z = pobl->v3Location.tZ;
+				return true;
+			}
+			return false;
+		};
+
+		//
+		// Start up (level start, load, respawn, or moved by a script): let the original physics
+		// stand her up for a moment, then take over from where she is.
+		//
+		bool b_moved_away = bVRKinInit && gVR.pvKinInstance &&
+			((v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch)).tLen() > 1.5f);
+		if (!bVRKinInit || b_moved_away)
+		{
+			if (!bVRKinInit || b_moved_away)
+			{
+				if (b_moved_away && gVR.pfnLog)
+					gVR.pfnLog("Body: moved by the game, restarting the controller.");
+				sVRKinStart = CMessageStep::sStaticTotal;
+				bVRKinInit = true;
+				bVRKinSettled = false;
+				gVR.pvKinInstance = nullptr;
+			}
 		}
+		if (!bVRKinSettled)
+		{
+			if (CMessageStep::sStaticTotal - sVRKinStart < 0.8)
+				return;
+			float f_z;
+			if (!b_floor(v3_body.tX, v3_body.tY, v3_body.tZ + 0.2f, 4.0f, f_z))
+				return;
+			float f_above = v3_body.tZ - f_z;
+			if (f_above > 1.6f)
+				return;		// Still dropping in.
+			if (f_above > 0.4f && !bVRHaveBodyHeight)
+			{
+				fVRBodyAboveFeet = f_above;
+				bVRHaveBodyHeight = true;
+			}
+			v3VRFeet = CVector3<>(v3_body.tX, v3_body.tY, f_z);
+			fVRVz = 0;
+			fVRCrouch = 0;
+			bVRGrounded = true;
+			bVRKinSettled = true;
+			if (gVR.pfnLog)
+				gVR.pfnLog("Body: controller started (body origin %.2f m above her feet).", fVRBodyAboveFeet);
+		}
+
+		CVector3<> v3_start = v3VRFeet;
+
+		//
+		// Horizontal: toward the point under the headset, sliding along anything solid.
+		//
+		CVector3<> v3_d(0, 0, 0);
+		if (gVR.bBodyTargetValid)
+			v3_d = CVector3<>(gVR.afBodyTarget[0] - v3VRFeet.tX, gVR.afBodyTarget[1] - v3VRFeet.tY, 0);
+		{
+			float f_max = 7.0f * f_dt;
+			if (v3_d.tLen() > f_max)
+				v3_d *= f_max / v3_d.tLen();
+		}
+
+		float f_tall = 1.45f - fVRCrouch;
+		auto v3_sweep = [&](CVector3<> v3_move, CVector3<>& v3_normal) -> CVector3<>
+		{
+			// How far along v3_move the body can go; v3_normal is the wall that stopped it.
+			v3_normal = CVector3<>(0, 0, 0);
+			float f_len = v3_move.tLen();
+			if (f_len < 0.0005f)
+				return CVector3<>(0, 0, 0);
+			CVector3<> v3_dir = v3_move / f_len;
+			float f_allowed = f_len;
+			const float af_heights[3] = { fSTEP + 0.08f, (fSTEP + f_tall) * 0.5f, f_tall };
+			for (int i = 0; i < 3; i++)
+			{
+				CVector3<> v3_from = v3VRFeet + CVector3<>(0, 0, af_heights[i]) - v3_dir * 0.15f;
+				CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(v3_dir)), v3_from);
+				CRayCast rc(p3_cast, 0.3f, 0.15f + f_len + fRADIUS);
+				SObjectLoc* pobl;
+				while (pobl = rc.poblNextIntersection())
+				{
+					if (!b_solid(pobl->pinsObject, true))
+						continue;
+					// Already inside it (shouldn't happen): let her walk out.
+					if (pobl->rDist < 0.02f)
+						continue;
+					// Ground she can walk up isn't a wall.
+					if (pobl->d3Face.tZ > 0.7f)
+						continue;
+					float f_room = pobl->rDist - 0.15f - fRADIUS;
+					if (f_room < f_allowed)
+					{
+						f_allowed = f_room;
+						v3_normal = CVector3<>(pobl->d3Face.tX, pobl->d3Face.tY, 0);
+					}
+					break;
+				}
+			}
+			if (f_allowed < 0)
+				f_allowed = 0;
+			return v3_dir * f_allowed;
+		};
+
+		CVector3<> v3_normal;
+		CVector3<> v3_step = v3_sweep(v3_d, v3_normal);
+		v3VRFeet += v3_step;
+		CVector3<> v3_rest = v3_d - v3_step;
+		if (v3_rest.tLen() > 0.001f && v3_normal.tLen() > 0.1f)
+		{
+			v3_normal.Normalise();
+			CVector3<> v3_slide = v3_rest - v3_normal * (v3_rest * v3_normal);
+			CVector3<> v3_n2;
+			v3VRFeet += v3_sweep(v3_slide, v3_n2);
+		}
+
+		//
+		// Vertical: steps, slopes, falling and jumping.
+		//
+		bool b_jump = gVR.bJump && !bVRPrevJump;
+		bVRPrevJump = gVR.bJump;
+		if (bVRGrounded && b_jump)
+		{
+			fVRVz = sqrtf(2.0f * fGRAVITY * gVR.fJumpHeight);
+			bVRGrounded = false;
+		}
+
+		float f_floor;
+		if (bVRGrounded)
+		{
+			if (b_floor(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fSTEP, fSTEP + 0.45f, f_floor))
+				v3VRFeet.tZ = f_floor;
+			else
+			{
+				bVRGrounded = false;
+				fVRVz = 0;
+			}
+		}
+		else
+		{
+			fVRVz -= fGRAVITY * f_dt;
+			if (fVRVz < -40.0f)
+				fVRVz = -40.0f;
+			float f_new_z = v3VRFeet.tZ + fVRVz * f_dt;
+			if (fVRVz <= 0 &&
+				b_floor(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fSTEP, fSTEP + (v3VRFeet.tZ - f_new_z) + 0.05f, f_floor) &&
+				f_new_z <= f_floor)
+			{
+				// Landed.  Only a long drop hurts.
+				float f_speed = -fVRVz;
+				if (f_speed > 13.0f)
+				{
+					float f_damage = (f_speed - 13.0f) * 8.0f;
+					if (gVR.pfnLog)
+						gVR.pfnLog("Body: fell (landing at %.1f m/s, %.0f damage).", f_speed, f_damage);
+					HandleDamage(f_damage, this, this);
+				}
+				v3VRFeet.tZ = f_floor;
+				fVRVz = 0;
+				bVRGrounded = true;
+			}
+			else
+				v3VRFeet.tZ = f_new_z;
+		}
+
+		// Crouch button: lowers the body (and so the view).
+		{
+			float f_want = gVR.bCrouch ? 0.5f : 0.0f;
+			float f_rate = 2.5f * f_dt;
+			if (fVRCrouch < f_want)
+				fVRCrouch = Min(f_want, fVRCrouch + f_rate);
+			else
+				fVRCrouch = Max(f_want, fVRCrouch - f_rate);
+		}
+
+		// Pin the physics body.
+		gVR.afKinPos[0] = v3VRFeet.tX;
+		gVR.afKinPos[1] = v3VRFeet.tY;
+		gVR.afKinPos[2] = v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch;
+		CVector3<> v3_vel = (v3VRFeet - v3_start) / f_dt;
+		gVR.afKinVel[0] = v3_vel.tX;
+		gVR.afKinVel[1] = v3_vel.tY;
+		gVR.afKinVel[2] = bVRGrounded ? 0.0f : fVRVz;
+		gVR.pvKinInstance = (const void*)static_cast<const CInstance*>(this);
+		PhysicsActivate();
 	}
 
 	//*****************************************************************************************

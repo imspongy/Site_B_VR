@@ -109,7 +109,7 @@ namespace
 		float fTurnDeadzone   = 0.2f;
 
 		float fBodyLeash      = 0.4f;	// How far your head may get from Anne's body (blocked).
-		float fHeightSmoothing = 0.5f;	// Seconds; smooths view height on stairs and slopes.
+		float fHeightSmoothing = 0.1f;	// Seconds; smooths view height on stairs and slopes.
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
@@ -302,7 +302,7 @@ namespace
 			"; How far (metres) your head can go from Anne's body when she is blocked by a wall.\n"
 			"BodyLeash=0.4\n"
 			"; Seconds of smoothing on view height over stairs and slopes (0 = none).\n"
-			"HeightSmoothing=0.5\n"
+			"HeightSmoothing=0.1\n"
 			"\n"
 			"; --- Turning ---\n"
 			"; 0 = snap turn, 1 = smooth turn.\n"
@@ -422,7 +422,7 @@ namespace
 		s.fSmoothTurnDeg  = fIni(str_file, "SmoothTurnSpeed", 150);
 		s.fTurnDeadzone   = fIni(str_file, "TurnDeadzone", 0.2f);
 		s.fBodyLeash      = fIni(str_file, "BodyLeash", 0.4f);
-		s.fHeightSmoothing = fIni(str_file, "HeightSmoothing", 0.5f);
+		s.fHeightSmoothing = fIni(str_file, "HeightSmoothing", 0.1f);
 		s.iSkyMode        = (int)fIni(str_file, "SkyMode", 2);
 		s.bImageCaches    = fIni(str_file, "ImageCaches", 0) != 0;
 		s.bMirrorToMonitor = fIni(str_file, "MirrorToMonitor", 0) != 0;
@@ -447,7 +447,7 @@ namespace
 		gVR.bLeftArm     = setVR.bSecondHand;
 		gVR.fCurlSign    = setVR.bFlipSecondCurl ? -1.0f : 1.0f;
 		gVR.fFingerCurl  = 0;
-		gVR.fJumpScale   = std::sqrt((std::min)((std::max)(fIni(str_file, "JumpHeight", 2), 0.5f), 6.0f));
+		gVR.fJumpHeight  = 0.55f * (std::min)((std::max)(fIni(str_file, "JumpHeight", 2), 0.5f), 6.0f);
 
 		// Draw distance: scale the game's quality tables (all levels) from their original values.
 		{
@@ -718,12 +718,13 @@ namespace
 
 		uint32 u4 = 0;
 
-		if (m.bLower)
-			u4 |= uCMD_JUMP;
+		// Jump and crouch go to the VR character controller (Player.cpp).
+		gVR.bJump = m.bLower;
 		if (m.bUpper && !mp.bUpper)
 			bCrouchToggle = !bCrouchToggle;
-		if (bCrouchToggle)
-			u4 |= uCMD_CROUCH;
+		gVR.bCrouch = bCrouchToggle;
+		tin.u4ButtonState &= ~(uCMD_JUMP | uCMD_CROUCH);
+		tin.u4ButtonHit   &= ~(uCMD_JUMP | uCMD_CROUCH);
 
 		// Pause menu.
 		bool b_menu = o.bUpper || o.bMenu || m.bMenu;
@@ -1139,10 +1140,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		{
 			// Small changes (her walking bob) are smoothed away; big ones (crouch, jump, a
 			// drop) are followed quickly.
-			float f_diff = std::fabs(f_target_z - fBaseZ);
-			float f_t = (std::min)(1.0f, (std::max)(0.0f, (f_diff - 0.12f) / 0.25f));
-			float f_tau = setVR.fHeightSmoothing + (0.05f - setVR.fHeightSmoothing) * f_t;
-			fBaseZ += (f_target_z - fBaseZ) * (1.0f - std::exp(-f_dt / (std::max)(f_tau, 0.01f)));
+			fBaseZ += (f_target_z - fBaseZ) * (1.0f - std::exp(-f_dt / setVR.fHeightSmoothing));
 		}
 		else
 			fBaseZ = f_target_z;
