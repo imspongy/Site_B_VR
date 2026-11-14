@@ -335,7 +335,7 @@ namespace
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
 			"Haptics=1\n"
 			"; Rotate the in-game hand relative to your controller (degrees).\n"
-			"; If guns aim too high, try HandPitch=-20.\n"
+			"; If guns aim too high, try HandPitch=-20.  (0 = fingers pointing along the controller.)\n"
 			"HandPitch=0\n"
 			"HandYaw=0\n"
 			"HandRoll=0\n"
@@ -1279,7 +1279,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		}
 	}
 
-	CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, setVR.fHandPitchDeg * fDEG) *
+	CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, (setVR.fHandPitchDeg - 90.0f) * fDEG) *
 	                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
 	                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * fDEG);
 	// The same offset, mirrored for the left hand.
