@@ -4931,7 +4931,7 @@ private:
 		}
 
 		p3_new.v3Pos = CVector3<>(gVR.afKinPos[0], gVR.afKinPos[1], gVR.afKinPos[2]);
-		Move(p3_new);
+		Move(p3_new, 0);
 	}
 
 	//*****************************************************************************************
