@@ -815,7 +815,8 @@ namespace
 		}
 		VRR_TerrainBuildAtlas();
 
-		SceneLog("GPU renderer: terrain %.0f x %.0f m, grid %.1f m, %d terrain textures (%d at full resolution).", f_w, f_h, f_spacing, i_decals, i_mapped);
+		SceneLog("GPU renderer: terrain %.0f x %.0f m, grid %.1f m.", f_w, f_h, f_spacing);
+		SceneLog("GPU renderer: %.0f terrain textures, %.0f at full resolution.", i_decals, i_mapped);
 		SceneLog("GPU renderer: terrain atlas %.0f pixels; built in %.1f s.", i_atlas, (GetTickCount() - u4_start) / 1000.0);
 	}
 }
