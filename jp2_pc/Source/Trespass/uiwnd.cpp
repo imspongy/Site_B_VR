@@ -19,6 +19,7 @@
 
 #include "supportfn.hpp"
 #include "uiwnd.h"
+#include "Lib/Control/VRShared.hpp"
 #include "main.h"
 #include "../Lib/Sys/reg.h"
 #include "../Lib/Sys/RegInit.hpp"
@@ -502,6 +503,12 @@ void CUIWnd::WindowLoop()
         PreLoopCall();
 
         GetCursorPos(&m_pUIMgr->m_ptMouse);
+        if (gVR.bActive && gVR.bMenuCursor)
+        {
+            // VR: the laser pointer, not the desktop mouse (which is limited to the monitor).
+            m_pUIMgr->m_ptMouse.x = gVR.aiMenuCursor[0];
+            m_pUIMgr->m_ptMouse.y = gVR.aiMenuCursor[1];
+        }
         CheckMessages();
 
         if (m_pUIMgr->m_bActive && !m_bExitWnd)

@@ -112,6 +112,10 @@ struct SVRShared
 	double dStepMs = 0;				// Game simulation steps.
 	int    iSteps = 0;
 
+	// Menu laser pointer position, in game screen pixels (independent of the monitor).
+	bool  bMenuCursor = false;
+	int   aiMenuCursor[2] = { 0, 0 };
+
 	// Skip drawing to the monitor while in VR (ini: MirrorToMonitor=0).
 	bool  bSkipMonitor = false;
 };

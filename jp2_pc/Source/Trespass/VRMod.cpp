@@ -806,15 +806,13 @@ namespace
 			if (!g_hwnd || !prasMainScreen)
 				continue;
 
-			RECT rc;
-			GetClientRect(g_hwnd, &rc);
+			// In game screen pixels: the menus don't depend on the monitor or window size.
 			float f_y = setVR.bMenuFlipY ? (prasMainScreen->iHeight - ev.fY) : ev.fY;
-			int i_x = (int)(ev.fX * (rc.right - rc.left) / (std::max)(1, prasMainScreen->iWidth));
-			int i_y = (int)(f_y  * (rc.bottom - rc.top) / (std::max)(1, prasMainScreen->iHeight));
-
-			POINT pt = { i_x, i_y };
-			ClientToScreen(g_hwnd, &pt);
-			SetCursorPos(pt.x, pt.y);
+			int i_x = (int)ev.fX;
+			int i_y = (int)f_y;
+			gVR.aiMenuCursor[0] = i_x;
+			gVR.aiMenuCursor[1] = i_y;
+			gVR.bMenuCursor = true;
 
 			LPARAM lp = MAKELPARAM(i_x, i_y);
 			switch (ev.eType)

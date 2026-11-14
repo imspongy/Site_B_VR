@@ -21,7 +21,8 @@ add_compile_definitions(
 #We turn Release and Final into RelWithDebInfo so that we can have it anyway
 #While keeping the configuration name "Release"
 
-set(CMAKE_CXX_FLAGS_FINAL ${CMAKE_CXX_FLAGS_RELWITHDEBINFO} PARENT_SCOPE)
+# Final: full inlining, intrinsics and AVX2 (the VR build targets modern CPUs).
+set(CMAKE_CXX_FLAGS_FINAL "/Zi /O2 /Ob2 /Oi /Ot /arch:AVX2 /DNDEBUG" PARENT_SCOPE)
 set(CMAKE_CXX_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELWITHDEBINFO} PARENT_SCOPE)
 
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE_TMP ${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO})
