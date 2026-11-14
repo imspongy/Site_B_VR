@@ -840,6 +840,37 @@ namespace
 	}
 
 	//******************************************************************************************
+	// Runs the modern renderer, catching a crash in it so the game can carry on with the
+	// original renderer instead of closing.
+	struct SSceneCall
+	{
+		const SVRSceneEyes*     peyes;
+		const SVRSceneSettings* pset;
+		bool                    bResult;
+	};
+
+	void SceneCall(SSceneCall* psc)
+	{
+		psc->bResult = VRScene_RenderAndSubmit(*psc->peyes, *psc->pset);
+	}
+
+	bool bSceneCallSafe(SSceneCall* psc, DWORD* pu4_code)
+	{
+		__try
+		{
+			SceneCall(psc);
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			*pu4_code = GetExceptionCode();
+			return false;
+		}
+	}
+
+	bool bNewRendererFailed = false;
+
+	//******************************************************************************************
 	// Which holster (0 hip, 1 back) the given hand is at, or -1.
 	int iHolsterNear(int i_hand)
 	{
@@ -1523,7 +1554,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	//
 	// Modern renderer: draws the world on the graphics card straight into the headset images.
 	//
-	if (setVR.bNewRenderer && VRScene_Ready())
+	if (setVR.bNewRenderer && VRScene_Ready() && !bNewRendererFailed)
 	{
 		if (b_player_view)
 			gpPlayer->VRShowLeftArm(true);
@@ -1550,7 +1581,16 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fTerrainDetail = setVR.fTerrainDetail;
 
 		double d_t0 = dNowMs();
-		bool b_ok = VRScene_RenderAndSubmit(eyes, set);
+		SSceneCall sc = { &eyes, &set, false };
+		DWORD u4_code = 0;
+		bool b_ok = false;
+		if (bSceneCallSafe(&sc, &u4_code))
+			b_ok = sc.bResult;
+		else
+		{
+			bNewRendererFailed = true;
+			Log("Modern renderer crashed (code %08X); switching to the game's renderer for this session.", (unsigned)u4_code);
+		}
 		adTimingMs[etPAINT] += dNowMs() - d_t0;
 
 		if (gpPlayer)
