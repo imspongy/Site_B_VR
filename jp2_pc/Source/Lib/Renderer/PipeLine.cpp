@@ -44,6 +44,7 @@
 #include "D3DTypes.h"
 #include "Lib/GeomDBase/PartitionPriv.hpp"
 #include "PipeLine.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Overlay.hpp"
 
 #include "RenderDefs.hpp"
@@ -1567,7 +1568,11 @@ public:
 						{
 							// Do the occlusion test.
 							if (bOccludePartitionNorm(papoc, papoc_intersect, tf3_box))
+							{
 								esf_view = esfOUTSIDE;
+								if (gVR.bActive && ppart->fDistanceFromGlobalCameraSqr() < 64.0f)
+									gVR.iNearOccluded++;
+							}
 							psIntersectOcclude.Add(ctmr(), 1);
 							conocOcclusion.AddOccludedPartition();
 						}

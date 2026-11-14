@@ -1687,6 +1687,12 @@ static void PrintPos(CConsoleBuffer& con, const CPartition* ppart)
 			if (f_t < 0.0f) f_t = 0.0f;
 			if (f_t > 1.0f) f_t = 1.0f;
 			f_dist_threshold *= gVR.fCullScaleSmallSqr + (gVR.fCullScaleSqr - gVR.fCullScaleSmallSqr) * f_t;
+			if (f_distance_sqr < 64.0f && f_distance_sqr >= f_dist_threshold)
+			{
+				gVR.iNearDistCulled++;
+				gVR.fNearCullDist  = sqrtf(f_distance_sqr);
+				gVR.fNearCullLimit = sqrtf(f_dist_threshold);
+			}
 		}
 
 		return u4FromFloat(f_distance_sqr) < u4FromFloat(f_dist_threshold);

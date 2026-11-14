@@ -123,6 +123,9 @@ struct SVRShared
 	bool  bBatchDraw = false;			// Collect polygons into large draw calls.
 	bool  bBumpHardware = false;
 	int   iTextureRamMB = 0;			// Texture memory on the card for the game (0 = original 8 MB).		// Draw bump-mapped objects on the card (as plain textures).
+	int   iNearDistCulled = 0;			// Diagnostics: objects within 8 m hidden by distance / by occlusion.
+	int   iNearOccluded = 0;
+	float fNearCullDist = 0, fNearCullLimit = 0;
 	int   iBatchPolys = 0;				// Diagnostics: polygons drawn / draw calls sent.
 	int   iBatchFlushes = 0;
 

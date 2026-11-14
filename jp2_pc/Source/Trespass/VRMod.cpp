@@ -48,6 +48,7 @@
 #include "Lib/EntityDBase/Instance.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Renderer/Sky.hpp"
+#include "Lib/Renderer/Occlude.hpp"
 #include "Lib/Sys/RegInit.hpp"
 #include "Lib/Sys/Profile.hpp"
 #include "Lib/Std/StringEx.hpp"
@@ -117,7 +118,8 @@ namespace
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
 		float fDrawDistance   = 8.0f;
 		float fDrawDistSmall  = 3.0f;	// The same, for small objects.	// Multiplier on how far away objects are drawn.
-		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
+		bool  bSharpTextures  = true;
+		bool  bOcclusion      = false;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
 		float fOverlayWidth   = 2.4f;	// Menu screen width in metres.
@@ -262,6 +264,11 @@ namespace
 			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " %d polygons in %d draw calls a frame;",
 				gVR.iBatchPolys / iTimingFrames, gVR.iBatchFlushes / iTimingFrames);
 		gVR.iBatchPolys = gVR.iBatchFlushes = 0;
+		if (gVR.iNearDistCulled || gVR.iNearOccluded)
+			Log("Near objects hidden (within 8 m, per frame): %.1f by draw distance (e.g. %.1f m away, limit %.1f m), %.1f by occlusion.",
+				gVR.iNearDistCulled / (double)(std::max)(1, iTimingFrames), gVR.fNearCullDist, gVR.fNearCullLimit,
+				gVR.iNearOccluded / (double)(std::max)(1, iTimingFrames));
+		gVR.iNearDistCulled = gVR.iNearOccluded = 0;
 		gVR.dFlipMs = gVR.dStepMs = 0;
 		gVR.iSteps = 0;
 		Log("%s", str);
@@ -361,6 +368,9 @@ namespace
 			"; The same for small objects (under about 1 m across); things in between are in between.\n"
 			";     Small things are most of what is drawn, so this is the one that costs frame rate.\n"
 			"DrawDistanceSmall=8\n"
+			"; 1 = let the game skip objects it thinks are hidden behind big ones (walls, rocks).  Off by\n"
+			";     default in VR: it can hide things right in front of you.\n"
+			"Occlusion=0\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -431,6 +441,7 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
+		s.bOcclusion      = fIni(str_file, "Occlusion", 0) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
@@ -1388,6 +1399,11 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (gVR.bBumpHardware && d3dDriver.bUseD3D())
 		prenMain->pSettings->seterfState -= erfBUMP;
 
+	// Occlusion culling.
+	bool b_occ_obj = COcclude::bUseObjectOcclusion, b_occ_poly = COcclude::bUsePolygonOcclusion;
+	if (!setVR.bOcclusion)
+		COcclude::bUseObjectOcclusion = COcclude::bUsePolygonOcclusion = false;
+
 	// Both arms: posed to the controllers for this frame.
 	if (b_player_view)
 		gpPlayer->VRShowLeftArm(true);
@@ -1458,6 +1474,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		gpPlayer->VRShowLeftArm(false);
 
 	prenMain->pSettings->seterfState = seterf_orig;
+	COcclude::bUseObjectOcclusion = b_occ_obj;
+	COcclude::bUsePolygonOcclusion = b_occ_poly;
 	gVR.bRadialFog = false;
 	fPerspectivePixelError    = f_persp_orig;
 	fAltPerspectivePixelError = f_alt_persp_orig;
