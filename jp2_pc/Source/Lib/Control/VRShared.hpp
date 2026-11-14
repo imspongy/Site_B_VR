@@ -121,7 +121,8 @@ struct SVRShared
 
 	// Graphics-card rendering speed-ups (ini: FastDraw, HardwareBumpObjects).
 	bool  bBatchDraw = false;			// Collect polygons into large draw calls.
-	bool  bBumpHardware = false;		// Draw bump-mapped objects on the card (as plain textures).
+	bool  bBumpHardware = false;
+	int   iTextureRamMB = 0;			// Texture memory on the card for the game (0 = original 8 MB).		// Draw bump-mapped objects on the card (as plain textures).
 	int   iBatchPolys = 0;				// Diagnostics: polygons drawn / draw calls sent.
 	int   iBatchFlushes = 0;
 

@@ -1444,6 +1444,11 @@ public:
 		// Maximum amount of texture memory that will be considered.
 		static const int iMaxD3DTextureRam = 8192 * 1024;
 
+		// VR mod: the original 8 MB (a 1998 card) makes textures load and unload every frame
+		// at long draw distances, which is slow and leaves things blurry or flat-coloured.
+		if (gVR.iTextureRamMB > 0)
+			return gVR.iTextureRamMB * 1024 * 1024;
+
 		if (emmMemoryModel == emmSmall)
 			return (iMaxD3DTextureRam * 3) / 2;
 		return iMaxD3DTextureRam;

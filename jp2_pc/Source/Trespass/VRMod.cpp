@@ -360,7 +360,7 @@ namespace
 			"DrawDistance=8\n"
 			"; The same for small objects (under about 1 m across); things in between are in between.\n"
 			";     Small things are most of what is drawn, so this is the one that costs frame rate.\n"
-			"DrawDistanceSmall=3\n"
+			"DrawDistanceSmall=8\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -378,8 +378,12 @@ namespace
 			"; With HardwareRendering: send polygons to the card in large batches (much faster).\n"
 			"FastDraw=1\n"
 			"; With HardwareRendering: draw bump-mapped objects (barrels, dinosaurs, rocks) on the card as\n"
-			";     plain textures.  0 = original bumpy look drawn on the CPU, which is very slow.\n"
-			"HardwareBumpObjects=1\n"
+			";     plain textures (faster, but their colours can come out wrong).  0 = original look.\n"
+			"HardwareBumpObjects=0\n"
+			"; With HardwareRendering: texture memory for the game in MB (the original game used 8)\n"
+			";     and the largest texture size used (the original used 128, which is blurry).\n"
+			"TextureMemoryMB=512\n"
+			"MaxTextureSize=512\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -478,7 +482,7 @@ namespace
 			float f_dd = setVR.bEnabled ? setVR.fDrawDistance : 1.0f;
 			gVR.fCullScaleSqr = f_dd * f_dd;
 			{
-				float f_small = (std::min)(f_dd, (std::max)(0.5f, fIni(str_file, "DrawDistanceSmall", 3)));
+				float f_small = (std::min)(f_dd, (std::max)(0.5f, fIni(str_file, "DrawDistanceSmall", 8)));
 				gVR.fCullScaleSmallSqr = setVR.bEnabled ? f_small * f_small : 1.0f;
 			}
 			for (int i = 0; i < 5; i++)
@@ -916,7 +920,11 @@ void VRMod_PreInit()
 	if (bHardwareWanted)
 	{
 		gVR.bBatchDraw    = fIni(str_file, "FastDraw", 1) != 0;
-		gVR.bBumpHardware = fIni(str_file, "HardwareBumpObjects", 1) != 0;
+		gVR.bBumpHardware = fIni(str_file, "HardwareBumpObjects", 0) != 0;
+		gVR.iTextureRamMB = (int)fIni(str_file, "TextureMemoryMB", 512);
+		int i_tex = (int)fIni(str_file, "MaxTextureSize", 512);
+		if (i_tex >= 64 && i_tex <= 2048)
+			SetRecommendedTextureMaxDim(i_tex);
 		// The standard hardware (HAL) Direct3D device on the primary display.
 		static const GUID guid_hal = { 0x84E63dE0, 0x46AA, 0x11CF, { 0x81, 0x6F, 0x00, 0x00, 0xC0, 0x20, 0x15, 0x6E } };
 		GUID guid_primary;
@@ -1300,8 +1308,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	}
 
 	CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, (setVR.fHandPitchDeg - 90.0f) * fDEG) *
-	                       r3AxisAngle(0, 1, 0, (setVR.fHandRollDeg + 90.0f) * fDEG) *
-	                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * fDEG);
+	                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
+	                       r3AxisAngle(0, 0, 1, (setVR.fHandYawDeg + 90.0f) * fDEG);
 	// The same offset, mirrored for the left hand.
 	CRotate3<> r3_offset_l(r3_offset.tC, r3_offset.v3S.tX, -r3_offset.v3S.tY, -r3_offset.v3S.tZ, true);
 
