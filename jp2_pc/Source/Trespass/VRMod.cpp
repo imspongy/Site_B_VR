@@ -258,6 +258,10 @@ namespace
 			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " monitor %.1fms/flip; game step %.1fms x%d/s;",
 				iTimingFlips ? gVR.dFlipMs / iTimingFlips : 0.0,
 				gVR.iSteps ? gVR.dStepMs / gVR.iSteps : 0.0, int(gVR.iSteps / d_secs));
+		if (iTimingFrames > 0 && gVR.iBatchPolys > 0 && i_len < (int)sizeof(str) - 64)
+			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " %d polygons in %d draw calls a frame;",
+				gVR.iBatchPolys / iTimingFrames, gVR.iBatchFlushes / iTimingFrames);
+		gVR.iBatchPolys = gVR.iBatchFlushes = 0;
 		gVR.dFlipMs = gVR.dStepMs = 0;
 		gVR.iSteps = 0;
 		Log("%s", str);
@@ -951,6 +955,7 @@ void VRMod_Startup()
 	Log("SteamVR started. Recommended eye size %dx%d.", i_w, i_h);
 	if (prasMainScreen)
 		Log("Game render size %dx%d, %d bpp.", prasMainScreen->iWidth, prasMainScreen->iHeight, prasMainScreen->iPixelBits);
+	Log("Fast draw %s, bump objects on the card %s.", gVR.bBatchDraw ? "on" : "off", gVR.bBumpHardware ? "on" : "off");
 	Log("Renderer: %s%s.", d3dDriver.bUseD3D() ? "graphics card (Direct3D)" : "CPU (software)",
 		bHardwareWanted && !d3dDriver.bUseD3D() ? " - hardware rendering was requested but could not be started" : "");
 
