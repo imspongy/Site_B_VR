@@ -3283,6 +3283,9 @@ private:
 
 		// VR: Anne's body follows the headset (stick locomotion and walking around the room).
 		BodyFollow();
+		if (gVR.pvKinInstance)
+			// The VR character controller chose her facing; don't let the physics turn her back.
+			msgpr.subOrientBody.Set(rt_high_urgency, 1, p3GetPlacement().r3Rot);
 
 		// Pass crouch command.  'Crouch' really sounds funny after you think the word a lot.
 		if (!bWithin(eHandHolding, ehhSEEKING, ehhGRABBING))
@@ -4684,7 +4687,7 @@ private:
 					return false;
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
 				float f_mass = pphi->fMass(pins);
-				return f_mass >= (b_wall ? 60.0f : 12.0f);
+				return f_mass >= (b_wall ? 60.0f : 4.0f);
 			}
 			return true;
 		};

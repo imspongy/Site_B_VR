@@ -49,6 +49,7 @@
 #include <math.h>
 #include "common.hpp"
 #include "PartitionPriv.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Lib/EntityDBase/WorldDBase.hpp"
 #include "Lib/Sys/W95/Render.hpp"
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
@@ -184,9 +185,11 @@ const float fMaxCullingDistanceShadow = 200.0f;
 		}
 		SetMinMax(f_current_width, 320.0f, 640.0f);
 
+		// (VR mod: the draw distance setting scales every object's culling distance, including
+		// the ones fixed by the level designers.)
 		CPartition::SetCombinedCulling
 		(
-			1.0f,
+			gVR.bActive ? gVR.fCullScaleSqr : 1.0f,
 			1.0f
 		);
 		/*

@@ -49,6 +49,8 @@
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Sys/RegInit.hpp"
+#include "Lib/Sys/Profile.hpp"
+#include "Lib/Std/StringEx.hpp"
 #include "Lib/EntityDBase/QualitySettings.hpp"
 #include "Lib/Renderer/RenderCacheInterface.hpp"
 #include "Lib/Types/FixedP.hpp"
@@ -113,7 +115,7 @@ namespace
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
-		float fDrawDistance   = 6.0f;	// Multiplier on how far away objects are drawn.
+		float fDrawDistance   = 3.0f;	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -350,7 +352,7 @@ namespace
 			"RadialFog=1\n"
 			"; How far away objects and buildings are drawn, and how far they keep full detail\n"
 			";     (1 = original game, 3 = three times as far).  Higher costs frame rate.\n"
-			"DrawDistance=6\n"
+			"DrawDistance=3\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -412,7 +414,7 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
-		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 6), 0.5f), 8.0f);
+		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 3), 0.5f), 8.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
 		s.fRunSpeed       = fIni(str_file, "RunSpeed", 4.5f);
@@ -461,9 +463,10 @@ namespace
 				b_saved = true;
 			}
 			float f_dd = setVR.bEnabled ? setVR.fDrawDistance : 1.0f;
+			gVR.fCullScaleSqr = f_dd * f_dd;
 			for (int i = 0; i < 5; i++)
 			{
-				qdQualitySettings[i].fCullDistScale        = aqd_orig[i].fCullDistScale * f_dd;
+				qdQualitySettings[i].fCullDistScale        = aqd_orig[i].fCullDistScale;
 				qdQualitySettings[i].fCullShadowDistScale  = aqd_orig[i].fCullShadowDistScale * (std::min)(f_dd, 2.0f);
 				qdQualitySettings[i].fDetailReductionScale = aqd_orig[i].fDetailReductionScale * f_dd * f_dd;
 				// (Fog is a fraction of the far clip distance, so the haze moves out with it.)
@@ -1436,6 +1439,34 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	pcam->Move(CPlacement3<>(r3_cam_rot, v3_cam_pos));
 	pcam->SetAttached(pins_camera_on, b_camera_on_head);
 	pcam->SetRelative(p3_camera_relative);
+
+#if VER_TIMING_STATS
+	// (Release exe only.)  The engine's own profile of where the frame time goes.
+	{
+		static CCycleTimer ctmr_frame;
+		static int i_profile_frames = 0;
+		proProfile.psFrame.Add(ctmr_frame(), 1);
+		if (++i_profile_frames >= 400)
+		{
+			i_profile_frames = 0;
+			CStrBuffer strbuf(60000);
+			proProfile.psFrame.WriteToBuffer(strbuf, 0, true);
+			std::string str(&strbuf[0], strbuf.uLen);
+			Log("Profile (per frame, both eyes):");
+			size_t u_pos = 0;
+			while (u_pos < str.size())
+			{
+				size_t u_end = str.find('\n', u_pos);
+				if (u_end == std::string::npos)
+					u_end = str.size();
+				if (u_end > u_pos)
+					Log("  %s", str.substr(u_pos, u_end - u_pos).c_str());
+				u_pos = u_end + 1;
+			}
+			proProfile.psFrame.Reset();
+		}
+	}
+#endif
 
 	bStereoThisFrame = true;
 	iTimingFrames++;

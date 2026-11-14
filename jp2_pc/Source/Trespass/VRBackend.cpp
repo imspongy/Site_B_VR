@@ -1245,6 +1245,7 @@ void VRB_ShowOverlay
 
 	// Bring the screen back in front of you if you have turned or walked away from it for a
 	// second or so (or the headset was not being worn when it was placed).
+	const bool b_snap = b_place;		// Newly shown: appear in place.  Otherwise it glides over.
 	{
 		static float f_sx = 0, f_sy = 0, f_sz = 0;
 		static ULONGLONG u8_away_since = 0;
@@ -1274,15 +1275,40 @@ void VRB_ShowOverlay
 		}
 	}
 
-	if (b_place)
 	{
-		// Place the screen in front of the head, level, facing the player.
+		// The screen sits level in front of the head, facing the player; it glides to a new spot.
+		static float af_target[5] = { 0, 1.6f, -2, 0, -1 };	// Position, facing (x, z).
+		static float af_now[5]    = { 0, 1.6f, -2, 0, -1 };
+		static ULONGLONG u8_last = 0;
+		if (b_place)
+		{
+			af_target[0] = px + fx * f_distance_m;
+			af_target[1] = py;
+			af_target[2] = pz + fz * f_distance_m;
+			af_target[3] = fx;
+			af_target[4] = fz;
+		}
+		ULONGLONG u8_now = GetTickCount64();
+		float f_dt = u8_last ? (float)(u8_now - u8_last) * 0.001f : 1.0f;
+		u8_last = u8_now;
+		float f_k = (b_snap || f_dt > 0.5f) ? 1.0f : 1.0f - std::exp(-f_dt / 0.12f);
+		for (int i = 0; i < 5; i++)
+			af_now[i] += (af_target[i] - af_now[i]) * f_k;
+		float f_fx = af_now[3], f_fz = af_now[4];
+		float f_len = std::sqrt(f_fx * f_fx + f_fz * f_fz);
+		if (f_len < 0.05f)
+		{
+			// (Gliding straight through the opposite direction.)
+			f_fx = af_target[3]; f_fz = af_target[4]; f_len = 1;
+		}
+		f_fx /= f_len; f_fz /= f_len;
+
 		// Overlay faces +z; rotate about y so +z points back at the player (-forward).
-		vr::HmdMatrix34_t mx = {};
 		// x axis = right = (-fz, 0, fx); z axis = -forward = (-fx, 0, -fz).
-		mx.m[0][0] = -fz; mx.m[0][1] = 0; mx.m[0][2] = -fx; mx.m[0][3] = px + fx * f_distance_m;
-		mx.m[1][0] = 0;   mx.m[1][1] = 1; mx.m[1][2] = 0;   mx.m[1][3] = py;
-		mx.m[2][0] = fx;  mx.m[2][1] = 0; mx.m[2][2] = -fz; mx.m[2][3] = pz + fz * f_distance_m;
+		vr::HmdMatrix34_t mx = {};
+		mx.m[0][0] = -f_fz; mx.m[0][1] = 0; mx.m[0][2] = -f_fx; mx.m[0][3] = af_now[0];
+		mx.m[1][0] = 0;     mx.m[1][1] = 1; mx.m[1][2] = 0;     mx.m[1][3] = af_now[1];
+		mx.m[2][0] = f_fx;  mx.m[2][1] = 0; mx.m[2][2] = -f_fz; mx.m[2][3] = af_now[2];
 		pov->SetOverlayTransformAbsolute(hOverlay, vr::TrackingUniverseStanding, &mx);
 		pov->SetOverlayWidthInMeters(hOverlay, f_width_m);
 	}
