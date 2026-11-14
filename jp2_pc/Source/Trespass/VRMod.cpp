@@ -115,7 +115,8 @@ namespace
 		int   iSkyMode        = 2;		// 0 = solid colour, 1 = gradient, 2 = clouds.
 		bool  bImageCaches    = false;	// The game's distant-object image caches.
 		bool  bRadialFog      = true;	// Fog by true distance (doesn't change as you turn).
-		float fDrawDistance   = 8.0f;	// Multiplier on how far away objects are drawn.
+		float fDrawDistance   = 8.0f;
+		float fDrawDistSmall  = 3.0f;	// The same, for small objects.	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -353,6 +354,9 @@ namespace
 			"; How far away objects and buildings are drawn, and how far they keep full detail\n"
 			";     (1 = original game, 3 = three times as far).  Higher costs frame rate.\n"
 			"DrawDistance=8\n"
+			"; The same for small objects (under about 1 m across); things in between are in between.\n"
+			";     Small things are most of what is drawn, so this is the one that costs frame rate.\n"
+			"DrawDistanceSmall=3\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -464,6 +468,10 @@ namespace
 			}
 			float f_dd = setVR.bEnabled ? setVR.fDrawDistance : 1.0f;
 			gVR.fCullScaleSqr = f_dd * f_dd;
+			{
+				float f_small = (std::min)(f_dd, (std::max)(0.5f, fIni(str_file, "DrawDistanceSmall", 3)));
+				gVR.fCullScaleSmallSqr = setVR.bEnabled ? f_small * f_small : 1.0f;
+			}
 			for (int i = 0; i < 5; i++)
 			{
 				qdQualitySettings[i].fCullDistScale        = aqd_orig[i].fCullDistScale;
@@ -1280,7 +1288,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	}
 
 	CRotate3<> r3_offset = r3AxisAngle(1, 0, 0, (setVR.fHandPitchDeg - 90.0f) * fDEG) *
-	                       r3AxisAngle(0, 1, 0, setVR.fHandRollDeg  * fDEG) *
+	                       r3AxisAngle(0, 1, 0, (setVR.fHandRollDeg + 90.0f) * fDEG) *
 	                       r3AxisAngle(0, 0, 1, setVR.fHandYawDeg   * fDEG);
 	// The same offset, mirrored for the left hand.
 	CRotate3<> r3_offset_l(r3_offset.tC, r3_offset.v3S.tX, -r3_offset.v3S.tY, -r3_offset.v3S.tZ, true);

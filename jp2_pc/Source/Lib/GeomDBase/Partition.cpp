@@ -1679,6 +1679,15 @@ static void PrintPos(CConsoleBuffer& con, const CPartition* ppart)
 
 		float f_dist_threshold = float(sfCullDistanceSqr) * fCullDistanceCombined;
 
+		// VR mod: draw distance multiplier, larger for larger things (radius 0.7 m .. 4 m).
+		if (gVR.bActive)
+		{
+			float f_t = (float(sfSphereRadiusSqr) - 0.5f) * (1.0f / 15.5f);
+			if (f_t < 0.0f) f_t = 0.0f;
+			if (f_t > 1.0f) f_t = 1.0f;
+			f_dist_threshold *= gVR.fCullScaleSmallSqr + (gVR.fCullScaleSqr - gVR.fCullScaleSmallSqr) * f_t;
+		}
+
 		return u4FromFloat(f_distance_sqr) < u4FromFloat(f_dist_threshold);
 	}
 

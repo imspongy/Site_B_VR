@@ -84,6 +84,7 @@ struct SVRShared
 	const void* pvStubInstance = nullptr;		// Instance whose flagged polygons are not drawn (Anne's arm stub).
 	const unsigned char* pu1StubPolys = nullptr;	// One flag per mesh polygon.
 	int   iStubPolys = 0;
+	float fCullScaleSmallSqr = 1.0f;	// The same for small objects (bounding radius under ~0.7 m).
 	float fCullScaleSqr = 1.0f;			// Multiplier on every object's (squared) draw distance.
 	float fFallSpeed = 0;				// Anne's recent downward speed (m/s), for fall damage.
 	float afBodyVel[2] = { 0, 0 };		// How fast the player is moving (stick), world x/y.
