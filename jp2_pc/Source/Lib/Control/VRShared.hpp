@@ -119,6 +119,12 @@ struct SVRShared
 	bool  bMenuCursor = false;
 	int   aiMenuCursor[2] = { 0, 0 };
 
+	// Graphics-card rendering speed-ups (ini: FastDraw, HardwareBumpObjects).
+	bool  bBatchDraw = false;			// Collect polygons into large draw calls.
+	bool  bBumpHardware = false;		// Draw bump-mapped objects on the card (as plain textures).
+	int   iBatchPolys = 0;				// Diagnostics: polygons drawn / draw calls sent.
+	int   iBatchFlushes = 0;
+
 	// Skip drawing to the monitor while in VR (ini: MirrorToMonitor=0).
 	bool  bSkipMonitor = false;
 };

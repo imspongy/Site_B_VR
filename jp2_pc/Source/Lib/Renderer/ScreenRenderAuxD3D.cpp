@@ -191,6 +191,7 @@
 #include "Lib/View/RasterD3D.hpp"
 #include "Lib/Renderer/ScreenRender.hpp"
 #include "ScreenRenderAuxD3D.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Lib/Std/LocalArray.hpp"
 #include "Lib/Std/PrivSelf.hpp"
 #include "Fog.hpp"
@@ -1880,7 +1881,8 @@ public:
 			++i;
 
 			// Break if out of time.
-			if (i >= aprp.uLen || GetTickCount() - u4_time_ms > 7)
+			// (VR mod: a bigger time allowance, so fewer things show as flat colour first.)
+			if (i >= aprp.uLen || GetTickCount() - u4_time_ms > (gVR.bActive ? 14u : 7u))
 			{
 				GetBestMipLevels(aprp, i);
 				return;

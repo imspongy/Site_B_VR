@@ -45,6 +45,7 @@
 #include "Memory.h"
 #include "common.hpp"
 #include "RasterConvertD3D.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include <algorithm>
 
 #include "Raster.hpp"
@@ -415,6 +416,34 @@ void ConvertRaster(CRasterD3D* pras_d3d, rptr<CRaster> pras_mem, CColour clr)
 
 	Assert(pras_d3d);
 	Assert(pras_mem);
+
+	// VR mod: a bump map (32 bits a pixel: the palette index is the top byte, the rest is the
+	// surface angle) becomes a plain texture from its colours.
+	if (gVR.bBumpHardware && pras_mem->iPixelBits == 32 && pras_mem->pxf.ppalAttached &&
+		pras_d3d->ed3dtexGet() != ed3dtexSCREEN_ALPHA)
+	{
+		const uint16* pu2 = u2ConversionGet(pras_d3d, pras_mem, clr);
+		pras_d3d->Lock();
+		uint16* pu2_d3d = (uint16*)pras_d3d->pSurface;
+		uint32* pu4_mem = (uint32*)pras_mem->pSurface;
+		int i_d3d_stride = pras_d3d->iLinePixels;
+		int i_mem_stride = pras_mem->iLinePixels;
+		int i_width  = std::min(pras_d3d->iWidth,  pras_mem->iWidth);
+		int i_height = std::min(pras_d3d->iHeight, pras_mem->iHeight);
+		for (int j = 0; j < i_height; ++j)
+		{
+			for (int i = 0; i < i_width; ++i)
+				pu2_d3d[i] = pu2[pu4_mem[i] >> 24];
+			// Stretch across if the card's texture is wider or taller (square-only cards).
+			for (int i = i_width; i < pras_d3d->iWidth; ++i)
+				pu2_d3d[i] = pu2_d3d[i % i_width];
+			pu2_d3d += i_d3d_stride;
+			pu4_mem += i_mem_stride;
+		}
+		pras_d3d->Unlock();
+		psUploadConversion.Add(ctmr(), pras_d3d->iSurfaceMemBytes());
+		return;
+	}
 
 	if (pras_d3d->ed3dtexGet() == ed3dtexSCREEN_ALPHA || pras_mem->iPixelBits > 8)
 	{

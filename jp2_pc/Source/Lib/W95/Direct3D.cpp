@@ -82,6 +82,122 @@
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/EntityDBase/Water.hpp"
 #include "Lib/Renderer/PipeLine.hpp"
+#include "Lib/Control/VRShared.hpp"
+#include <vector>
+
+//**********************************************************************************************
+//
+// VR mod: batching Direct3D device.
+//
+// The game draws every polygon with its own DrawPrimitive call, which is very slow through
+// today's emulation of Direct3D 6.  This wrapper sits in front of the real device, collects
+// consecutive polygons into one triangle list, and sends the list when anything else (a
+// texture or state change, the end of the scene) is asked of the device.  Drawing order and
+// results are unchanged.
+//
+class CVRBatchDevice : public IDirect3DDevice3
+{
+	LPDIRECT3DDEVICE3          pReal;
+	std::vector<D3DTLVERTEX>   avtx;
+	DWORD                      dwBatchFlags;
+
+	enum { iMAX_BATCH = 24000 };
+
+public:
+	CVRBatchDevice(LPDIRECT3DDEVICE3 p) : pReal(p), dwBatchFlags(0)
+	{
+		avtx.reserve(iMAX_BATCH + 256);
+	}
+
+	void Flush()
+	{
+		if (avtx.empty())
+			return;
+		pReal->DrawPrimitive(D3DPT_TRIANGLELIST, D3DFVF_TLVERTEX, (LPVOID)&avtx[0], (DWORD)avtx.size(), dwBatchFlags);
+		gVR.iBatchFlushes++;
+		avtx.clear();
+	}
+
+	// IUnknown.
+	STDMETHOD(QueryInterface)(REFIID riid, LPVOID* ppv) override { Flush(); return pReal->QueryInterface(riid, ppv); }
+	STDMETHOD_(ULONG, AddRef)() override { return pReal->AddRef(); }
+	STDMETHOD_(ULONG, Release)() override
+	{
+		Flush();
+		ULONG u = pReal->Release();
+		if (u == 0)
+			delete this;
+		return u;
+	}
+
+	// Batched drawing.
+	STDMETHOD(DrawPrimitive)(D3DPRIMITIVETYPE type, DWORD fvf, LPVOID pv, DWORD n, DWORD flags) override
+	{
+		if (fvf == D3DFVF_TLVERTEX && pv && n >= 3 && (type == D3DPT_TRIANGLEFAN || (type == D3DPT_TRIANGLELIST && n % 3 == 0)))
+		{
+			if (!avtx.empty() && (flags != dwBatchFlags || avtx.size() + n * 3 > iMAX_BATCH))
+				Flush();
+			dwBatchFlags = flags;
+			const D3DTLVERTEX* p = (const D3DTLVERTEX*)pv;
+			if (type == D3DPT_TRIANGLEFAN)
+			{
+				for (DWORD i = 1; i + 1 < n; i++)
+				{
+					avtx.push_back(p[0]);
+					avtx.push_back(p[i]);
+					avtx.push_back(p[i + 1]);
+				}
+			}
+			else
+				avtx.insert(avtx.end(), p, p + n);
+			gVR.iBatchPolys++;
+			return D3D_OK;
+		}
+		Flush();
+		return pReal->DrawPrimitive(type, fvf, pv, n, flags);
+	}
+
+	// Everything else: send what has been collected, then pass the call on.
+	STDMETHOD(GetCaps)(LPD3DDEVICEDESC a, LPD3DDEVICEDESC b) override { return pReal->GetCaps(a, b); }
+	STDMETHOD(GetStats)(LPD3DSTATS a) override { return pReal->GetStats(a); }
+	STDMETHOD(AddViewport)(LPDIRECT3DVIEWPORT3 a) override { Flush(); return pReal->AddViewport(a); }
+	STDMETHOD(DeleteViewport)(LPDIRECT3DVIEWPORT3 a) override { Flush(); return pReal->DeleteViewport(a); }
+	STDMETHOD(NextViewport)(LPDIRECT3DVIEWPORT3 a, LPDIRECT3DVIEWPORT3* b, DWORD c) override { return pReal->NextViewport(a, b, c); }
+	STDMETHOD(EnumTextureFormats)(LPD3DENUMPIXELFORMATSCALLBACK a, LPVOID b) override { return pReal->EnumTextureFormats(a, b); }
+	STDMETHOD(BeginScene)() override { Flush(); return pReal->BeginScene(); }
+	STDMETHOD(EndScene)() override { Flush(); return pReal->EndScene(); }
+	STDMETHOD(GetDirect3D)(LPDIRECT3D3* a) override { return pReal->GetDirect3D(a); }
+	STDMETHOD(SetCurrentViewport)(LPDIRECT3DVIEWPORT3 a) override { Flush(); return pReal->SetCurrentViewport(a); }
+	STDMETHOD(GetCurrentViewport)(LPDIRECT3DVIEWPORT3* a) override { return pReal->GetCurrentViewport(a); }
+	STDMETHOD(SetRenderTarget)(LPDIRECTDRAWSURFACE4 a, DWORD b) override { Flush(); return pReal->SetRenderTarget(a, b); }
+	STDMETHOD(GetRenderTarget)(LPDIRECTDRAWSURFACE4* a) override { return pReal->GetRenderTarget(a); }
+	STDMETHOD(Begin)(D3DPRIMITIVETYPE a, DWORD b, DWORD c) override { Flush(); return pReal->Begin(a, b, c); }
+	STDMETHOD(BeginIndexed)(D3DPRIMITIVETYPE a, DWORD b, LPVOID c, DWORD d, DWORD e) override { Flush(); return pReal->BeginIndexed(a, b, c, d, e); }
+	STDMETHOD(Vertex)(LPVOID a) override { return pReal->Vertex(a); }
+	STDMETHOD(Index)(WORD a) override { return pReal->Index(a); }
+	STDMETHOD(End)(DWORD a) override { return pReal->End(a); }
+	STDMETHOD(GetRenderState)(D3DRENDERSTATETYPE a, LPDWORD b) override { return pReal->GetRenderState(a, b); }
+	STDMETHOD(SetRenderState)(D3DRENDERSTATETYPE a, DWORD b) override { Flush(); return pReal->SetRenderState(a, b); }
+	STDMETHOD(GetLightState)(D3DLIGHTSTATETYPE a, LPDWORD b) override { return pReal->GetLightState(a, b); }
+	STDMETHOD(SetLightState)(D3DLIGHTSTATETYPE a, DWORD b) override { Flush(); return pReal->SetLightState(a, b); }
+	STDMETHOD(SetTransform)(D3DTRANSFORMSTATETYPE a, LPD3DMATRIX b) override { Flush(); return pReal->SetTransform(a, b); }
+	STDMETHOD(GetTransform)(D3DTRANSFORMSTATETYPE a, LPD3DMATRIX b) override { return pReal->GetTransform(a, b); }
+	STDMETHOD(MultiplyTransform)(D3DTRANSFORMSTATETYPE a, LPD3DMATRIX b) override { Flush(); return pReal->MultiplyTransform(a, b); }
+	STDMETHOD(DrawIndexedPrimitive)(D3DPRIMITIVETYPE a, DWORD b, LPVOID c, DWORD d, LPWORD e, DWORD f, DWORD g) override { Flush(); return pReal->DrawIndexedPrimitive(a, b, c, d, e, f, g); }
+	STDMETHOD(SetClipStatus)(LPD3DCLIPSTATUS a) override { Flush(); return pReal->SetClipStatus(a); }
+	STDMETHOD(GetClipStatus)(LPD3DCLIPSTATUS a) override { return pReal->GetClipStatus(a); }
+	STDMETHOD(DrawPrimitiveStrided)(D3DPRIMITIVETYPE a, DWORD b, LPD3DDRAWPRIMITIVESTRIDEDDATA c, DWORD d, DWORD e) override { Flush(); return pReal->DrawPrimitiveStrided(a, b, c, d, e); }
+	STDMETHOD(DrawIndexedPrimitiveStrided)(D3DPRIMITIVETYPE a, DWORD b, LPD3DDRAWPRIMITIVESTRIDEDDATA c, DWORD d, LPWORD e, DWORD f, DWORD g) override { Flush(); return pReal->DrawIndexedPrimitiveStrided(a, b, c, d, e, f, g); }
+	STDMETHOD(DrawPrimitiveVB)(D3DPRIMITIVETYPE a, LPDIRECT3DVERTEXBUFFER b, DWORD c, DWORD d, DWORD e) override { Flush(); return pReal->DrawPrimitiveVB(a, b, c, d, e); }
+	STDMETHOD(DrawIndexedPrimitiveVB)(D3DPRIMITIVETYPE a, LPDIRECT3DVERTEXBUFFER b, LPWORD c, DWORD d, DWORD e) override { Flush(); return pReal->DrawIndexedPrimitiveVB(a, b, c, d, e); }
+	STDMETHOD(ComputeSphereVisibility)(LPD3DVECTOR a, LPD3DVALUE b, DWORD c, DWORD d, LPDWORD e) override { return pReal->ComputeSphereVisibility(a, b, c, d, e); }
+	STDMETHOD(GetTexture)(DWORD a, LPDIRECT3DTEXTURE2* b) override { return pReal->GetTexture(a, b); }
+	STDMETHOD(SetTexture)(DWORD a, LPDIRECT3DTEXTURE2 b) override { Flush(); return pReal->SetTexture(a, b); }
+	STDMETHOD(GetTextureStageState)(DWORD a, D3DTEXTURESTAGESTATETYPE b, LPDWORD c) override { return pReal->GetTextureStageState(a, b, c); }
+	STDMETHOD(SetTextureStageState)(DWORD a, D3DTEXTURESTAGESTATETYPE b, DWORD c) override { Flush(); return pReal->SetTextureStageState(a, b, c); }
+	STDMETHOD(ValidateDevice)(LPDWORD a) override { Flush(); return pReal->ValidateDevice(a); }
+};
+
 #include "Lib/Sys/W95/Render.hpp"
 #include "Lib/Renderer/RenderCache.hpp"
 #include "Lib/Std/MemLimits.hpp"
@@ -747,6 +863,9 @@ public:
 			bUse = false;
 			return false;
 		}
+		// VR mod: collect polygons into large draw calls.
+		if (gVR.bBatchDraw && pDevice)
+			pDevice = new CVRBatchDevice(pDevice);
 		AlwaysAssert(pDevice);
 #endif // VER_DEBUG
 		PrintD3D(">>>>>>New direct 3d device created\n");

@@ -246,7 +246,7 @@ namespace
 			return;
 
 		double d_secs = (d_now - dTimingStart) / 1000.0;
-		char str[512];
+		char str[700];
 		int i_len = std::snprintf(str, sizeof(str), "Perf: %.1f VR fps, %.1f flips/s.", iTimingFrames / d_secs, iTimingFlips / d_secs);
 		for (int i = 0; i < etCOUNT; i++)
 		{
@@ -371,6 +371,11 @@ namespace
 			"; EXPERIMENTAL: 1 = draw with the graphics card (the game's Direct3D mode) instead of\n"
 			";     the CPU.  Needed for high resolutions at high frame rates.  Takes effect on restart.\n"
 			"HardwareRendering=0\n"
+			"; With HardwareRendering: send polygons to the card in large batches (much faster).\n"
+			"FastDraw=1\n"
+			"; With HardwareRendering: draw bump-mapped objects (barrels, dinosaurs, rocks) on the card as\n"
+			";     plain textures.  0 = original bumpy look drawn on the CPU, which is very slow.\n"
+			"HardwareBumpObjects=1\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -906,6 +911,8 @@ void VRMod_PreInit()
 	bHardwareWanted = fIni(str_file, "HardwareRendering", 0) != 0;
 	if (bHardwareWanted)
 	{
+		gVR.bBatchDraw    = fIni(str_file, "FastDraw", 1) != 0;
+		gVR.bBumpHardware = fIni(str_file, "HardwareBumpObjects", 1) != 0;
 		// The standard hardware (HAL) Direct3D device on the primary display.
 		static const GUID guid_hal = { 0x84E63dE0, 0x46AA, 0x11CF, { 0x81, 0x6F, 0x00, 0x00, 0xC0, 0x20, 0x15, 0x6E } };
 		GUID guid_primary;
@@ -1362,6 +1369,11 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		persetSettings.iAdaptiveMinSubdivision = (std::min)(persetSettings.iAdaptiveMinSubdivision, 16);
 	}
 
+	// Bump-mapped objects on the card are lit and drawn as ordinary textured objects.
+	CSet<ERenderFeature> seterf_orig = prenMain->pSettings->seterfState;
+	if (gVR.bBumpHardware && d3dDriver.bUseD3D())
+		prenMain->pSettings->seterfState -= erfBUMP;
+
 	// Both arms: posed to the controllers for this frame.
 	if (b_player_view)
 		gpPlayer->VRShowLeftArm(true);
@@ -1431,6 +1443,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (gpPlayer)
 		gpPlayer->VRShowLeftArm(false);
 
+	prenMain->pSettings->seterfState = seterf_orig;
 	gVR.bRadialFog = false;
 	fPerspectivePixelError    = f_persp_orig;
 	fAltPerspectivePixelError = f_alt_persp_orig;
