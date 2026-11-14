@@ -70,6 +70,15 @@ Render resolution is the `Width`/`Height` in `OpenTrespasser.ini`. A square-ish 
 
 To watch or record, use SteamVR's "Display VR View" window (capture it with OBS).
 
+## Modern renderer
+
+In VR the world is drawn by a new GPU renderer (Direct3D 11) instead of the game's 1998 one: it renders
+straight into the headset at its native resolution with anti-aliasing, real-time sun shadows and fog by
+true distance. Settings in `TrespasserVR.ini`: `NewRenderer` (0 = the original renderer), `RenderScale`,
+`MSAA`, `ShadowMapSize`, `ShadowDistance`, `Brightness`, `TerrainDetail`.
+
+Not drawn yet by the new renderer: water surfaces, particles (blood, dust, muzzle flash) and on-screen text.
+
 ## Known limitations
 
 - The game renders on the CPU and copies each frame to the headset, so frame rates are modest.
