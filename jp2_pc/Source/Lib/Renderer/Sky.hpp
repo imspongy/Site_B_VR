@@ -249,6 +249,26 @@ public:
 	}
 
 	//******************************************************************************************
+	// VR mod: everything the GPU renderer needs to draw this sky.
+	struct SVRSkyInfo
+	{
+		const uint8*  pu1Tex;		// 8-bit texture (palette indices), or null.
+		int           iWidth, iHeight, iStride;
+		const uint16* pu2Colours;	// 565 colour of each palette index, unfogged.
+		int           iColours;
+		uint16        u2Fog;		// 565 fog (horizon) colour.
+		float         fHeight;		// Cloud height (metres).
+		float         fScale;		// World metres -> 16.16 texels.
+		float         fOffsetU, fOffsetV;	// 16.16 texels.
+		float         fDriftU, fDriftV;		// Wind, in texture repeats per second.
+		float         fFogNear;		// Fog amount (0..1) = (1 - dir.z - fFogNear) * fFogPerZ.
+		float         fFogPerZ;
+		bool          bTextured;
+	};
+
+	void GetVRInfo(SVRSkyInfo& si) const;
+
+	//******************************************************************************************
 	SkyDrawMode sdmGetDrawMode() const
 	{
 		return sdmMode;

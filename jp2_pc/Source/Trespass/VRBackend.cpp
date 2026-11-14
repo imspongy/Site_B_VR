@@ -1356,3 +1356,22 @@ bool VRB_PollOverlayMouse(SVROverlayMouse& ev)
 	}
 	return false;
 }
+
+//**********************************************************************************************
+void VRB_GetD3D11(void** ppv_device, void** ppv_context)
+{
+	*ppv_device = pd3dDevice;
+	*ppv_context = pd3dContext;
+}
+
+//**********************************************************************************************
+bool VRB_SubmitTexture(int i_eye, void* pv_texture)
+{
+	if (!pvrSystem || !pd3dContext || !pv_texture || i_eye < 0 || i_eye > 1)
+		return false;
+	vr::Texture_t tex = { pv_texture, vr::TextureType_DirectX, vr::ColorSpace_Gamma };
+	vr::EVRCompositorError err = vr::VRCompositor()->Submit(i_eye == 0 ? vr::Eye_Left : vr::Eye_Right, &tex);
+	if (i_eye == 1)
+		pd3dContext->Flush();
+	return err == vr::VRCompositorError_None;
+}

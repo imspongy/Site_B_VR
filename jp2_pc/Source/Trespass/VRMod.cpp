@@ -39,6 +39,7 @@
 
 #include "VRMod.h"
 #include "VRBackend.h"
+#include "VRScene.h"
 
 #include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/Camera.hpp"
@@ -121,6 +122,13 @@ namespace
 		float fDrawDistance   = 8.0f;
 		float fDrawDistSmall  = 3.0f;	// The same, for small objects.	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;
+		bool  bNewRenderer    = true;	// Draw the world with the modern GPU renderer.
+		float fRenderScale    = 1.0f;	// Eye image size relative to SteamVR's recommendation.
+		int   iMSAA           = 4;		// Anti-aliasing samples.
+		int   iShadowMapSize  = 4096;
+		float fShadowDistance = 60.0f;
+		float fBrightness     = 1.0f;
+		float fTerrainDetail  = 1.0f;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -266,6 +274,8 @@ namespace
 			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " %d polygons in %d draw calls a frame;",
 				gVR.iBatchPolys / iTimingFrames, gVR.iBatchFlushes / iTimingFrames);
 		gVR.iBatchPolys = gVR.iBatchFlushes = 0;
+		if (VRScene_Ready() && setVR.bNewRenderer)
+			Log("%s", VRScene_Stats());
 		if (gVR.iNearDistCulled || gVR.iNearOccluded)
 			Log("Near objects hidden (within 8 m, per frame): %.1f by draw distance (e.g. %.1f m away, limit %.1f m), %.1f by occlusion.",
 				gVR.iNearDistCulled / (double)(std::max)(1, iTimingFrames), gVR.fNearCullDist, gVR.fNearCullLimit,
@@ -385,6 +395,23 @@ namespace
 			";     the CPU.  Needed for high resolutions at high frame rates.  Takes effect on restart.\n"
 			"HardwareRendering=0\n"
 			"\n"
+			"; --- Graphics (modern renderer) ---\n"
+			"; 1 = draw the world with the modern GPU renderer: headset resolution, anti-aliasing,\n"
+			";     real-time shadows, high frame rates.  0 = the game's original renderer.\n"
+			";     Takes effect on restart.\n"
+			"NewRenderer=1\n"
+			"; Eye image size relative to what SteamVR recommends for your headset (1 = native).\n"
+			"RenderScale=1.0\n"
+			"; Anti-aliasing samples: 1 (off), 2, 4 or 8.\n"
+			"MSAA=4\n"
+			"; Shadow map size (0 = no shadows) and how far around you shadows are drawn (metres).\n"
+			"ShadowMapSize=4096\n"
+			"ShadowDistance=60\n"
+			"; Overall brightness.\n"
+			"Brightness=1.0\n"
+			"; Terrain mesh and texture detail (0.5 = half, 2 = double).  Applies on the next level load.\n"
+			"TerrainDetail=1.0\n"
+			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
 			"FlipFovX=0\n"
@@ -431,6 +458,13 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
+		s.bNewRenderer    = fIni(str_file, "NewRenderer", 1) != 0;
+		s.fRenderScale    = (std::min)(2.0f, (std::max)(0.3f, fIni(str_file, "RenderScale", 1.0f)));
+		s.iMSAA           = (int)fIni(str_file, "MSAA", 4);
+		s.iShadowMapSize  = (int)fIni(str_file, "ShadowMapSize", 4096);
+		s.fShadowDistance = fIni(str_file, "ShadowDistance", 60);
+		s.fBrightness     = fIni(str_file, "Brightness", 1.0f);
+		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
@@ -1073,6 +1107,16 @@ void VRMod_Startup()
 	}
 
 	Log("SteamVR started. Recommended eye size %dx%d.", i_w, i_h);
+
+	if (setVR.bNewRenderer)
+	{
+		char str_err2[512] = { 0 };
+		int i_ew = (int)(i_w * setVR.fRenderScale), i_eh = (int)(i_h * setVR.fRenderScale);
+		if (VRScene_Init(i_ew, i_eh, setVR.iMSAA, setVR.iShadowMapSize, str_err2, sizeof(str_err2)))
+			Log("Modern renderer started: %dx%d per eye, %dx anti-aliasing, %d shadow map.", i_ew, i_eh, setVR.iMSAA, setVR.iShadowMapSize);
+		else
+			Log("Modern renderer could not start (%s); using the game's renderer.", str_err2);
+	}
 	if (prasMainScreen)
 		Log("Game render size %dx%d, %d bpp.", prasMainScreen->iWidth, prasMainScreen->iHeight, prasMainScreen->iPixelBits);
 	Log("Fast draw %s, bump objects on the card %s.", gVR.bBatchDraw ? "on" : "off", gVR.bBumpHardware ? "on" : "off");
@@ -1099,6 +1143,7 @@ void VRMod_Shutdown()
 	gVR.abHandValid[0] = gVR.abHandValid[1] = false;
 	if (bActive)
 	{
+		VRScene_Shutdown();
 		VRB_Shutdown();
 		Log("SteamVR shut down.");
 	}
@@ -1474,6 +1519,52 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			SaveCapture();
 	}
 	ctlPrevFrame = fr.ctl;
+
+	//
+	// Modern renderer: draws the world on the graphics card straight into the headset images.
+	//
+	if (setVR.bNewRenderer && VRScene_Ready())
+	{
+		if (b_player_view)
+			gpPlayer->VRShowLeftArm(true);
+
+		SVRSceneEyes eyes;
+		for (int i_eye = 0; i_eye < 2; i_eye++)
+		{
+			CRotate3<> r3_eye = r3Game(fr.aposEye[i_eye].afQ) * r3Yaw;
+			CVector3<> v3_eye = v3World(v3Game(fr.aposEye[i_eye].afP));
+			CVector3<> av3[3] = { CVector3<>(1, 0, 0) * r3_eye, CVector3<>(0, 1, 0) * r3_eye, CVector3<>(0, 0, 1) * r3_eye };
+			StoreV(eyes.afPos[i_eye], v3_eye);
+			for (int k = 0; k < 3; k++)
+				StoreV(&eyes.afAxes[i_eye][k * 3], av3[k]);
+			const SVRFov& fov = fr.afovEye[i_eye];
+			eyes.afTan[i_eye][0] = fov.fTanLeft;
+			eyes.afTan[i_eye][1] = fov.fTanRight;
+			eyes.afTan[i_eye][2] = fov.fTanDown;
+			eyes.afTan[i_eye][3] = fov.fTanUp;
+		}
+
+		SVRSceneSettings set;
+		set.fShadowDistance = setVR.iShadowMapSize > 0 ? setVR.fShadowDistance : 0.0f;
+		set.fBrightness = setVR.fBrightness;
+		set.fTerrainDetail = setVR.fTerrainDetail;
+
+		double d_t0 = dNowMs();
+		bool b_ok = VRScene_RenderAndSubmit(eyes, set);
+		adTimingMs[etPAINT] += dNowMs() - d_t0;
+
+		if (gpPlayer)
+			gpPlayer->VRShowLeftArm(false);
+
+		if (b_ok)
+		{
+			bStereoThisFrame = true;
+			iTimingFrames++;
+			dLastFrameEnd = dNowMs();
+			adTimingMs[etFRAME] += dLastFrameEnd - d_frame_start;
+			return true;
+		}
+	}
 
 	//
 	// Render each eye.

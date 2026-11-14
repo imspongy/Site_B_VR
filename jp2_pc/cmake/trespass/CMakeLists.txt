@@ -21,6 +21,8 @@ ${CMAKE_SOURCE_DIR}/Source/Trespass/uidlgs.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/uiwnd.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/resource.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/VRBackend.h
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRRender.h
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRScene.h
 ${CMAKE_SOURCE_DIR}/Source/Trespass/VRMod.h
 )
 
@@ -44,6 +46,8 @@ ${CMAKE_SOURCE_DIR}/Source/trespass/uidlgs.cpp
 ${CMAKE_SOURCE_DIR}/Source/trespass/uiwnd.cpp
 ${CMAKE_SOURCE_DIR}/Source/trespass/video.cpp
 ${CMAKE_SOURCE_DIR}/Source/Trespass/VRBackend.cpp
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRRender.cpp
+${CMAKE_SOURCE_DIR}/Source/Trespass/VRScene.cpp
 ${CMAKE_SOURCE_DIR}/Source/Trespass/VRMod.cpp
 )
 
@@ -102,10 +106,12 @@ target_link_libraries(${PROJECT_NAME}
     ${OPENVR_DIR}/win32/openvr_api.lib
     d3d11
     dxgi
+    d3dcompiler
 )
 
 # VRBackend.cpp uses modern Direct3D 11 headers and must not see the game's precompiled header.
 set_source_files_properties(${CMAKE_SOURCE_DIR}/Source/Trespass/VRBackend.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(${CMAKE_SOURCE_DIR}/Source/Trespass/VRRender.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 # openvr_api.dll must sit next to the exe.
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

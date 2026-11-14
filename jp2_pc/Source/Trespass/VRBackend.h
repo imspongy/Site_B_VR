@@ -88,6 +88,12 @@ void VRB_ShowOverlay
 
 void VRB_HideOverlay();
 
+// The Direct3D 11 device and context used for the headset (for the GPU renderer).
+void VRB_GetD3D11(void** ppv_device, void** ppv_context);
+
+// Submits an eye image that is already on the graphics card (an ID3D11Texture2D*).
+bool VRB_SubmitTexture(int i_eye, void* pv_texture);
+
 // Rumble on a controller (0 = left, 1 = right).
 void VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude);
 

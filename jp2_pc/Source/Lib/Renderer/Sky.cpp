@@ -4366,3 +4366,24 @@ const char* CSkyRender::pcLoad
 
 	return pc;
 }
+
+//**********************************************************************************************
+void CSkyRender::GetVRInfo(SVRSkyInfo& si) const
+{
+	si.bTextured = sdmMode == sdmTextured && prasSkyTexture && prasSkyTexture->pSurface;
+	si.pu1Tex    = si.bTextured ? (const uint8*)prasSkyTexture->pSurface : nullptr;
+	si.iWidth    = si.bTextured ? prasSkyTexture->iWidth : 0;
+	si.iHeight   = si.bTextured ? prasSkyTexture->iHeight : 0;
+	si.iStride   = si.bTextured ? prasSkyTexture->iLinePixels : 0;
+	si.pu2Colours = &u2FogTable[0][0];
+	si.iColours  = iNUM_SKY_COLOURS;
+	si.u2Fog     = (uint16)(u4Fog & 0xFFFF);
+	si.fHeight   = fSkyHeight;
+	si.fScale    = fScale;
+	si.fOffsetU  = fSkyOffsetU;
+	si.fOffsetV  = fSkyOffsetV;
+	si.fDriftU   = fSkyOffsetdU * 0.000000025f;
+	si.fDriftV   = fSkyOffsetdV * 0.000000025f;
+	si.fFogNear  = fFogNear;
+	si.fFogPerZ  = fFogScale / float(1 << u4DEFAULT_SKY_FOG_BITS) / float(iNUM_SKY_FOG_BANDS - 1);
+}
