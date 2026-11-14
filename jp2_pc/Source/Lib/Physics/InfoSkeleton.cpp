@@ -1586,6 +1586,25 @@ extern int	 iKontrol_Jump[NUM_PELVISES];
 static bool  abVRWalk[NUM_PELVISES];
 static float afVRWalk[NUM_PELVISES][2];
 
+bool bVRSetSkeletonBoxVelocity(const CInstance* pins, float f_vx, float f_vy)
+{
+	int i_pel = pphSystem->iGetSkeletonIndex(pins);
+	if (i_pel < 0 || i_pel >= NUM_PELVISES)
+		return false;
+	for (int i_elem = 0; i_elem < PELVIS_DOF; i_elem++)
+	{
+		int i_box = Pel_Box_BC[i_pel][i_elem];
+		if (i_box >= 0 && i_box < iMAX_PHYSICS_OBJECTS)
+		{
+			Xob[i_box].State[0][1] = f_vx;
+			Xob[i_box].State[1][1] = f_vy;
+		}
+	}
+	Pel[i_pel][BODY + 0][1] = f_vx;
+	Pel[i_pel][BODY + 1][1] = f_vy;
+	return true;
+}
+
 bool bVRSetSkeletonWalkVelocity(const CInstance* pins, float f_vx, float f_vy)
 {
 	int i_pel = pphSystem->iGetSkeletonIndex(pins);

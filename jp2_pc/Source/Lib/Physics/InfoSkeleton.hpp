@@ -611,4 +611,8 @@ protected:
 // control message.  Returns false if the instance isn't a skeleton.
 bool bVRSetSkeletonWalkVelocity(const CInstance* pins, float f_vx, float f_vy);
 
+// VR: gives the skeleton's collision boxes this velocity for the coming step (so that brushing
+// through things makes its usual noise even though the body is placed by the VR controller).
+bool bVRSetSkeletonBoxVelocity(const CInstance* pins, float f_vx, float f_vy);
+
 #endif

@@ -4687,12 +4687,13 @@ private:
 					return false;
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
 				float f_mass = pphi->fMass(pins);
-				return f_mass >= (b_wall ? 60.0f : 4.0f);
+				return f_mass >= (b_wall ? 60.0f : 1.5f);
 			}
 			return true;
 		};
 
 		// The floor under a point: looks from f_top downwards for f_len.
+		CInstance* pins_floor = nullptr;		// What the last successful floor probe hit.
 		auto b_floor = [&](float f_x, float f_y, float f_top, float f_len, float& f_z) -> bool
 		{
 			CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(0, 0, -1)), CVector3<>(f_x, f_y, f_top));
@@ -4703,6 +4704,7 @@ private:
 				if (!b_solid(pobl->pinsObject, false))
 					continue;
 				f_z = pobl->v3Location.tZ;
+				pins_floor = pobl->pinsObject;
 				return true;
 			}
 			return false;
@@ -4941,6 +4943,76 @@ private:
 
 		p3_new.v3Pos = CVector3<>(gVR.afKinPos[0], gVR.afKinPos[1], gVR.afKinPos[2]);
 		Move(p3_new, 0);
+
+		// Her collision boxes carry her walking speed, so brushing through plants and bumping
+		// things sounds as it should.
+		if (v3_vel.tX * v3_vel.tX + v3_vel.tY * v3_vel.tY > 0.3f * 0.3f)
+			bVRSetSkeletonBoxVelocity(this, v3_vel.tX, v3_vel.tY);
+
+		//
+		// Loose things she is standing on, or about to step onto (a plank, a crate), are held
+		// still so her body doesn't shove them out from under her.
+		//
+		{
+			struct SHold { CInstance* pins; CPlacement3<> p3; TSec sSeen; };
+			static SHold ahold[4];
+			auto touch = [&](CInstance* pins)
+			{
+				if (!pins)
+					return;
+				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+				if (!pphi || !pphi->bIsMovable())
+					return;
+				CInstance* pins_m = NMagnetSystem::pinsFindMaster(pins);
+				if (pins_m)
+					pins = pins_m;
+				int i_free = -1;
+				for (int i = 0; i < 4; i++)
+				{
+					if (ahold[i].pins == pins)
+					{
+						ahold[i].sSeen = CMessageStep::sStaticTotal;
+						return;
+					}
+					if (!ahold[i].pins && i_free < 0)
+						i_free = i;
+				}
+				if (i_free >= 0)
+				{
+					ahold[i_free].pins  = pins;
+					ahold[i_free].p3    = pins->p3GetPlacement();
+					ahold[i_free].sSeen = CMessageStep::sStaticTotal;
+				}
+			};
+
+			float f_z;
+			pins_floor = nullptr;
+			if (bVRGrounded && b_floor(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + 0.3f, 0.5f, f_z))
+				touch(pins_floor);
+			float f_speed = sqrtf(v3_vel.tX * v3_vel.tX + v3_vel.tY * v3_vel.tY);
+			if (f_speed > 0.2f)
+			{
+				pins_floor = nullptr;
+				if (b_floor(v3VRFeet.tX + v3_vel.tX / f_speed * 0.55f, v3VRFeet.tY + v3_vel.tY / f_speed * 0.55f,
+				            v3VRFeet.tZ + fSTEP, fSTEP + 0.3f, f_z))
+					touch(pins_floor);
+			}
+
+			for (int i = 0; i < 4; i++)
+			{
+				if (!ahold[i].pins)
+					continue;
+				if (CMessageStep::sStaticTotal - ahold[i].sSeen > 0.5 || ahold[i].sSeen > CMessageStep::sStaticTotal)
+				{
+					ahold[i].pins = nullptr;
+					continue;
+				}
+				CPlacement3<> p3_now = ahold[i].pins->p3GetPlacement();
+				if ((p3_now.v3Pos - ahold[i].p3.v3Pos).tLenSqr() > 0.005f * 0.005f)
+					ahold[i].pins->Move(ahold[i].p3);
+				ahold[i].pins->pphiGetPhysicsInfoWritable()->ForceVelocity(ahold[i].pins, CVector3<>(0, 0, 0));
+			}
+		}
 	}
 
 	//*****************************************************************************************

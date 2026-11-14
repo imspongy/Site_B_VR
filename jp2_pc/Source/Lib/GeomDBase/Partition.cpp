@@ -40,6 +40,7 @@
 // Note: reording done to insure Windows.h is included before
 // io.h "disables" a subsequent include of same.
 #include <set>
+#include "Lib/Control/VRShared.hpp"
 #include <map>
 #include "common.hpp"
 #include "Lib/W95/WinInclude.hpp"
