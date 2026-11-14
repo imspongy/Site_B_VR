@@ -567,6 +567,23 @@ namespace
 		float f_w = f_x1 - f_x0, f_h = f_y1 - f_y0;
 		float f_spacing = std::sqrt(f_w * f_h / (1000000.0f * f_detail));
 		f_spacing = std::max(1.0f, std::min(f_spacing, 8.0f));
+		// The game's height lookups can be slow: time a few and keep the build under ~6 seconds.
+		{
+			LARGE_INTEGER li_f, li_0, li_1;
+			QueryPerformanceFrequency(&li_f);
+			QueryPerformanceCounter(&li_0);
+			for (int i = 0; i < 400; i++)
+				ptrr->rHeight(f_x0 + (i % 20) * f_w / 20.0f, f_y0 + (i / 20) * f_h / 20.0f);
+			QueryPerformanceCounter(&li_1);
+			double d_each = double(li_1.QuadPart - li_0.QuadPart) / double(li_f.QuadPart) / 400.0;
+			double d_points = (f_w / f_spacing) * (f_h / f_spacing);
+			if (d_each * d_points > 6.0)
+			{
+				f_spacing *= (float)std::sqrt(d_each * d_points / 6.0);
+				f_spacing = std::min(f_spacing, 8.0f);
+			}
+			SceneLog("GPU renderer: terrain height lookup %.1f microseconds.", d_each * 1e6);
+		}
 		int i_nx = (int)(f_w / f_spacing) + 2, i_ny = (int)(f_h / f_spacing) + 2;
 
 		std::vector<float> af_h((size_t)i_nx * i_ny);
