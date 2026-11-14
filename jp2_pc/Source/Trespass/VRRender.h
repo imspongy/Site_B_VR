@@ -115,7 +115,9 @@ void  VRR_AddDraw(const SVRRDraw& drw);
 // covering the same area, painted from above with the base colours and the decal draws given
 // to VRR_TerrainAddDecal (in order: later ones on top).  Call VRR_TerrainBuildAtlas once after.
 bool  VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing, const SVRRTerrainVertex* ptv, int i_atlas_size);
-void  VRR_TerrainAddDecal(const SVRRDraw& drw);
+// pf_map: the decal's texture mapping, u = m0 x + m1 y + m2, v = m3 x + m4 y + m5 in world
+// metres, so the terrain can show the texture at full resolution (null: use the atlas only).
+void  VRR_TerrainAddDecal(const SVRRDraw& drw, const float* pf_map = nullptr);
 void  VRR_TerrainBuildAtlas();
 bool  VRR_HasTerrain();
 

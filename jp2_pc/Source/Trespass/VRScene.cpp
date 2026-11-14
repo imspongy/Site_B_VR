@@ -54,6 +54,7 @@
 #include <list>
 #include <unordered_map>
 #include <vector>
+#include <array>
 
 namespace
 {
@@ -89,7 +90,7 @@ namespace
 	double          dSkyTime = 0;
 	int             iSkyTexture = 0;
 	const void*     pvSkyTexture = nullptr;
-	char            strStats[256] = "";
+	char            strStats[512] = "";
 	int             iObjects = 0, iSkinned = 0, iTexturesWaiting = 0;
 
 	std::vector<SVRRVertex> avScratch;
@@ -463,8 +464,10 @@ namespace
 		if (!i_mesh)
 			return;
 
+		// The player's own body is drawn from both sides: her hands are seen from every angle
+		// and some finger polygons face the wrong way.
 		uint32_t u4_flags = 0;
-		if (pins == gVR.pvMirrorInstance)
+		if (pins == gVR.pvMirrorInstance || pins == gVR.pvStubInstance)
 			u4_flags |= evrrTWO_SIDED;
 
 		SMeshEntry me_draw;
@@ -487,7 +490,79 @@ namespace
 		std::vector<CInstance*>* papinsTerrainObjs;		// Collect terrain objects (level start).
 	};
 
-	void Visit(CPartition* ppart, SWalk& wk)
+	// Counters for the log: why instances were not drawn.
+	struct SWalkStats
+	{
+		int iSeen, iHidden, iNoShape, iNotMesh, iEmpty, iFar, iBehind;
+	};
+	SWalkStats wsLast = {};
+
+	void DrawInstance(CInstance* pins, SWalk& wk, SWalkStats& ws)
+	{
+		ws.iSeen++;
+		if (!pins->bIsVisible())
+		{
+			ws.iHidden++;
+			return;
+		}
+
+		rptr_const<CRenderType> prdt = pins->prdtGetRenderInfo();
+		if (!prdt)
+		{
+			ws.iNoShape++;
+			return;
+		}
+		rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(prdt);
+		if (!pmsh)
+		{
+			ws.iNotMesh++;
+			return;
+		}
+		rptr_const<CBioMesh> pbm = prdt->rpbmCast();
+
+		const CPresence3<>& pr3 = pins->pr3Presence();
+		SMeshEntry* pme = pmeGet(pmsh.ptGet(), pbm.ptGet() != nullptr);
+		if (!pme || pme->asub.empty())
+		{
+			ws.iEmpty++;
+			return;
+		}
+
+		// Out of sight: too far, or behind you (unless it can cast a shadow you see).
+		float f_r = pme->fRadius * std::fabs(pr3.rScale) + 1.0f;
+		CVector3<> v3_to = pr3.v3Pos - wk.v3Eye;
+		float f_dist = v3_to.tLen();
+		if (f_dist - f_r > wk.fFar)
+		{
+			ws.iFar++;
+			return;
+		}
+		if (f_dist > f_r + 2.0f && (v3_to * wk.v3Fwd) < -0.6f * f_dist)
+		{
+			if (wk.fShadow <= 0 || (pr3.v3Pos - wk.v3ShadowCentre).tLen() > wk.fShadow + f_r)
+			{
+				ws.iBehind++;
+				return;
+			}
+		}
+
+		float af_world[12];
+		WorldRows(pr3, af_world);
+		if (pbm.ptGet())
+			DrawSkinned(pins, pbm.ptGet(), *pme, af_world);
+		else if (pme->iHandle)
+		{
+			uint32_t u4_flags = 0;
+			if (pr3.rScale < 0)
+				u4_flags |= evrrTWO_SIDED;
+			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false);
+			iObjects++;
+		}
+	}
+
+	// Every instance in the world's partition tree.  An instance can itself hold other
+	// partitions, so children are always visited, whether or not the parent is drawn.
+	void Visit(CPartition* ppart, SWalk& wk, SWalkStats& ws)
 	{
 		CInstance* pins = ptCast<CInstance>(ppart);
 		if (pins)
@@ -496,56 +571,89 @@ namespace
 			{
 				if (wk.papinsTerrainObjs)
 					wk.papinsTerrainObjs->push_back(pins);
-				return;
 			}
-			if (!ppart->bIsVisible())
-				return;
-
-			rptr_const<CRenderType> prdt = pins->prdtGetRenderInfo();
-			if (!prdt)
-				return;
-			rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(prdt);
-			if (!pmsh)
-				return;
-			rptr_const<CBioMesh> pbm = prdt->rpbmCast();
-
-			const CPresence3<>& pr3 = pins->pr3Presence();
-			SMeshEntry* pme = pmeGet(pmsh.ptGet(), pbm.ptGet() != nullptr);
-			if (!pme || pme->asub.empty())
-				return;
-
-			// Out of sight: too far, or behind you (unless it can cast a shadow you see).
-			float f_r = pme->fRadius * pr3.rScale + 1.0f;
-			CVector3<> v3_to = pr3.v3Pos - wk.v3Eye;
-			float f_dist = v3_to.tLen();
-			if (f_dist - f_r > wk.fFar)
-				return;
-			if (f_dist > f_r + 2.0f && (v3_to * wk.v3Fwd) < -0.6f * f_dist)
-			{
-				if (wk.fShadow <= 0 || (pr3.v3Pos - wk.v3ShadowCentre).tLen() > wk.fShadow + f_r)
-					return;
-			}
-
-			float af_world[12];
-			WorldRows(pr3, af_world);
-			if (pbm.ptGet())
-				DrawSkinned(pins, pbm.ptGet(), *pme, af_world);
-			else if (pme->iHandle)
-			{
-				uint32_t u4_flags = 0;
-				if (pr3.rScale < 0)
-					u4_flags |= evrrTWO_SIDED;
-				AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false);
-				iObjects++;
-			}
+			else
+				DrawInstance(pins, wk, ws);
 		}
 
 		CPartition* ppartc = ppart->ppartChildren();
 		if (ppartc)
 		{
 			for (CPartition::iterator it = ppartc->begin(); it != ppartc->end(); ++it)
-				Visit(*it, wk);
+				Visit(*it, wk, ws);
 		}
+	}
+
+	//******************************************************************************************
+	// The texture mapping of a terrain texture object, as u, v from world x, y (least squares
+	// over its vertices).  False if the mapping isn't a flat projection from above.
+	bool bFitDecalMapping(const CMesh* pmsh, const CMesh::SSurface* psf, const float af_world[12], float af_map[6])
+	{
+		double ad_ata[3][3] = {}, ad_atu[3] = {}, ad_atv[3] = {};
+		std::vector<std::array<double, 4>> apt;
+		for (uint u = 0; u < pmsh->pampPolygons.uLen; u++)
+		{
+			const CMesh::SPolygon& mp = pmsh->pampPolygons[u];
+			if ((const CMesh::SSurface*)mp.pSurface != psf || mp.bOcclude || mp.bCache)
+				continue;
+			for (uint k = 0; k < mp.papmvVertices.uLen; k++)
+			{
+				const CMesh::SVertex* pmv = mp.papmvVertices[k];
+				const CVector3<>& p = *pmv->pv3Point;
+				double x = af_world[0] * p.tX + af_world[1] * p.tY + af_world[2] * p.tZ + af_world[3];
+				double y = af_world[4] * p.tX + af_world[5] * p.tY + af_world[6] * p.tZ + af_world[7];
+				apt.push_back({ x, y, (double)pmv->tcTex.tX, (double)pmv->tcTex.tY });
+			}
+		}
+		if (apt.size() < 3)
+			return false;
+		for (const auto& a : apt)
+		{
+			double r[3] = { a[0], a[1], 1.0 };
+			for (int i = 0; i < 3; i++)
+			{
+				for (int j = 0; j < 3; j++)
+					ad_ata[i][j] += r[i] * r[j];
+				ad_atu[i] += r[i] * a[2];
+				ad_atv[i] += r[i] * a[3];
+			}
+		}
+		// Solve the 3x3 systems (Cramer).
+		auto det3 = [](const double m[3][3])
+		{
+			return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+		};
+		double d = det3(ad_ata);
+		if (std::fabs(d) < 1e-9)
+			return false;
+		double ad_u[3], ad_v[3];
+		for (int c = 0; c < 3; c++)
+		{
+			double m[3][3];
+			for (int i = 0; i < 3; i++)
+				for (int j = 0; j < 3; j++)
+					m[i][j] = ad_ata[i][j];
+			for (int i = 0; i < 3; i++)
+				m[i][c] = ad_atu[i];
+			ad_u[c] = det3(m) / d;
+			for (int i = 0; i < 3; i++)
+				m[i][c] = ad_atv[i];
+			ad_v[c] = det3(m) / d;
+		}
+		// Check the fit: within a twentieth of a texture repeat everywhere.
+		for (const auto& a : apt)
+		{
+			double eu = ad_u[0] * a[0] + ad_u[1] * a[1] + ad_u[2] - a[2];
+			double ev = ad_v[0] * a[0] + ad_v[1] * a[1] + ad_v[2] - a[3];
+			if (std::fabs(eu) > 0.05 || std::fabs(ev) > 0.05)
+				return false;
+		}
+		// Keep the offsets small so the shader keeps its precision.
+		af_map[0] = (float)ad_u[0]; af_map[1] = (float)ad_u[1];
+		af_map[2] = (float)(ad_u[2] - std::floor(ad_u[2]));
+		af_map[3] = (float)ad_v[0]; af_map[4] = (float)ad_v[1];
+		af_map[5] = (float)(ad_v[2] - std::floor(ad_v[2]));
+		return true;
 	}
 
 	//******************************************************************************************
@@ -657,7 +765,7 @@ namespace
 		// Atlas: about 4 texels a metre at normal detail.
 		float f_texels = std::max(f_w, f_h) * 4.0f * f_detail;
 		int i_atlas = 1024;
-		while (i_atlas < f_texels && i_atlas < 16384)
+		while (i_atlas < f_texels && i_atlas < 8192)
 			i_atlas *= 2;
 
 		if (!VRR_TerrainSet(i_nx, i_ny, f_x0, f_y0, f_spacing, atv.data(), i_atlas))
@@ -673,7 +781,7 @@ namespace
 			CTerrainObj* pb = ptCast<CTerrainObj>(b);
 			return pa->iHeight < pb->iHeight;
 		});
-		int i_decals = 0;
+		int i_decals = 0, i_mapped = 0;
 		for (CInstance* pins : apins_trr)
 		{
 			rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
@@ -684,12 +792,30 @@ namespace
 				continue;
 			float af_world[12];
 			WorldRows(pins->pr3Presence(), af_world);
-			AddSubsets(*pme, pme->iHandle, af_world, 0, true);
-			i_decals++;
+			for (const SSubset& sub : pme->asub)
+			{
+				if (sub.iCount <= 0)
+					continue;
+				bool b_alpha = false;
+				const CTexture* ptex = sub.psf ? sub.psf->ptexTexture.ptGet() : nullptr;
+				SVRRDraw drw;
+				drw.iMesh = pme->iHandle;
+				drw.iFirstIndex = sub.iFirst;
+				drw.iNumIndices = sub.iCount;
+				drw.iTexture = iTexture(ptex, b_alpha);
+				std::memcpy(drw.afWorld, af_world, sizeof(drw.afWorld));
+				drw.u4Flags = 0;
+				float af_map[6];
+				bool b_map = bFitDecalMapping(pmsh.ptGet(), sub.psf, af_world, af_map);
+				VRR_TerrainAddDecal(drw, b_map ? af_map : nullptr);
+				if (b_map)
+					i_mapped++;
+				i_decals++;
+			}
 		}
 		VRR_TerrainBuildAtlas();
 
-		SceneLog("GPU renderer: terrain %.0f x %.0f m, grid %.1f m, %.0f terrain textures.", f_w, f_h, f_spacing, i_decals);
+		SceneLog("GPU renderer: terrain %.0f x %.0f m, grid %.1f m, %d terrain textures (%d at full resolution).", f_w, f_h, f_spacing, i_decals, i_mapped);
 		SceneLog("GPU renderer: terrain atlas %.0f pixels; built in %.1f s.", i_atlas, (GetTickCount() - u4_start) / 1000.0);
 	}
 }
@@ -771,9 +897,11 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wk.papinsTerrainObjs = b_new_level ? &apins_trr : nullptr;
 
 	iObjects = iSkinned = iTexturesWaiting = 0;
-	Visit(pwWorld->ppartPartitionList(), wk);
+	SWalkStats ws = {};
+	Visit(pwWorld->ppartPartitionList(), wk, ws);
 	if (b_new_level && pwWorld->ppartTerrainPartitionList())
-		Visit(pwWorld->ppartTerrainPartitionList(), wk);
+		Visit(pwWorld->ppartTerrainPartitionList(), wk, ws);
+	wsLast = ws;
 
 	if (b_new_level && ptrr)
 		BuildTerrain(ptrr, apins_trr, std::max(0.25f, set.fTerrainDetail));
@@ -893,8 +1021,10 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	int i_draws, i_tex, i_meshes;
 	float f_mb;
 	VRR_GetStats(i_draws, i_tex, i_meshes, f_mb);
-	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws, %d textures (%.0f MB), %d meshes, %d textures loading.",
-	              iObjects, iSkinned, i_draws, i_tex, f_mb, i_meshes, iTexturesWaiting);
+	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws, %d textures (%.0f MB), %d meshes, %d textures loading; "
+	              "walk: %d instances, %d hidden, %d no shape, %d not mesh, %d empty, %d far, %d behind.",
+	              iObjects, iSkinned, i_draws, i_tex, f_mb, i_meshes, iTexturesWaiting,
+	              wsLast.iSeen, wsLast.iHidden, wsLast.iNoShape, wsLast.iNotMesh, wsLast.iEmpty, wsLast.iFar, wsLast.iBehind);
 	return true;
 }
 

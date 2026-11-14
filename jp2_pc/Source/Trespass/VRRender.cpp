@@ -23,6 +23,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <map>
+#include <array>
 #include "VRRender.h"
 
 #pragma comment(lib, "d3d11.lib")
@@ -75,6 +77,9 @@ Texture2D              gAtlasTex   : register(t2);
 SamplerState           gSamp       : register(s0);
 SamplerComparisonState gShadowSamp : register(s1);
 SamplerState           gClamp      : register(s2);
+Texture2DArray         gDetail     : register(t3);
+Texture2D<uint>        gIdMap      : register(t4);
+StructuredBuffer<float4> gDecal    : register(t5);
 
 struct VSObjIn
 {
@@ -211,11 +216,44 @@ PSTerIn VSTerrain(VSTerIn i)
 	return o;
 }
 
+// The terrain's own textures at full resolution: which texture covers each spot comes from
+// the id map, and each texture is laid on the ground by its own mapping, tiled.  The four
+// nearest map texels are blended so borders between textures stay soft.
+float3 TerrainDetail(float3 wp, float3 atlas_col)
+{
+	uint w, h;
+	gIdMap.GetDimensions(w, h);
+	float2 t = (wp.xy - gAtlas.xy) * gAtlas.zw * float2(w, h) - 0.5;
+	int2 b = (int2)floor(t);
+	float2 f = t - b;
+	float2 dx = ddx(wp.xy), dy = ddy(wp.xy);
+	float3 sum = 0;
+	[unroll] for (int j = 0; j < 4; j++)
+	{
+		int2 c = clamp(b + int2(j & 1, j >> 1), int2(0, 0), int2(w - 1, h - 1));
+		uint id = gIdMap.Load(int3(c, 0));
+		float wgt = ((j & 1) ? f.x : 1.0 - f.x) * ((j >> 1) ? f.y : 1.0 - f.y);
+		float3 col = atlas_col;
+		if (id < 0xFFFE)
+		{
+			float4 m0 = gDecal[id * 2], m1 = gDecal[id * 2 + 1];
+			float2 uv = float2(dot(m0.xy, wp.xy) + m0.z, dot(m1.xy, wp.xy) + m1.z);
+			float2 gx = float2(dot(m0.xy, dx), dot(m1.xy, dx));
+			float2 gy = float2(dot(m0.xy, dy), dot(m1.xy, dy));
+			col = gDetail.SampleGrad(gSamp, float3(uv, m0.w), gx, gy).rgb;
+		}
+		sum += col * wgt;
+	}
+	return sum;
+}
+
 float4 PSTerrain(PSTerIn i) : SV_Target
 {
 	float3 albedo = i.c.rgb;
 	if (gAtlasOn.x > 0.5)
 		albedo = gAtlasTex.Sample(gSamp, (i.wp.xy - gAtlas.xy) * gAtlas.zw).rgb;
+	if (gAtlasOn.y > 0.5)
+		albedo = TerrainDetail(i.wp, albedo);
 	float3 col = Shade(albedo, normalize(i.wn), i.wp, false);
 	col = lerp(col, gFogColour.rgb, FogAt(i.wp));
 	return float4(col, 1);
@@ -263,6 +301,50 @@ float4 PSAtlasDecal(PSAtlasIn i) : SV_Target
 	float4 c = gTex.Sample(gSamp, i.uv);
 	clip(c.a - 0.5);
 	return float4(c.rgb, 1);
+}
+
+// Terrain id map: which terrain texture is on top at each spot.
+struct PSIdIn
+{
+	float4 pos : SV_Position;
+	float2 uv  : TEXCOORD0;
+	nointerpolation uint id : TEXCOORD1;
+};
+
+PSIdIn VSIdDecal(VSObjIn i)
+{
+	PSIdIn o;
+	o.pos = AtlasPos(WorldPos(i));
+	o.uv = i.uv;
+	o.id = i.flags;
+	return o;
+}
+
+uint PSIdDecal(PSIdIn i) : SV_Target
+{
+	clip(gTex.Sample(gSamp, i.uv).a - 0.5);
+	return i.id;
+}
+
+// Copies a texture into a slice of the terrain texture array (resized).
+struct PSBlitIn
+{
+	float4 pos : SV_Position;
+	float2 uv  : TEXCOORD0;
+};
+
+PSBlitIn VSBlit(uint id : SV_VertexID)
+{
+	PSBlitIn o;
+	float2 t = float2((id << 1) & 2, id & 2);
+	o.pos = float4(t * float2(2, -2) + float2(-1, 1), 0, 1);
+	o.uv = t;
+	return o;
+}
+
+float4 PSBlit(PSBlitIn i) : SV_Target
+{
+	return gTex.Sample(gSamp, i.uv);
 }
 
 // Sky: a ray through each pixel to the cloud layer.
@@ -468,6 +550,35 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	ID3D11RenderTargetView*   prtvAtlas = nullptr;
 	bool                      bAtlasBuilt = false;
 	std::vector<SVRRDraw>     adrwDecal;
+	std::vector<std::array<float, 6>> aafDecalMap;	// Texture mapping of each decal (u, v from world x, y).
+	std::vector<bool>         abDecalMap;			// Whether the mapping is usable.
+
+	// Terrain textures at full resolution.
+	ID3D11Texture2D*          ptexDetail = nullptr;	// Array: one slice per terrain texture.
+	ID3D11ShaderResourceView* psrvDetail = nullptr;
+	ID3D11Texture2D*          ptexIdMap = nullptr;
+	ID3D11ShaderResourceView* psrvIdMap = nullptr;
+	ID3D11Buffer*             pbufDecal = nullptr;
+	ID3D11ShaderResourceView* psrvDecal = nullptr;
+	bool                      bDetailBuilt = false;
+	int                       iDetailSlices = 0, iDetailSize = 0, iIdMapSize = 0;
+
+	ID3D11VertexShader*       pvsIdDecal = nullptr;
+	ID3D11PixelShader*        ppsIdDecal = nullptr;
+	ID3D11VertexShader*       pvsBlit = nullptr;
+	ID3D11PixelShader*        ppsBlit = nullptr;
+
+	void ReleaseDetail()
+	{
+		SafeRelease(psrvDetail);
+		SafeRelease(ptexDetail);
+		SafeRelease(psrvIdMap);
+		SafeRelease(ptexIdMap);
+		SafeRelease(psrvDecal);
+		SafeRelease(pbufDecal);
+		bDetailBuilt = false;
+		iDetailSlices = iDetailSize = iIdMapSize = 0;
+	}
 
 	int iLastDraws = 0;
 
@@ -751,6 +862,10 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 			bPS("PSAtlasTerrain", ppsAtlasTerrain, str_err) &&
 			bVS("VSAtlasDecal", pvsAtlasDecal, str_err) &&
 			bPS("PSAtlasDecal", ppsAtlasDecal, str_err) &&
+			bVS("VSIdDecal", pvsIdDecal, str_err) &&
+			bPS("PSIdDecal", ppsIdDecal, str_err) &&
+			bVS("VSBlit", pvsBlit, str_err) &&
+			bPS("PSBlit", ppsBlit, str_err) &&
 			bVS("VSSky", pvsSky, str_err) &&
 			bPS("PSSky", ppsSky, str_err) &&
 			bVS("VSShadowObject", pvsShadowObject, str_err) &&
@@ -1010,6 +1125,9 @@ void VRR_ClearAll()
 	SafeRelease(ptexAtlas);
 	bAtlasBuilt = false;
 	adrwDecal.clear();
+	aafDecalMap.clear();
+	abDecalMap.clear();
+	ReleaseDetail();
 	adrw.clear();
 	avDyn.clear();
 	au4DynIdx.clear();
@@ -1035,7 +1153,7 @@ void VRR_Shutdown()
 		pvsObject, ppsObject, pvsTerrain, ppsTerrain, pvsAtlasTerrain, ppsAtlasTerrain, pvsAtlasDecal, ppsAtlasDecal,
 		pvsSky, ppsSky, pvsShadowObject, ppsShadowAlpha, pvsShadowTerrain, pilObject, pilTerrain,
 		prsBack, prsNone, prsShadow, prsAtlas, pdsTest, pdsOff, pdsShadow, pbsOpaque, pbsA2C, pssWrap, pssShadow, pssClamp,
-		pcbEye, pcbFrame
+		pcbEye, pcbFrame, pvsIdDecal, ppsIdDecal, pvsBlit, ppsBlit
 	};
 	for (ID3D11DeviceChild* p : ap)
 		if (p)
@@ -1047,6 +1165,7 @@ void VRR_Shutdown()
 	prsBack = nullptr; prsNone = nullptr; prsShadow = nullptr; prsAtlas = nullptr;
 	pdsTest = nullptr; pdsOff = nullptr; pdsShadow = nullptr; pbsOpaque = nullptr; pbsA2C = nullptr;
 	pssWrap = nullptr; pssShadow = nullptr; pssClamp = nullptr; pcbEye = nullptr; pcbFrame = nullptr;
+	pvsIdDecal = nullptr; ppsIdDecal = nullptr; pvsBlit = nullptr; ppsBlit = nullptr;
 
 	SafeRelease(pCtx);
 	SafeRelease(pDev);
@@ -1142,6 +1261,9 @@ bool VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing,
 	SafeRelease(ptexAtlas);
 	bAtlasBuilt = false;
 	adrwDecal.clear();
+	aafDecalMap.clear();
+	abDecalMap.clear();
+	ReleaseDetail();
 
 	std::vector<uint32_t> au4;
 	au4.reserve((size_t)(i_nx - 1) * (i_ny - 1) * 6);
@@ -1203,16 +1325,209 @@ bool VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing,
 }
 
 //**********************************************************************************************
-void VRR_TerrainAddDecal(const SVRRDraw& drw)
+void VRR_TerrainAddDecal(const SVRRDraw& drw, const float* pf_map)
 {
 	if (bReady && drw.iNumIndices > 0)
+	{
 		adrwDecal.push_back(drw);
+		std::array<float, 6> af = {};
+		if (pf_map)
+			for (int k = 0; k < 6; k++)
+				af[k] = pf_map[k];
+		aafDecalMap.push_back(af);
+		abDecalMap.push_back(pf_map != nullptr);
+	}
 }
 
 //**********************************************************************************************
 bool VRR_HasTerrain()
 {
 	return pvbTerrain != nullptr;
+}
+
+//**********************************************************************************************
+// Terrain textures at full resolution: a texture array with every terrain texture, an id map
+// saying which one is on top at each spot, and each one's mapping onto the ground.
+static void BuildDetail()
+{
+	ReleaseDetail();
+	int i_decals = (int)adrwDecal.size();
+	if (i_decals == 0 || i_decals >= 0xFFFE || aafDecalMap.size() != adrwDecal.size())
+		return;
+
+	// One slice per distinct texture.
+	std::map<int, int> map_slice;
+	int i_max_dim = 64;
+	for (int i = 0; i < i_decals; i++)
+	{
+		if (!abDecalMap[i])
+			continue;
+		int i_tex = adrwDecal[i].iTexture;
+		if (map_slice.count(i_tex))
+			continue;
+		int i_slice = (int)map_slice.size();
+		map_slice[i_tex] = i_slice;
+		if (i_tex > 0 && i_tex <= (int)atex.size() && atex[i_tex - 1].ptex)
+		{
+			D3D11_TEXTURE2D_DESC td;
+			atex[i_tex - 1].ptex->GetDesc(&td);
+			i_max_dim = (std::max)(i_max_dim, (int)(std::max)(td.Width, td.Height));
+		}
+	}
+	if (map_slice.empty() || map_slice.size() > 2048)
+		return;
+	iDetailSlices = (int)map_slice.size();
+	iDetailSize = 64;
+	while (iDetailSize < i_max_dim && iDetailSize < 512)
+		iDetailSize *= 2;
+
+	D3D11_TEXTURE2D_DESC td = {};
+	td.Width = td.Height = iDetailSize;
+	td.MipLevels = 0;
+	td.ArraySize = iDetailSlices;
+	td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	td.SampleDesc.Count = 1;
+	td.Usage = D3D11_USAGE_DEFAULT;
+	td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+	td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+	if (FAILED(pDev->CreateTexture2D(&td, nullptr, &ptexDetail)) ||
+		FAILED(pDev->CreateShaderResourceView(ptexDetail, nullptr, &psrvDetail)))
+	{
+		ReleaseDetail();
+		return;
+	}
+
+	// The id map covers the same area as the atlas, about 2 texels a metre.
+	float f_extent = (std::max)(1.0f / afAtlas[2], 1.0f / afAtlas[3]);
+	iIdMapSize = 1024;
+	while (iIdMapSize < f_extent * 2.0f && iIdMapSize < 8192)
+		iIdMapSize *= 2;
+	D3D11_TEXTURE2D_DESC tdi = {};
+	tdi.Width = tdi.Height = iIdMapSize;
+	tdi.MipLevels = 1;
+	tdi.ArraySize = 1;
+	tdi.Format = DXGI_FORMAT_R16_UINT;
+	tdi.SampleDesc.Count = 1;
+	tdi.Usage = D3D11_USAGE_DEFAULT;
+	tdi.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+	ID3D11RenderTargetView* prtv_id = nullptr;
+	if (FAILED(pDev->CreateTexture2D(&tdi, nullptr, &ptexIdMap)) ||
+		FAILED(pDev->CreateShaderResourceView(ptexIdMap, nullptr, &psrvIdMap)) ||
+		FAILED(pDev->CreateRenderTargetView(ptexIdMap, nullptr, &prtv_id)))
+	{
+		SafeRelease(prtv_id);
+		ReleaseDetail();
+		return;
+	}
+
+	// Decal table: two float4 per decal.
+	std::vector<float> af_tab((size_t)i_decals * 8, 0.0f);
+	for (int i = 0; i < i_decals; i++)
+	{
+		const std::array<float, 6>& m = aafDecalMap[i];
+		float* pf = &af_tab[(size_t)i * 8];
+		pf[0] = m[0]; pf[1] = m[1]; pf[2] = m[2];
+		pf[3] = abDecalMap[i] ? (float)map_slice[adrwDecal[i].iTexture] : 0.0f;
+		pf[4] = m[3]; pf[5] = m[4]; pf[6] = m[5]; pf[7] = 0;
+	}
+	D3D11_BUFFER_DESC bd = {};
+	bd.ByteWidth = (UINT)(af_tab.size() * sizeof(float));
+	bd.Usage = D3D11_USAGE_IMMUTABLE;
+	bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	bd.StructureByteStride = 16;
+	D3D11_SUBRESOURCE_DATA srd = { af_tab.data(), 0, 0 };
+	if (FAILED(pDev->CreateBuffer(&bd, &srd, &pbufDecal)) ||
+		FAILED(pDev->CreateShaderResourceView(pbufDecal, nullptr, &psrvDecal)))
+	{
+		SafeRelease(prtv_id);
+		ReleaseDetail();
+		return;
+	}
+
+	pCtx->OMSetDepthStencilState(pdsOff, 0);
+	pCtx->OMSetBlendState(pbsOpaque, nullptr, 0xFFFFFFFF);
+	pCtx->RSSetState(prsAtlas);
+	pCtx->PSSetSamplers(0, 1, &pssWrap);
+
+	// Copy each texture into its slice.
+	pCtx->IASetInputLayout(nullptr);
+	pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	pCtx->VSSetShader(pvsBlit, nullptr, 0);
+	pCtx->PSSetShader(ppsBlit, nullptr, 0);
+	D3D11_VIEWPORT vp = { 0, 0, (float)iDetailSize, (float)iDetailSize, 0, 1 };
+	pCtx->RSSetViewports(1, &vp);
+	for (const auto& pr : map_slice)
+	{
+		D3D11_RENDER_TARGET_VIEW_DESC rd = {};
+		rd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+		rd.Texture2DArray.MipSlice = 0;
+		rd.Texture2DArray.FirstArraySlice = pr.second;
+		rd.Texture2DArray.ArraySize = 1;
+		ID3D11RenderTargetView* prtv = nullptr;
+		if (FAILED(pDev->CreateRenderTargetView(ptexDetail, &rd, &prtv)))
+			continue;
+		pCtx->OMSetRenderTargets(1, &prtv, nullptr);
+		ID3D11ShaderResourceView* psrv = psrvTex(pr.first);
+		pCtx->PSSetShaderResources(0, 1, &psrv);
+		pCtx->Draw(3, 0);
+		ID3D11RenderTargetView* prtv_null = nullptr;
+		pCtx->OMSetRenderTargets(1, &prtv_null, nullptr);
+		prtv->Release();
+	}
+	pCtx->GenerateMips(psrvDetail);
+
+	// The id map: decals in order, later ones on top.  Where a decal's mapping could not be
+	// worked out, the map says "use the atlas" (0xFFFE).
+	float af_clear[4] = { 65535.0f, 0, 0, 0 };
+	pCtx->ClearRenderTargetView(prtv_id, af_clear);
+	pCtx->OMSetRenderTargets(1, &prtv_id, nullptr);
+	D3D11_VIEWPORT vpi = { 0, 0, (float)iIdMapSize, (float)iIdMapSize, 0, 1 };
+	pCtx->RSSetViewports(1, &vpi);
+
+	SFrameCB cb = {};
+	for (int k = 0; k < 4; k++)
+		cb.afAtlas[k] = afAtlas[k];
+	bUpload(pcbFrame, &cb, sizeof(cb));
+	pCtx->VSSetConstantBuffers(1, 1, &pcbFrame);
+	pCtx->PSSetConstantBuffers(1, 1, &pcbFrame);
+
+	std::vector<SInstance> ainst(i_decals);
+	for (int i = 0; i < i_decals; i++)
+	{
+		std::memcpy(ainst[i].afRow, adrwDecal[i].afWorld, sizeof(ainst[i].afRow));
+		ainst[i].u4Flags = abDecalMap[i] ? (uint32_t)i : 0xFFFEu;
+	}
+	ID3D11Buffer* pvb_inst = pbufCreate((UINT)(sizeof(SInstance) * ainst.size()), D3D11_BIND_VERTEX_BUFFER, false, ainst.data());
+	if (pvb_inst)
+	{
+		UINT u_stride = sizeof(SInstance), u_offset = 0;
+		pCtx->IASetVertexBuffers(1, 1, &pvb_inst, &u_stride, &u_offset);
+		pCtx->IASetInputLayout(pilObject);
+		pCtx->VSSetShader(pvsIdDecal, nullptr, 0);
+		pCtx->PSSetShader(ppsIdDecal, nullptr, 0);
+		int i_bound = -1;
+		for (int i = 0; i < i_decals; i++)
+		{
+			const SVRRDraw& drw = adrwDecal[i];
+			int i_base, i_first;
+			if (!bBindMesh(drw.iMesh, i_base, i_first))
+				continue;
+			if (drw.iTexture != i_bound)
+			{
+				ID3D11ShaderResourceView* psrv = psrvTex(drw.iTexture);
+				pCtx->PSSetShaderResources(0, 1, &psrv);
+				i_bound = drw.iTexture;
+			}
+			pCtx->DrawIndexedInstanced(drw.iNumIndices, 1, i_first + drw.iFirstIndex, i_base, (UINT)i);
+		}
+		pvb_inst->Release();
+	}
+	ID3D11RenderTargetView* prtv_null = nullptr;
+	pCtx->OMSetRenderTargets(1, &prtv_null, nullptr);
+	prtv_id->Release();
+	bDetailBuilt = true;
 }
 
 //**********************************************************************************************
@@ -1284,7 +1599,10 @@ void VRR_TerrainBuildAtlas()
 	pCtx->OMSetRenderTargets(1, &prtv_null, nullptr);
 	pCtx->GenerateMips(psrvAtlas);
 	bAtlasBuilt = true;
+	BuildDetail();
 	adrwDecal.clear();
+	aafDecalMap.clear();
+	abDecalMap.clear();
 }
 
 //**********************************************************************************************
@@ -1382,6 +1700,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		for (int k = 0; k < 4; k++)
 			cb.afAtlas[k] = afAtlas[k];
 		cb.afAtlasOn[0] = bAtlasBuilt ? 1.0f : 0.0f;
+		cb.afAtlasOn[1] = bDetailBuilt ? 1.0f : 0.0f;
 	}
 
 	//
@@ -1462,8 +1781,12 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		D3D11_VIEWPORT vp = { 0, 0, (float)iWidth, (float)iHeight, 0, 1 };
 		pCtx->RSSetViewports(1, &vp);
 
-		ID3D11ShaderResourceView* apsrv[3] = { psrvTex(fr.iSkyTexture), b_shadows ? psrvShadow : nullptr, bAtlasBuilt ? psrvAtlas : nullptr };
-		pCtx->PSSetShaderResources(0, 3, apsrv);
+		ID3D11ShaderResourceView* apsrv[6] =
+		{
+			psrvTex(fr.iSkyTexture), b_shadows ? psrvShadow : nullptr, bAtlasBuilt ? psrvAtlas : nullptr,
+			bDetailBuilt ? psrvDetail : nullptr, bDetailBuilt ? psrvIdMap : nullptr, bDetailBuilt ? psrvDecal : nullptr
+		};
+		pCtx->PSSetShaderResources(0, 6, apsrv);
 
 		// Sky.
 		pCtx->RSSetState(prsNone);
