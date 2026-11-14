@@ -471,6 +471,9 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 
 	int iLastDraws = 0;
 
+	ID3D11Texture2D*        ptexCapture = nullptr;		// Staging copy of the left eye.
+	bool                    bCapturePending = false;
+
 	//******************************************************************************************
 	void Err(char* str_err, int i_len, const char* str)
 	{
@@ -1024,6 +1027,8 @@ void VRR_Shutdown()
 	iDynVBCap = iDynIBCap = iInstCap = 0;
 	SafeRelease(texWhite.psrv);
 	SafeRelease(texWhite.ptex);
+	SafeRelease(ptexCapture);
+	bCapturePending = false;
 
 	ID3D11DeviceChild* ap[] =
 	{
@@ -1519,4 +1524,49 @@ void VRR_GetStats(int& ri_draws, int& ri_textures, int& ri_meshes, float& rf_gpu
 		d_bytes += tex.iBytes;
 	d_bytes += (double)iAtlasSize * iAtlasSize * 4 * 4 / 3;
 	rf_gpu_mb = (float)(d_bytes / (1024.0 * 1024.0));
+}
+
+//**********************************************************************************************
+bool VRR_CaptureEye(int i_size, uint32_t* pu4_out)
+{
+	if (!bReady || !aptexEye[0] || i_size <= 0 || !pu4_out)
+		return false;
+	if (!ptexCapture)
+	{
+		D3D11_TEXTURE2D_DESC td;
+		aptexEye[0]->GetDesc(&td);
+		td.MipLevels = 1;
+		td.ArraySize = 1;
+		td.SampleDesc.Count = 1;
+		td.SampleDesc.Quality = 0;
+		td.Usage = D3D11_USAGE_STAGING;
+		td.BindFlags = 0;
+		td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		td.MiscFlags = 0;
+		if (FAILED(pDev->CreateTexture2D(&td, nullptr, &ptexCapture)))
+			return false;
+	}
+
+	bool b_read = false;
+	if (bCapturePending)
+	{
+		D3D11_MAPPED_SUBRESOURCE ms;
+		if (SUCCEEDED(pCtx->Map(ptexCapture, 0, D3D11_MAP_READ, 0, &ms)))
+		{
+			for (int y = 0; y < i_size; y++)
+			{
+				const uint32_t* pu4_row = (const uint32_t*)((const uint8_t*)ms.pData + (size_t)(y * iHeight / i_size) * ms.RowPitch);
+				for (int x = 0; x < i_size; x++)
+				{
+					uint32_t u = pu4_row[x * iWidth / i_size];
+					pu4_out[y * i_size + x] = ((u & 255) << 16) | (u & 0xFF00) | ((u >> 16) & 255);
+				}
+			}
+			pCtx->Unmap(ptexCapture, 0);
+			b_read = true;
+		}
+	}
+	pCtx->CopyResource(ptexCapture, aptexEye[0]);
+	bCapturePending = true;
+	return b_read;
 }

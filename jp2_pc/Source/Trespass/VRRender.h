@@ -125,5 +125,10 @@ void  VRR_RenderFrame(const SVRRFrame& fr);
 // The finished eye image (an ID3D11Texture2D*).
 void* VRR_EyeTexture(int i_eye);
 
+// Debug snapshot of the left eye, i_size x i_size, as 0x00RRGGBB.  The copy is made on the
+// card now and read back on the next call (so the game never waits for the card); returns
+// false if there was no earlier copy to read.
+bool  VRR_CaptureEye(int i_size, uint32_t* pu4_out);
+
 // Statistics for the log.
 void  VRR_GetStats(int& ri_draws, int& ri_textures, int& ri_meshes, float& rf_gpu_mb);

@@ -40,6 +40,7 @@
 #include "VRMod.h"
 #include "VRBackend.h"
 #include "VRScene.h"
+#include "VRRender.h"
 
 #include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/Camera.hpp"
@@ -770,6 +771,21 @@ namespace
 		std::fclose(pf);
 	}
 
+	void CaptureCommit(const uint32_t* pu4, double d_now);
+	uint32_t* pu4CaptureSlot();
+
+	// Modern renderer: a picture of the left eye every 200 ms (read back a frame late).
+	void CaptureNewRenderer()
+	{
+		double d_now = dNowMs();
+		if (d_now - dCapLast < 200)
+			return;
+		dCapLast = d_now;
+		uint32_t* pu4 = pu4CaptureSlot();
+		if (VRR_CaptureEye(iCAP_SIZE, pu4))
+			CaptureCommit(pu4, d_now);
+	}
+
 	// Store one eye image (16 bit 565) in the ring, scaled down.
 	void CaptureEye(const void* pv, int i_pitch, int i_w, int i_h, int i_bits)
 	{
@@ -791,6 +807,20 @@ namespace
 				pu4[y * iCAP_SIZE + x] = ((uint32_t)((u >> 11) << 3) << 16) | ((uint32_t)(((u >> 5) & 63) << 2) << 8) | (uint32_t)((u & 31) << 3);
 			}
 		}
+		CaptureCommit(pu4, d_now);
+	}
+
+	// Ring slot the next picture goes into.
+	uint32_t* pu4CaptureSlot()
+	{
+		if (au4CapRing.empty())
+			au4CapRing.resize((size_t)iCAP_FRAMES * iCAP_SIZE * iCAP_SIZE);
+		return &au4CapRing[(size_t)iCapNext * iCAP_SIZE * iCAP_SIZE];
+	}
+
+	// The picture in the next slot is complete.
+	void CaptureCommit(const uint32_t* pu4, double d_now)
+	{
 		iCapNext = (iCapNext + 1) % iCAP_FRAMES;
 		if (iCapCount < iCAP_FRAMES)
 			iCapCount++;
@@ -1598,6 +1628,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		if (b_ok)
 		{
+			CaptureNewRenderer();
 			bStereoThisFrame = true;
 			iTimingFrames++;
 			dLastFrameEnd = dNowMs();

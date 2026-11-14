@@ -43,6 +43,8 @@
 #include "Lib/View/Raster.hpp"
 #include "Lib/View/Palette.hpp"
 #include "Lib/View/Clut.hpp"
+#include "Lib/Loader/TextureManager.hpp"
+#include "Lib/Sys/VirtualMem.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 
 #include <algorithm>
@@ -88,7 +90,7 @@ namespace
 	int             iSkyTexture = 0;
 	const void*     pvSkyTexture = nullptr;
 	char            strStats[256] = "";
-	int             iObjects = 0, iSkinned = 0;
+	int             iObjects = 0, iSkinned = 0, iTexturesWaiting = 0;
 
 	std::vector<SVRRVertex> avScratch;
 	std::vector<uint32_t>   au4Scratch;
@@ -145,6 +147,18 @@ namespace
 		{
 			rb_alpha = mapTexAlpha[praw];
 			return it->second;
+		}
+
+		// The game streams texture pixels in from disk as they are needed; until a texture's
+		// pixels are in memory, ask for them and draw it plain for now.
+		{
+			uint32 u4_bytes = (uint32)praw->iLinePixels * (uint32)praw->iHeight * (uint32)(praw->iPixelBits / 8);
+			if (gtxmTexMan.pvmeTextures && !gtxmTexMan.bAllPresent() && !gtxmTexMan.bIsAvailable(praw->pSurface, u4_bytes))
+			{
+				gtxmTexMan.RequestMemory(praw->pSurface, u4_bytes);
+				iTexturesWaiting++;
+				return 0;
+			}
 		}
 
 		const CPal* ppal = praw->pxf.ppalAttached;
@@ -732,6 +746,16 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		iSkyTexture = 0;
 		pvSkyTexture = nullptr;
 		VRR_ClearAll();
+
+		// Load all of the level's textures now (the game normally streams them in a little at
+		// a time as its renderer asks for them; this renderer converts each one once).
+		CVirtualMem* pvme = gtxmTexMan.pvmeTextures;
+		if (pvme && pvme->bFileBased() && !pvme->bAllPagesPresent())
+		{
+			DWORD u4_t0 = GetTickCount();
+			pvme->CommitAll();
+			SceneLog("GPU renderer: loaded all textures in %.1f s.", (GetTickCount() - u4_t0) / 1000.0);
+		}
 		ptrrLevel = ptrr;
 		pvLevelPlayer = gpPlayer;
 		SceneLog("GPU renderer: new level.");
@@ -746,8 +770,10 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wk.fShadow = set.fShadowDistance;
 	wk.papinsTerrainObjs = b_new_level ? &apins_trr : nullptr;
 
-	iObjects = iSkinned = 0;
+	iObjects = iSkinned = iTexturesWaiting = 0;
 	Visit(pwWorld->ppartPartitionList(), wk);
+	if (b_new_level && pwWorld->ppartTerrainPartitionList())
+		Visit(pwWorld->ppartTerrainPartitionList(), wk);
 
 	if (b_new_level && ptrr)
 		BuildTerrain(ptrr, apins_trr, std::max(0.25f, set.fTerrainDetail));
@@ -867,8 +893,8 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	int i_draws, i_tex, i_meshes;
 	float f_mb;
 	VRR_GetStats(i_draws, i_tex, i_meshes, f_mb);
-	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws, %d textures (%.0f MB), %d meshes.",
-	              iObjects, iSkinned, i_draws, i_tex, f_mb, i_meshes);
+	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws, %d textures (%.0f MB), %d meshes, %d textures loading.",
+	              iObjects, iSkinned, i_draws, i_tex, f_mb, i_meshes, iTexturesWaiting);
 	return true;
 }
 
