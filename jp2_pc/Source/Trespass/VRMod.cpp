@@ -382,8 +382,8 @@ namespace
 			"HardwareBumpObjects=0\n"
 			"; With HardwareRendering: texture memory for the game in MB (the original game used 8)\n"
 			";     and the largest texture size used (the original used 128, which is blurry).\n"
-			"TextureMemoryMB=512\n"
-			"MaxTextureSize=512\n"
+			"TextureMemoryMB=96\n"
+			"MaxTextureSize=256\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -921,10 +921,11 @@ void VRMod_PreInit()
 	{
 		gVR.bBatchDraw    = fIni(str_file, "FastDraw", 1) != 0;
 		gVR.bBumpHardware = fIni(str_file, "HardwareBumpObjects", 0) != 0;
-		gVR.iTextureRamMB = (int)fIni(str_file, "TextureMemoryMB", 512);
-		int i_tex = (int)fIni(str_file, "MaxTextureSize", 512);
-		if (i_tex >= 64 && i_tex <= 2048)
-			SetRecommendedTextureMaxDim(i_tex);
+		// (The game is a 32-bit program: it keeps a copy of every texture in its own memory, so
+		// this can't go very high.)
+		gVR.iTextureRamMB = (std::min)(256, (std::max)(0, (int)fIni(str_file, "TextureMemoryMB", 96)));
+		int i_tex = (int)fIni(str_file, "MaxTextureSize", 256);
+		SetRecommendedTextureMaxDim((std::min)(512, (std::max)(128, i_tex)));
 		// The standard hardware (HAL) Direct3D device on the primary display.
 		static const GUID guid_hal = { 0x84E63dE0, 0x46AA, 0x11CF, { 0x81, 0x6F, 0x00, 0x00, 0xC0, 0x20, 0x15, 0x6E } };
 		GUID guid_primary;
