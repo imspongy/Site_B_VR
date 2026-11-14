@@ -119,7 +119,7 @@ namespace
 		float fDrawDistance   = 8.0f;
 		float fDrawDistSmall  = 3.0f;	// The same, for small objects.	// Multiplier on how far away objects are drawn.
 		bool  bSharpTextures  = true;
-		bool  bOcclusion      = false;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
+		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
 		float fOverlayWidth   = 2.4f;	// Menu screen width in metres.
@@ -365,12 +365,9 @@ namespace
 			"; How far away objects and buildings are drawn, and how far they keep full detail\n"
 			";     (1 = original game, 3 = three times as far).  Higher costs frame rate.\n"
 			"DrawDistance=8\n"
-			"; The same for small objects (under about 1 m across); things in between are in between.\n"
-			";     Small things are most of what is drawn, so this is the one that costs frame rate.\n"
-			"DrawDistanceSmall=8\n"
 			"; 1 = let the game skip objects it thinks are hidden behind big ones (walls, rocks).  Off by\n"
 			";     default in VR: it can hide things right in front of you.\n"
-			"Occlusion=0\n"
+			"Occlusion=1\n"
 			"; 1 = more accurate texture perspective: less wobble and shimmer up close (a bit slower).\n"
 			"SharpTextures=1\n"
 			"; 1 = also show the game on your monitor (much slower). Use SteamVR's\n"
@@ -385,15 +382,6 @@ namespace
 			"; EXPERIMENTAL: 1 = draw with the graphics card (the game's Direct3D mode) instead of\n"
 			";     the CPU.  Needed for high resolutions at high frame rates.  Takes effect on restart.\n"
 			"HardwareRendering=0\n"
-			"; With HardwareRendering: send polygons to the card in large batches (much faster).\n"
-			"FastDraw=1\n"
-			"; With HardwareRendering: draw bump-mapped objects (barrels, dinosaurs, rocks) on the card as\n"
-			";     plain textures (faster, but their colours can come out wrong).  0 = original look.\n"
-			"HardwareBumpObjects=0\n"
-			"; With HardwareRendering: texture memory for the game in MB (the original game used 8)\n"
-			";     and the largest texture size used (the original used 128, which is blurry).\n"
-			"TextureMemoryMB=96\n"
-			"MaxTextureSize=256\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -441,7 +429,7 @@ namespace
 		s.bLeftArmTest    = fIni(str_file, "LeftArmTest", 0) != 0;
 		s.bRadialFog      = fIni(str_file, "RadialFog", 1) != 0;
 		s.bSharpTextures  = fIni(str_file, "SharpTextures", 1) != 0;
-		s.bOcclusion      = fIni(str_file, "Occlusion", 0) != 0;
+		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
 		s.fMoveSpeed      = fIni(str_file, "MoveSpeed", 2.2f);
@@ -930,13 +918,11 @@ void VRMod_PreInit()
 	bHardwareWanted = fIni(str_file, "HardwareRendering", 0) != 0;
 	if (bHardwareWanted)
 	{
-		gVR.bBatchDraw    = fIni(str_file, "FastDraw", 1) != 0;
-		gVR.bBumpHardware = fIni(str_file, "HardwareBumpObjects", 0) != 0;
+		// (Batching, bump objects on the card and the texture memory changes are not in this
+		// build: it is back to the renderer of the build where everything was drawn correctly.)
 		// (The game is a 32-bit program: it keeps a copy of every texture in its own memory, so
 		// this can't go very high.)
-		gVR.iTextureRamMB = (std::min)(256, (std::max)(0, (int)fIni(str_file, "TextureMemoryMB", 96)));
-		int i_tex = (int)fIni(str_file, "MaxTextureSize", 256);
-		SetRecommendedTextureMaxDim((std::min)(512, (std::max)(128, i_tex)));
+		SetRecommendedTextureMaxDim(128);
 		// The standard hardware (HAL) Direct3D device on the primary display.
 		static const GUID guid_hal = { 0x84E63dE0, 0x46AA, 0x11CF, { 0x81, 0x6F, 0x00, 0x00, 0xC0, 0x20, 0x15, 0x6E } };
 		GUID guid_primary;

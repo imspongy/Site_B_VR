@@ -40,7 +40,6 @@
 // Note: reording done to insure Windows.h is included before
 // io.h "disables" a subsequent include of same.
 #include <set>
-#include "Lib/Control/VRShared.hpp"
 #include <map>
 #include "common.hpp"
 #include "Lib/W95/WinInclude.hpp"
@@ -1679,21 +1678,6 @@ static void PrintPos(CConsoleBuffer& con, const CPartition* ppart)
 		Assert(float(sfCullDistanceSqr) >= 0.0f);
 
 		float f_dist_threshold = float(sfCullDistanceSqr) * fCullDistanceCombined;
-
-		// VR mod: draw distance multiplier, larger for larger things (radius 0.7 m .. 4 m).
-		if (gVR.bActive)
-		{
-			float f_t = (float(sfSphereRadiusSqr) - 0.5f) * (1.0f / 15.5f);
-			if (f_t < 0.0f) f_t = 0.0f;
-			if (f_t > 1.0f) f_t = 1.0f;
-			f_dist_threshold *= gVR.fCullScaleSmallSqr + (gVR.fCullScaleSqr - gVR.fCullScaleSmallSqr) * f_t;
-			if (f_distance_sqr < 64.0f && f_distance_sqr >= f_dist_threshold)
-			{
-				gVR.iNearDistCulled++;
-				gVR.fNearCullDist  = sqrtf(f_distance_sqr);
-				gVR.fNearCullLimit = sqrtf(f_dist_threshold);
-			}
-		}
 
 		return u4FromFloat(f_distance_sqr) < u4FromFloat(f_dist_threshold);
 	}

@@ -119,7 +119,6 @@
 // Required includes.
 //
 #include <math.h>
-#include "Lib/Control/VRShared.hpp"
 #include "Lib/EntityDBase/Water.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Std/PrivSelf.hpp"
@@ -1265,10 +1264,7 @@ class CPartition::CPriv : CPartition
 		{
 			if (pmsh->pasfSurfaces[u].ptexTexture && pmsh->pasfSurfaces[u].ptexTexture->seterfFeatures[erfBUMP])
 			{
-				// VR mod: bump-mapped objects go to the card too, drawn as plain textures (drawing
-				// them on the CPU in the middle of a hardware frame is extremely slow today).
-				if (!gVR.bBumpHardware)
-					return false;
+				return false;
 			}
 		}
 

@@ -189,7 +189,7 @@ const float fMaxCullingDistanceShadow = 200.0f;
 		// the ones fixed by the level designers.)
 		CPartition::SetCombinedCulling
 		(
-			1.0f,
+			gVR.bActive ? gVR.fCullScaleSqr : 1.0f,
 			1.0f
 		);
 		/*

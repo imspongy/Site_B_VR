@@ -222,7 +222,7 @@
 	#define VER_LOG_MESSAGES	FALSE
 
 	// Enables or disables performance timing.
-	#define VER_TIMING_STATS	TRUE	// VR mod: the frame profile is written to TrespasserVR.log.
+	#define VER_TIMING_STATS	FALSE
 
 	// Enables or disables the assembly code versions.
 	#define VER_ASM				TRUE
