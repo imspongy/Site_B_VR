@@ -288,8 +288,8 @@ namespace
 			"; --- Movement ---\n"
 			"; Walking speed (metres per second) with the stick pushed all the way.\n"
 			"MoveSpeed=2.2\n"
-			"; Sprint speed (click the walk stick to sprint; letting go of the stick stops sprinting).\n"
-			"RunSpeed=4.5\n"
+			"; Sprint speed, 3.6 at most (click the walk stick to sprint; letting go of the stick stops it).\n"
+			"RunSpeed=3.6\n"
 			"; How quickly you speed up and slow down (seconds). 0 = instant.\n"
 			"MoveAcceleration=0.15\n"
 			"MoveDeadzone=0.12\n"
@@ -429,6 +429,9 @@ namespace
 		s.fMoveDeadzone = (std::min)((std::max)(s.fMoveDeadzone, 0.0f), 0.9f);
 		s.fTurnDeadzone = (std::min)((std::max)(s.fTurnDeadzone, 0.0f), 0.9f);
 		s.fBodyLeash    = (std::max)(s.fBodyLeash, 0.1f);
+		// Anne's legs top out at about 3.7 m/s (the original game's run).
+		s.fRunSpeed     = (std::min)(s.fRunSpeed, 3.6f);
+		s.fMoveSpeed    = (std::min)(s.fMoveSpeed, 3.6f);
 		setVR = s;
 
 		gVR.bMotionHand  = true;
@@ -1131,7 +1134,9 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			v3Origin -= v3_err * ((f_err - setVR.fBodyLeash) / f_err);
 
 		v3_neck = v3Origin + v3_head_track * r3Yaw - v3_back;
-		CVector3<> v3_target = v3_neck + v3MoveVel * 0.1f;		// Lead a little so she keeps up.
+		CVector3<> v3_target = v3_neck;
+		gVR.afBodyVel[0] = v3MoveVel.tX;
+		gVR.afBodyVel[1] = v3MoveVel.tY;
 		gVR.afBodyTarget[0] = v3_target.tX;
 		gVR.afBodyTarget[1] = v3_target.tY;
 		gVR.afBodyTarget[2] = v3_body.tZ;

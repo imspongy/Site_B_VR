@@ -70,9 +70,12 @@ struct SVRShared
 	// Where Anne's body should be (under the headset), world space.
 	bool  bBodyTargetValid = false;
 	float afBodyTarget[3] = { 0, 0, 0 };
+	float afBodyVel[2] = { 0, 0 };		// How fast the player is moving (stick), world x/y.
 
 	// Instances: the mirrored second arm (flipped culling) and the hand boxes (bullets pass).
 	const void* pvMirrorInstance = nullptr;
+	int   iMirrorPolys = 0;			// Diagnostics: polygons of the mirrored arm seen / facing the eye.
+	int   iMirrorPolysFront = 0;
 	const void* apvHandBox[2] = { nullptr, nullptr };
 
 	//

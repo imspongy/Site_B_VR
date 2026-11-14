@@ -2095,6 +2095,11 @@ private:
 	//*****************************************************************************************
 	virtual void HandleDamage(float f_damage, const CInstance* pins_aggressor, const CInstance* pins_me) override
 	{
+		if (gVR.pfnLog)
+			gVR.pfnLog("Damage: %.1f to %s from %s (health now %.1f of %.1f).", f_damage,
+				pins_me ? pins_me->strGetInstanceName() : "?",
+				pins_aggressor ? pins_aggressor->strGetInstanceName() : "?", fHitPoints, fMaxHitPoints);
+
 		// What were my hit points before?
 		Assert(fMaxHitPoints > 0.0f);
 		float f_inv_max			= 1.0f / fMaxHitPoints;
@@ -4626,11 +4631,11 @@ private:
 		// Within a few centimetres: no walk command, so her own braking holds her still.
 		if (f_dist > 0.04f)
 		{
-			// Walk with her own legs (the walk controller keeps her balanced) at the speed that
-			// closes the gap in about a tenth of a second.
-			CVector3<> v3_vel = v3_to / 0.1f;
-			if (v3_vel.tLen() > 8.0f)
-				v3_vel *= 8.0f / v3_vel.tLen();
+			// Walk with her own legs (the walk controller keeps her balanced): at the player's
+			// own speed, plus a gentle pull to close the gap.
+			CVector3<> v3_vel = CVector3<>(gVR.afBodyVel[0], gVR.afBodyVel[1], 0) + v3_to / 0.3f;
+			if (v3_vel.tLen() > 3.7f)
+				v3_vel *= 3.7f / v3_vel.tLen();
 			bVRSetSkeletonWalkVelocity(this, v3_vel.tX, v3_vel.tY);
 		}
 	}
@@ -4914,6 +4919,8 @@ private:
 			{
 				CVector3<> v3_wrist = pvrlaLeftArm->sriBones.patf3JointTransforms[12].v3Pos * pvrlaLeftArm->pr3GetPresence();
 				CVector3<> v3_rwrist = sriBones.patf3JointTransforms[12].v3Pos * pr3GetPresence();
+				gVR.pfnLog("Arms: left arm polygons %d seen, %d facing the eye.", gVR.iMirrorPolys, gVR.iMirrorPolysFront);
+				gVR.iMirrorPolys = gVR.iMirrorPolysFront = 0;
 				gVR.pfnLog("Arms: left wrist drawn at (%.2f %.2f %.2f), left controller (%.2f %.2f %.2f), right wrist (%.2f %.2f %.2f), right controller (%.2f %.2f %.2f).",
 					v3_wrist.tX, v3_wrist.tY, v3_wrist.tZ, ap3_target[1].v3Pos.tX, ap3_target[1].v3Pos.tY, ap3_target[1].v3Pos.tZ,
 					v3_rwrist.tX, v3_rwrist.tY, v3_rwrist.tZ, ap3_target[0].v3Pos.tX, ap3_target[0].v3Pos.tY, ap3_target[0].v3Pos.tZ);

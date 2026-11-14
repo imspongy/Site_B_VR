@@ -52,6 +52,7 @@
 
 #include "Skeleton.hpp"
 #include "MeshIterator.hpp"
+#include "Lib/Control/VRShared.hpp"
 
 //**********************************************************************************************
 //
@@ -75,7 +76,8 @@
 		const CBioMesh& bmshMesh;				// The referenced mesh.
 		CPArray< CTransform3<> > patf3Joints;	// The bones of the instance.
 		CPArray<SClipPoint> paclptPoints;		// Copied pointer to clip-point array.
-		bool bMirror;							// VR mod: instance is drawn mirrored; flip culling.
+		bool bMirror;							// VR mod: instance is drawn mirrored.
+		CMesh::SVertex* apmvMirror[32];			// VR mod: the current polygon's vertices, reversed.
 
 	public:
 
@@ -86,6 +88,31 @@
 		//
 		// Overrides.
 		//
+
+		//******************************************************************************************
+		// VR mod: a mirrored instance has its polygons wound the wrong way round, which the
+		// rasteriser rejects.  Hand out the vertices in reverse order to put them right.
+		bool bNext()
+		{
+			if (!CMesh::CPolyIterator::bNext())
+				return false;
+			if (bMirror)
+			{
+				int i_n = papmvVertices.uLen;
+				if (i_n > 32)
+					i_n = 32;
+				for (int i = 0; i < i_n; i++)
+					apmvMirror[i] = papmvVertices[i_n - 1 - i];
+				papmvVertices = CPArray<CMesh::SVertex*>(i_n, apmvMirror);
+				gVR.iMirrorPolys++;
+			}
+			return true;
+		}
+
+		bool bNext_() override
+		{
+			return bNext();
+		}
 
 		//******************************************************************************************
 		forceinline bool bBackface(const CVector3<>&)
@@ -107,7 +134,10 @@
 			const CVector3<>& v3_c = paclptPoints[iShapePoint(2)].v3Point;
 
 			TReal r_dist = ((v3_b - v3_c) ^ (v3_a - v3_b)) * v3_b;
-			return CIntFloat(r_dist).bSign() != bMirror;
+			bool b_back = CIntFloat(r_dist).bSign();
+			if (bMirror && !b_back)
+				gVR.iMirrorPolysFront++;
+			return b_back;
 		}
 
 		//

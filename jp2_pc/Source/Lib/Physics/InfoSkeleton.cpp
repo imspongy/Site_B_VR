@@ -1610,14 +1610,17 @@ static void VRWalkOverride(int i_index, CDir3<>& d3_move, float& f_move_sp)
 
 	float f_vx = afVRWalk[i_index][0], f_vy = afVRWalk[i_index][1];
 	float f_cx = Pel[i_index][0][1], f_cy = Pel[i_index][1][1];
-	float f_wx = f_vx + 0.6f * (f_vx - f_cx);
-	float f_wy = f_vy + 0.6f * (f_vy - f_cy);
+	float f_wx = f_vx + 0.25f * (f_vx - f_cx);
+	float f_wy = f_vy + 0.25f * (f_vy - f_cy);
 	float f_speed = sqrtf(f_wx * f_wx + f_wy * f_wy);
-	if (f_speed > 10.0f)
+	// Never push harder than the original game's full run (Kontrol 60, about 3.7 m/s): more
+	// than that tips her over and hurts her feet.
+	const float f_max = 60.0f * 24.5f / 400.0f;
+	if (f_speed > f_max)
 	{
-		f_wx *= 10.0f / f_speed;
-		f_wy *= 10.0f / f_speed;
-		f_speed = 10.0f;
+		f_wx *= f_max / f_speed;
+		f_wy *= f_max / f_speed;
+		f_speed = f_max;
 	}
 	if (f_speed < 0.05f)
 	{
