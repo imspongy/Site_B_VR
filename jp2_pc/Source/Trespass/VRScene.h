@@ -18,6 +18,7 @@ struct SVRSceneEyes
 
 struct SVRSceneSettings
 {
+	float fFogDistance = 1600.0f;	// Metres; the haze is heavy (but never solid) by about here.
 	float fDrawDistance = 1.0f;		// Multiplier on the game's view distance.
 	float fShadowDistance = 60.0f;	// Metres of real-time shadows around the player (0 = off).
 	float fBrightness = 1.0f;
@@ -33,4 +34,7 @@ bool VRScene_Ready();
 bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& set);
 
 // One line of statistics for the log.
+
+// After an error part-way through a frame: drop whatever was queued for it.
+void VRScene_AbortFrame();
 const char* VRScene_Stats();

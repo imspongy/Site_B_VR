@@ -1303,6 +1303,9 @@ private:
 		CInstance*    pinsIgnoreOther = nullptr;	// The other hand's object, which this box ignores.
 		CInstance*    pinsForceTarget = nullptr;
 		TSec          sForcePullTime = -100;
+		CInstance*    pinsThrown = nullptr;		// Just thrown: its velocity is applied again for a few steps.
+		CVector3<>    v3Throw;
+		int           iThrowSteps = 0;
 	};
 	SVRHand avrh[2];
 
@@ -1332,6 +1335,7 @@ private:
 	float          fVRBodyAboveFeet = 0.95f;
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
+	bool           bVRGameHandParked = false;
 	bool           bVRLandSound = false;	// Play a landing footfall this step.
 	float          fVRLandSpeed = 0;
 	float          fVRStrideDist = 0;		// Distance walked since the last footstep.
@@ -2579,7 +2583,7 @@ private:
 				}
 				gVR.afHeldLength[i] = f_len;
 			}
-			if (pins && gVR.afHeldMass[i] <= 150.0f)
+			if (pins && gVR.afHeldMass[i] <= 150.0f && !NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE)))
 			{
 				gVR.apvHeldFirm[i] = (const void*)pins;
 				const CPlacement3<>& p3g = avrh[i].p3Grab;
@@ -2914,6 +2918,17 @@ private:
 		HandleThrow(msgc);
 		if (!bVRHands())
 			HandleStow(msgc);
+
+		// VR: the game's own (invisible) physical hand isn't used; park it inside her body as an
+		// intangible passenger so it doesn't knock things over away from the real hands.
+		if (bVRHands() && pinsHand && !bVRGameHandParked)
+		{
+			pinsHand->Move(p3GetPlacement());
+			NMagnetSystem::AddMagnetPair(this, pinsHand, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
+			bVRGameHandParked = true;
+			if (gVR.pfnLog)
+				gVR.pfnLog("Hands: the game's own hand is parked (intangible).");
+		}
 
 		for (int i = 0; i < 2; i++)
 		{
@@ -4364,16 +4379,22 @@ private:
 		CInstance* pins = vh.pinsHeld;
 		vh.pinsHeld = nullptr;
 
+		CVector3<> v3_throw(0, 0, 0);
 		if (b_throw)
 		{
-			// Let go with the hand's velocity (throwing).  Heavy things can't go as fast.
+			// Let go with the hand's velocity (throwing).  Heavy things can't go as fast.  The
+			// hand's speed is taken over the last few frames, since it slows as the fingers open.
 			const float* af_v = gVR.aafHandVel[i_hand];
 			CVector3<> v3_vel(af_v[0], af_v[1], af_v[2]);
+			const float* af_p = gVR.aafHandVelPeak[i_hand];
+			CVector3<> v3_peak(af_p[0], af_p[1], af_p[2]);
+			if (v3_peak.tLen() > v3_vel.tLen())
+				v3_vel = v3_peak;
 			float f_mass = pins->pphiGetPhysicsInfo()->fMass(pins);
 			float f_max = 20.0f / (1.0f + f_mass / 30.0f);
 			if (v3_vel.tLen() > f_max)
 				v3_vel *= f_max / v3_vel.tLen();
-			pins->pphiGetPhysicsInfoWritable()->ForceVelocity(pins, v3_vel);
+			v3_throw = v3_vel * gVR.fThrowScale;
 		}
 
 		// Keep ignoring collisions with Anne briefly, so a throw doesn't hit her.
@@ -4382,6 +4403,17 @@ private:
 		vh.pinsReleased = pins;
 		vh.sReleaseTime = CMessageStep::sStaticTotal;
 		CMessagePickUp(pins, epuDROP).Dispatch();
+
+		// Wake it up moving (it was being placed by hand, so the physics had it asleep), and keep
+		// the throw speed for a couple of steps in case anything resets it.
+		if (b_throw && v3_throw.tLen() > 0.3f)
+		{
+			pins->pphiGetPhysicsInfo()->Activate(pins, false, CPlacement3<>(CRotate3<>(), v3_throw));
+			pins->pphiGetPhysicsInfoWritable()->ForceVelocity(pins, v3_throw);
+			vh.pinsThrown = pins;
+			vh.v3Throw = v3_throw;
+			vh.iThrowSteps = 2;
+		}
 	}
 
 	//*****************************************************************************************
@@ -4412,7 +4444,8 @@ private:
 			CPlacement3<> p3_adj;
 			if (i_hand == 1)
 				p3_adj.r3Rot = CRotate3<>(d3YAxis, CAngle(dPI));
-			p3_adj.v3Pos = CVector3<>(0, -gVR.fGunBack, 0);
+			// Back into the palm, and across toward the palm's middle (mirrored for the left hand).
+			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? gVR.fGunSide : -gVR.fGunSide, -gVR.fGunBack, 0);
 			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
 		}
 		else
@@ -4472,6 +4505,13 @@ private:
 	{
 		SVRHand& vh = avrh[i_hand];
 
+		// A throw in progress: keep its speed for its first steps.
+		if (vh.iThrowSteps > 0 && vh.pinsThrown && vh.pinsThrown != vh.pinsHeld)
+		{
+			vh.iThrowSteps--;
+			vh.pinsThrown->pphiGetPhysicsInfoWritable()->ForceVelocity(vh.pinsThrown, vh.v3Throw);
+		}
+
 		// Restore collisions with a recently released object.
 		if (vh.pinsReleased && CMessageStep::sStaticTotal - vh.sReleaseTime > 0.6)
 		{
@@ -4515,9 +4555,9 @@ private:
 		{
 			CPhysicsInfoBox phib
 			(
-				CBoundVolBox(0.09f, 0.16f, 0.06f),	// Width, length, thickness (m).
+				CBoundVolBox(0.08f, 0.14f, 0.05f),	// Width, length, thickness (m).
 				SPhysicsData(true, true),
-				3.0f								// Mass (kg).
+				1.5f								// Mass (kg): firm enough to push, light enough not to smash.
 			);
 			vh.pinsBox = new CInstance(CInstance::SInit
 			(
@@ -4607,7 +4647,11 @@ private:
 			float f_mass = pphi->fMass(vh.pinsHeld);
 			const float fTOO_HEAVY = 150.0f;	// Above this, things are dragged, not lifted.
 
-			if (f_mass > fTOO_HEAVY)
+			// Hinged things (gates, doors) are swung by pulling them toward the hand, so the hinge
+			// still holds them; moving them directly would lift them off it.
+			bool b_hinged = NMagnetSystem::pmpFindMagnet(vh.pinsHeld, Set(emfHINGE)) != nullptr;
+
+			if (f_mass > fTOO_HEAVY || b_hinged)
 			{
 				CVector3<> v3_delta = p3_target.v3Pos - vh.pinsHeld->v3Pos();
 				if (v3_delta.tLen() > 1.0f)
@@ -4835,6 +4879,10 @@ private:
 				CInstance* pins_master = NMagnetSystem::pinsFindMaster(pins);
 				if (pins_master && (pins_master == apins_held[0] || pins_master == apins_held[1]))
 					return false;
+				// Hinged things (gates, doors) are walls: she pushes them open with her hands,
+				// she doesn't walk through them.
+				if (b_wall && NMagnetSystem::pmpFindMagnet(pins_master ? pins_master : pins, Set(emfHINGE)))
+					return true;
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
 				float f_mass = pphi->fMass(pins);
 				return f_mass >= (b_wall ? 60.0f : 1.5f);
@@ -5441,11 +5489,10 @@ private:
 			{
 				// Cup under the gun hand: a little lower and further back than before, fingers
 				// only half closed so they wrap the other hand instead of going through the grip.
-				CVector3<> v3_gun_up  = CVector3<>(0, 0, 1) * ap3_target[i_gun].r3Rot;
-				CVector3<> v3_gun_fwd = CVector3<>(0, 1, 0) * ap3_target[i_gun].r3Rot;
-				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.095f - v3_gun_fwd * 0.02f;
+				CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
+				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.085f;
 				ap3_target[i_support].r3Rot = ap3_target[i_gun].r3Rot;
-				af_curl[i_support] = 0.55f;
+				af_curl[i_support] = 0.8f;
 			}
 		}
 

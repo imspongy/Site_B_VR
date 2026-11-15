@@ -129,7 +129,7 @@ void  VRR_RenderFrame(const SVRRFrame& fr);
 // The finished eye image (an ID3D11Texture2D*).
 void* VRR_EyeTexture(int i_eye);
 
-// Fine terrain near the player: square patches of i_n x i_n vertices (slots 0..63).  Where a
+// Fine terrain near the player: square patches of i_n x i_n vertices (slots 0..127).  Where a
 // patch is drawn it covers the coarse terrain.
 bool  VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv);
 void  VRR_TerrainPatchClear(int i_slot);
@@ -139,5 +139,8 @@ void  VRR_TerrainPatchClear(int i_slot);
 // false if there was no earlier copy to read.
 bool  VRR_CaptureEye(int i_size, uint32_t* pu4_out);
 
+// Drops everything queued for the current frame (after an error part-way through it).
+void  VRR_AbortFrame();
+
 // Statistics for the log.
-void  VRR_GetStats(int& ri_draws, int& ri_textures, int& ri_meshes, float& rf_gpu_mb);
+void  VRR_GetStats(int& ri_draws, int& ri_batches, int& ri_textures, int& ri_meshes, float& rf_gpu_mb);

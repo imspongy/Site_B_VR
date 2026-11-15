@@ -80,6 +80,7 @@ SamplerState           gClamp      : register(s2);
 Texture2DArray         gDetail     : register(t3);
 Texture2D<uint>        gIdMap      : register(t4);
 StructuredBuffer<float4> gDecal    : register(t5);
+Texture2D<float2>      gUvMap      : register(t6);
 
 struct VSObjIn
 {
@@ -124,14 +125,31 @@ float3 ShadowPos(float3 w)
 	return float3(dot(gShadowRow[0], p), dot(gShadowRow[1], p), dot(gShadowRow[2], p));
 }
 
+// Haze: builds up gently with distance (none close by), thinner higher up, never a solid wall.
 float FogAt(float3 wp)
 {
-	float d = clamp(distance(wp, gEyePos.xyz) * gFogColour.w * 31.0, 0.0, 31.0);
-	int i0 = (int)d;
-	int i1 = min(i0 + 1, 31);
-	float a = gFogTable[i0 >> 2][i0 & 3];
-	float b = gFogTable[i1 >> 2][i1 & 3];
-	return lerp(a, b, d - i0);
+	float d = distance(wp, gEyePos.xyz) * gFogColour.w;
+	float f = 1.0 - exp(-d * d * 2.2);
+	float h = max(wp.z - gEyePos.z, 0.0);
+	f *= exp(-h / 350.0);
+	return min(f, 0.88);
+}
+
+// The haze colour looking along dir: the game's fog colour tinted toward the sky, bluer when
+// looking up, warmer toward the sun.
+float3 FogColourDir(float3 dir)
+{
+	float3 haze = lerp(gFogColour.rgb, float3(0.55, 0.68, 0.85), 0.35);
+	float3 col = lerp(haze, haze * 0.8 + float3(0.0, 0.03, 0.1), saturate(dir.z * 3.0));
+	float s = pow(saturate(dot(dir, gSun.xyz)), 6.0);
+	col += float3(0.25, 0.2, 0.12) * s * gSun.w;
+	return col * gLight.y;
+}
+
+float3 ApplyFog(float3 col, float3 wp)
+{
+	float3 dir = normalize(wp - gEyePos.xyz);
+	return lerp(col, FogColourDir(dir), FogAt(wp));
 }
 
 float ShadowAt(float3 wp, float3 n)
@@ -205,11 +223,13 @@ float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 		float fres = pow(1.0 - saturate(dot(wn, v)), 4.0);
 		float3 r = reflect(-v, wn);
 		float spec = pow(saturate(dot(r, gSun.xyz)), 200.0) * gSun.w * 2.0;
-		col = lerp(col, gSkyFog.rgb * gLight.y, saturate(0.15 + fres * 0.8)) + spec;
-		c.a = saturate(0.55 + fres * 0.4);
+		// The sky it reflects: blue overhead blending to the haze colour at the horizon.
+		float3 sky = lerp(gSkyFog.rgb, float3(0.32, 0.52, 0.78), saturate(r.z * 2.5)) * gLight.y;
+		col = lerp(col, sky, saturate(fres * 0.6)) + spec;
+		c.a = saturate(0.6 + fres * 0.3);
 	}
 	if (!(i.flags & 16))
-		col = lerp(col, gFogColour.rgb, FogAt(i.wp));
+		col = ApplyFog(col, i.wp);
 	return float4(col, c.a);
 }
 
@@ -249,24 +269,56 @@ float3 TerrainDetail(float3 wp, float3 atlas_col)
 	int2 b = (int2)floor(t);
 	float2 f = t - b;
 	float2 dx = ddx(wp.xy), dy = ddy(wp.xy);
-	float3 sum = 0;
+
+	// The four nearest map texels: which texture, its stored coordinates, and their weights.
+	uint ids[4];
+	float2 uvs[4];
+	float wts[4];
 	[unroll] for (int j = 0; j < 4; j++)
 	{
 		int2 c = clamp(b + int2(j & 1, j >> 1), int2(0, 0), int2(w - 1, h - 1));
-		uint id = gIdMap.Load(int3(c, 0));
-		float wgt = ((j & 1) ? f.x : 1.0 - f.x) * ((j >> 1) ? f.y : 1.0 - f.y);
+		ids[j] = gIdMap.Load(int3(c, 0));
+		uvs[j] = gUvMap.Load(int3(c, 0));
+		wts[j] = ((j & 1) ? f.x : 1.0 - f.x) * ((j >> 1) ? f.y : 1.0 - f.y);
+	}
+
+	float3 sum = 0;
+	[unroll] for (int k = 0; k < 4; k++)
+	{
+		uint id = ids[k];
+		uint idc = id < 0xFFFE ? id : 0;
+		float4 m0 = gDecal[idc * 2], m1 = gDecal[idc * 2 + 1];
+
+		// Flat-projected textures: coordinates straight from the position.
+		float2 uv_a = float2(dot(m0.xy, wp.xy) + m0.z, dot(m1.xy, wp.xy) + m1.z);
+		float2 gx_a = float2(dot(m0.xy, dx), dot(m1.xy, dx));
+		float2 gy_a = float2(dot(m0.xy, dy), dot(m1.xy, dy));
+
+		// Textures that follow a shape (roads, paths): coordinates stored in the map, blended
+		// between the texels that belong to the same texture.
+		float2 uvp = 0;
+		float ws = 0;
+		[unroll] for (int q = 0; q < 4; q++)
+		{
+			float m = ids[q] == id ? wts[q] : 0.0;
+			uvp += uvs[q] * m;
+			ws += m;
+		}
+		float2 uv_m = uvp / max(ws, 1e-5);
+		float2 gx_m = ddx(uv_m), gy_m = ddy(uv_m);
+
 		float3 col = atlas_col;
 		if (id < 0xFFFE)
 		{
-			float4 m0 = gDecal[id * 2], m1 = gDecal[id * 2 + 1];
-			float2 uv = float2(dot(m0.xy, wp.xy) + m0.z, dot(m1.xy, wp.xy) + m1.z);
-			float2 gx = float2(dot(m0.xy, dx), dot(m1.xy, dx));
-			float2 gy = float2(dot(m0.xy, dy), dot(m1.xy, dy));
+			bool b_map = m1.w > 0.5;
+			float2 uv = b_map ? uv_m : uv_a;
+			float2 gx = b_map ? gx_m : gx_a;
+			float2 gy = b_map ? gy_m : gy_a;
 			// See-through parts of a terrain texture show what was painted underneath.
-			float4 t = gDetail.SampleGrad(gSamp, float3(uv, m0.w), gx, gy);
-			col = lerp(atlas_col, t.rgb, t.a);
+			float4 tx = gDetail.SampleGrad(gSamp, float3(uv, m0.w), gx, gy);
+			col = lerp(atlas_col, tx.rgb, tx.a);
 		}
-		sum += col * wgt;
+		sum += col * wts[k];
 	}
 	return sum;
 }
@@ -279,7 +331,7 @@ float4 PSTerrain(PSTerIn i) : SV_Target
 	if (gAtlasOn.y > 0.5)
 		albedo = TerrainDetail(i.wp, albedo);
 	float3 col = Shade(albedo, normalize(i.wn), i.wp, false);
-	col = lerp(col, gFogColour.rgb, FogAt(i.wp));
+	col = ApplyFog(col, i.wp);
 	return float4(col, 1);
 }
 
@@ -344,10 +396,19 @@ PSIdIn VSIdDecal(VSObjIn i)
 	return o;
 }
 
-uint PSIdDecal(PSIdIn i) : SV_Target
+struct PSIdOut
+{
+	uint   id : SV_Target0;
+	float2 uv : SV_Target1;
+};
+
+PSIdOut PSIdDecal(PSIdIn i)
 {
 	clip(gTex.Sample(gSamp, i.uv).a - 0.5);
-	return i.id;
+	PSIdOut o;
+	o.id = i.id;
+	o.uv = i.uv;
+	return o;
 }
 
 // Copies a texture into a slice of the terrain texture array (resized).
@@ -392,14 +453,15 @@ float4 PSSky(PSSkyIn i) : SV_Target
 	float tx = lerp(gTan.x, gTan.y, i.ndc.x * 0.5 + 0.5);
 	float tz = lerp(gTan.z, gTan.w, i.ndc.y * 0.5 + 0.5);
 	float3 d = normalize(gEyeY.xyz + gEyeX.xyz * tx + gEyeZ.xyz * tz);
-	float3 col = gSkyFog.rgb;
+	float3 col = FogColourDir(d);
 	if (d.z > gSky1.w && gSky1.z > 0.5)
 	{
 		float t = gSky0.x / d.z;
 		float2 uv = (gEyePos.xy + d.xy * t) * gSky0.y + gSky0.zw;
 		float3 c = gTex.SampleGrad(gSamp, uv, ddx(uv), ddy(uv)).rgb;
 		float f = saturate((1.0 - d.z - gSky1.x) * gSky1.y);
-		col = lerp(c, gSkyFog.rgb, f);
+		// The clouds fade into the same haze the land does, so the horizon has no seam.
+		col = lerp(c, FogColourDir(d), f);
 	}
 	return float4(col, 1);
 }
@@ -571,7 +633,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	ID3D11Buffer*             pvbTerrain = nullptr;
 
 	// Fine terrain patches near the player (square grids of iPatchN x iPatchN vertices).
-	static const int          iMAX_PATCHES = 64;
+	static const int          iMAX_PATCHES = 128;
 	ID3D11Buffer*             apvbPatch[iMAX_PATCHES] = {};
 	ID3D11Buffer*             pibPatch = nullptr;
 	int                       iPatchN = 0, iPatchIndices = 0;
@@ -592,6 +654,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	ID3D11ShaderResourceView* psrvDetail = nullptr;
 	ID3D11Texture2D*          ptexIdMap = nullptr;
 	ID3D11ShaderResourceView* psrvIdMap = nullptr;
+	ID3D11Texture2D*          ptexUvMap = nullptr;		// Texture coordinates, for shape-following terrain textures.
+	ID3D11ShaderResourceView* psrvUvMap = nullptr;
 	ID3D11Buffer*             pbufDecal = nullptr;
 	ID3D11ShaderResourceView* psrvDecal = nullptr;
 	bool                      bDetailBuilt = false;
@@ -608,6 +672,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		SafeRelease(ptexDetail);
 		SafeRelease(psrvIdMap);
 		SafeRelease(ptexIdMap);
+		SafeRelease(psrvUvMap);
+		SafeRelease(ptexUvMap);
 		SafeRelease(psrvDecal);
 		SafeRelease(pbufDecal);
 		bDetailBuilt = false;
@@ -615,6 +681,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	}
 
 	int iLastDraws = 0;
+	int iLastBatches = 0, iBatchesShown = 0;	// Card draw calls for the objects (all passes).
 
 	ID3D11Texture2D*        ptexCapture = nullptr;		// Staging copy of the left eye.
 	bool                    bCapturePending = false;
@@ -1006,10 +1073,26 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 
 		int i_bound_mesh = -1, i_bound_tex = -1, i_base = 0, i_first = 0;
 		int i_state = -1;
-		for (int k = 0; k < (int)aiOrder.size(); k++)
+		int i_count = (int)aiOrder.size();
+		for (int k = 0; k < i_count; )
 		{
-			int i = aiOrder[k];
-			const SVRRDraw& drw = adrw[i];
+			const SVRRDraw& drw = adrw[aiOrder[k]];
+			// How many following draws are the same thing in other places.
+			const uint32_t u4_run_key = evrrALPHA_TEST | evrrTWO_SIDED | evrrBLEND | evrrNO_SHADOW;
+			int i_run = 1;
+			if (!(drw.u4Flags & evrrBLEND))
+			{
+				while (k + i_run < i_count)
+				{
+					const SVRRDraw& d2 = adrw[aiOrder[k + i_run]];
+					if (d2.iMesh != drw.iMesh || d2.iFirstIndex != drw.iFirstIndex || d2.iNumIndices != drw.iNumIndices ||
+					    d2.iTexture != drw.iTexture || (d2.u4Flags & u4_run_key) != (drw.u4Flags & u4_run_key))
+						break;
+					i_run++;
+				}
+			}
+			int i = k;
+			k += i_run;
 			if (b_shadow && (drw.u4Flags & evrrNO_SHADOW))
 				continue;
 
@@ -1054,7 +1137,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				i_bound_tex = drw.iTexture;
 			}
 
-			pCtx->DrawIndexedInstanced(drw.iNumIndices, 1, i_first + drw.iFirstIndex, i_base, i);
+			pCtx->DrawIndexedInstanced(drw.iNumIndices, i_run, i_first + drw.iFirstIndex, i_base, i);
+			iLastBatches++;
 		}
 	}
 
@@ -1468,8 +1552,6 @@ static void BuildDetail()
 	int i_max_dim = 64;
 	for (int i = 0; i < i_decals; i++)
 	{
-		if (!abDecalMap[i])
-			continue;
 		int i_tex = adrwDecal[i].iTexture;
 		if (map_slice.count(i_tex))
 			continue;
@@ -1519,11 +1601,18 @@ static void BuildDetail()
 	tdi.Usage = D3D11_USAGE_DEFAULT;
 	tdi.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 	ID3D11RenderTargetView* prtv_id = nullptr;
+	ID3D11RenderTargetView* prtv_uv = nullptr;
+	D3D11_TEXTURE2D_DESC tdu = tdi;
+	tdu.Format = DXGI_FORMAT_R32G32_FLOAT;
 	if (FAILED(pDev->CreateTexture2D(&tdi, nullptr, &ptexIdMap)) ||
 		FAILED(pDev->CreateShaderResourceView(ptexIdMap, nullptr, &psrvIdMap)) ||
-		FAILED(pDev->CreateRenderTargetView(ptexIdMap, nullptr, &prtv_id)))
+		FAILED(pDev->CreateRenderTargetView(ptexIdMap, nullptr, &prtv_id)) ||
+		FAILED(pDev->CreateTexture2D(&tdu, nullptr, &ptexUvMap)) ||
+		FAILED(pDev->CreateShaderResourceView(ptexUvMap, nullptr, &psrvUvMap)) ||
+		FAILED(pDev->CreateRenderTargetView(ptexUvMap, nullptr, &prtv_uv)))
 	{
 		SafeRelease(prtv_id);
+		SafeRelease(prtv_uv);
 		ReleaseDetail();
 		return;
 	}
@@ -1535,8 +1624,9 @@ static void BuildDetail()
 		const std::array<float, 6>& m = aafDecalMap[i];
 		float* pf = &af_tab[(size_t)i * 8];
 		pf[0] = m[0]; pf[1] = m[1]; pf[2] = m[2];
-		pf[3] = abDecalMap[i] ? (float)map_slice[adrwDecal[i].iTexture] : 0.0f;
-		pf[4] = m[3]; pf[5] = m[4]; pf[6] = m[5]; pf[7] = 0;
+		pf[3] = (float)map_slice[adrwDecal[i].iTexture];
+		pf[4] = m[3]; pf[5] = m[4]; pf[6] = m[5];
+		pf[7] = abDecalMap[i] ? 0.0f : 1.0f;		// 1: coordinates come from the coordinate map.
 	}
 	D3D11_BUFFER_DESC bd = {};
 	bd.ByteWidth = (UINT)(af_tab.size() * sizeof(float));
@@ -1549,6 +1639,7 @@ static void BuildDetail()
 		FAILED(pDev->CreateShaderResourceView(pbufDecal, nullptr, &psrvDecal)))
 	{
 		SafeRelease(prtv_id);
+		SafeRelease(prtv_uv);
 		ReleaseDetail();
 		return;
 	}
@@ -1590,7 +1681,10 @@ static void BuildDetail()
 	// worked out, the map says "use the atlas" (0xFFFE).
 	float af_clear[4] = { 65535.0f, 0, 0, 0 };
 	pCtx->ClearRenderTargetView(prtv_id, af_clear);
-	pCtx->OMSetRenderTargets(1, &prtv_id, nullptr);
+	float af_clear_uv[4] = { 0, 0, 0, 0 };
+	pCtx->ClearRenderTargetView(prtv_uv, af_clear_uv);
+	ID3D11RenderTargetView* aprtv_id[2] = { prtv_id, prtv_uv };
+	pCtx->OMSetRenderTargets(2, aprtv_id, nullptr);
 	D3D11_VIEWPORT vpi = { 0, 0, (float)iIdMapSize, (float)iIdMapSize, 0, 1 };
 	pCtx->RSSetViewports(1, &vpi);
 
@@ -1605,7 +1699,7 @@ static void BuildDetail()
 	for (int i = 0; i < i_decals; i++)
 	{
 		std::memcpy(ainst[i].afRow, adrwDecal[i].afWorld, sizeof(ainst[i].afRow));
-		ainst[i].u4Flags = abDecalMap[i] ? (uint32_t)i : 0xFFFEu;
+		ainst[i].u4Flags = (uint32_t)i;
 	}
 	ID3D11Buffer* pvb_inst = pbufCreate((UINT)(sizeof(SInstance) * ainst.size()), D3D11_BIND_VERTEX_BUFFER, false, ainst.data());
 	if (pvb_inst)
@@ -1632,9 +1726,10 @@ static void BuildDetail()
 		}
 		pvb_inst->Release();
 	}
-	ID3D11RenderTargetView* prtv_null = nullptr;
-	pCtx->OMSetRenderTargets(1, &prtv_null, nullptr);
+	ID3D11RenderTargetView* aprtv_null[2] = { nullptr, nullptr };
+	pCtx->OMSetRenderTargets(2, aprtv_null, nullptr);
 	prtv_id->Release();
+	prtv_uv->Release();
 	bDetailBuilt = true;
 }
 
@@ -1742,24 +1837,6 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			bUpload(pibDyn, au4DynIdx.data(), sizeof(uint32_t) * au4DynIdx.size());
 	}
 
-	if (!adrw.empty())
-	{
-		if ((int)adrw.size() > iInstCap)
-		{
-			SafeRelease(pvbInst);
-			iInstCap = (int)adrw.size() * 3 / 2 + 256;
-			pvbInst = pbufCreate(sizeof(SInstance) * iInstCap, D3D11_BIND_VERTEX_BUFFER, true, nullptr);
-		}
-		std::vector<SInstance> ainst(adrw.size());
-		for (size_t i = 0; i < adrw.size(); i++)
-		{
-			std::memcpy(ainst[i].afRow, adrw[i].afWorld, sizeof(ainst[i].afRow));
-			ainst[i].u4Flags = adrw[i].u4Flags;
-		}
-		if (pvbInst)
-			bUpload(pvbInst, ainst.data(), sizeof(SInstance) * ainst.size());
-	}
-
 	// Opaque first, then see-through; grouped by mesh and texture.
 	aiOrder.resize(adrw.size());
 	for (size_t i = 0; i < adrw.size(); i++)
@@ -1788,8 +1865,35 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			return ka < kb;
 		if (da.iMesh != db.iMesh)
 			return da.iMesh < db.iMesh;
-		return da.iTexture < db.iTexture;
+		if (da.iFirstIndex != db.iFirstIndex)
+			return da.iFirstIndex < db.iFirstIndex;
+		if (da.iTexture != db.iTexture)
+			return da.iTexture < db.iTexture;
+		return (da.u4Flags & evrrNO_SHADOW) < (db.u4Flags & evrrNO_SHADOW);
 	});
+
+	// Instance data in draw order, so runs of the same mesh part and texture (trees, plants,
+	// rocks) go to the card as one instanced draw.
+	if (!adrw.empty())
+	{
+		if ((int)adrw.size() > iInstCap)
+		{
+			SafeRelease(pvbInst);
+			iInstCap = (int)adrw.size() * 3 / 2 + 256;
+			pvbInst = pbufCreate(sizeof(SInstance) * iInstCap, D3D11_BIND_VERTEX_BUFFER, true, nullptr);
+		}
+		std::vector<SInstance> ainst(adrw.size());
+		for (size_t i = 0; i < adrw.size(); i++)
+		{
+			const SVRRDraw& d = adrw[aiOrder[i]];
+			std::memcpy(ainst[i].afRow, d.afWorld, sizeof(ainst[i].afRow));
+			ainst[i].u4Flags = d.u4Flags;
+		}
+		if (pvbInst)
+			bUpload(pvbInst, ainst.data(), sizeof(SInstance) * ainst.size());
+	}
+
+
 
 	//
 	// Frame constants.
@@ -1909,12 +2013,13 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		D3D11_VIEWPORT vp = { 0, 0, (float)iWidth, (float)iHeight, 0, 1 };
 		pCtx->RSSetViewports(1, &vp);
 
-		ID3D11ShaderResourceView* apsrv[6] =
+		ID3D11ShaderResourceView* apsrv[7] =
 		{
 			psrvTex(fr.iSkyTexture), b_shadows ? psrvShadow : nullptr, bAtlasBuilt ? psrvAtlas : nullptr,
-			bDetailBuilt ? psrvDetail : nullptr, bDetailBuilt ? psrvIdMap : nullptr, bDetailBuilt ? psrvDecal : nullptr
+			bDetailBuilt ? psrvDetail : nullptr, bDetailBuilt ? psrvIdMap : nullptr, bDetailBuilt ? psrvDecal : nullptr,
+			bDetailBuilt ? psrvUvMap : nullptr
 		};
-		pCtx->PSSetShaderResources(0, 6, apsrv);
+		pCtx->PSSetShaderResources(0, 7, apsrv);
 
 		// Sky.
 		pCtx->RSSetState(prsNone);
@@ -1960,6 +2065,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 
 	// Ready for the next frame.
 	iLastDraws = (int)adrw.size();
+	iBatchesShown = iLastBatches;
+	iLastBatches = 0;
 	adrw.clear();
 	avDyn.clear();
 	au4DynIdx.clear();
@@ -1973,9 +2080,10 @@ void* VRR_EyeTexture(int i_eye)
 }
 
 //**********************************************************************************************
-void VRR_GetStats(int& ri_draws, int& ri_textures, int& ri_meshes, float& rf_gpu_mb)
+void VRR_GetStats(int& ri_draws, int& ri_batches, int& ri_textures, int& ri_meshes, float& rf_gpu_mb)
 {
 	ri_draws = iLastDraws;
+	ri_batches = iBatchesShown;
 	ri_textures = (int)atex.size();
 	ri_meshes = (int)amesh.size();
 	double d_bytes = 0;
@@ -2065,4 +2173,18 @@ void VRR_TerrainPatchClear(int i_slot)
 {
 	if (i_slot >= 0 && i_slot < iMAX_PATCHES)
 		SafeRelease(apvbPatch[i_slot]);
+}
+
+//**********************************************************************************************
+void VRR_AbortFrame()
+{
+	adrw.clear();
+	avDyn.clear();
+	au4DynIdx.clear();
+	adynmesh.clear();
+	if (pCtx)
+	{
+		ID3D11RenderTargetView* aprtv_null[2] = { nullptr, nullptr };
+		pCtx->OMSetRenderTargets(2, aprtv_null, nullptr);
+	}
 }

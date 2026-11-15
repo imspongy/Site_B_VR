@@ -119,7 +119,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "OpenTrespasser")
 
-target_link_options(${PROJECT_NAME} PUBLIC "/SAFESEH:NO") #Needed only for old Smacker lib, remove when it gets replaced
+target_link_options(${PROJECT_NAME} PUBLIC "/SAFESEH:NO")
+target_link_options(${PROJECT_NAME} PRIVATE "/MAP")   # Map file, to turn crash addresses into function names #Needed only for old Smacker lib, remove when it gets replaced
 
 target_precompile_headers(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/Source/trespass/precomp.h)
 

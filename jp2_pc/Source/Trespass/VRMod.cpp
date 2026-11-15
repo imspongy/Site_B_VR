@@ -86,7 +86,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 4;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 5;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -131,6 +131,7 @@ namespace
 		float fShadowDistance = 60.0f;
 		float fBrightness     = 1.0f;
 		float fTerrainDetail  = 1.0f;
+		float fFogDistance    = 1600.0f;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -413,6 +414,17 @@ namespace
 			"Brightness=1.0\n"
 			"; Terrain mesh and texture detail (0.5 = half, 2 = double).  Applies on the next level load.\n"
 			"TerrainDetail=1.0\n"
+			"; How far away the distance haze builds up (metres).\n"
+			"FogDistance=1600\n"
+			"\n"
+			"; --- Guns and throwing ---\n"
+			"; How far guns sit back into the palm and across toward its middle (metres), and how big\n"
+			"; held guns are drawn (1 = the game's size).\n"
+			"GunBack=0.04\n"
+			"GunSide=0.02\n"
+			"GunScale=0.85\n"
+			"; Thrown things go this much faster than your hand.\n"
+			"ThrowScale=1.3\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -451,6 +463,9 @@ namespace
 		s.bSecondHand     = fIni(str_file, "SecondHand", 1) != 0;
 		s.fPistolMaxMass  = fIni(str_file, "PistolMaxMass", 2.5f);
 		gVR.fGunBack      = fIni(str_file, "GunBack", 0.04f);
+		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 1.3f);
+		gVR.fGunSide      = fIni(str_file, "GunSide", 0.02f);
+		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
 		s.fHaptics        = fIni(str_file, "Haptics", 1);
@@ -468,6 +483,7 @@ namespace
 		s.fShadowDistance = fIni(str_file, "ShadowDistance", 60);
 		s.fBrightness     = fIni(str_file, "Brightness", 1.0f);
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
+		s.fFogDistance    = fIni(str_file, "FogDistance", 1600.0f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
@@ -898,6 +914,15 @@ namespace
 		psc->bResult = VRScene_RenderAndSubmit(*psc->peyes, *psc->pset);
 	}
 
+	void* pvSceneCrashAddress = nullptr;
+
+	int iSceneFilter(EXCEPTION_POINTERS* pep, DWORD* pu4_code)
+	{
+		*pu4_code = pep->ExceptionRecord->ExceptionCode;
+		pvSceneCrashAddress = pep->ExceptionRecord->ExceptionAddress;
+		return EXCEPTION_EXECUTE_HANDLER;
+	}
+
 	bool bSceneCallSafe(SSceneCall* psc, DWORD* pu4_code)
 	{
 		__try
@@ -905,14 +930,14 @@ namespace
 			SceneCall(psc);
 			return true;
 		}
-		__except (EXCEPTION_EXECUTE_HANDLER)
+		__except (iSceneFilter(GetExceptionInformation(), pu4_code))
 		{
-			*pu4_code = GetExceptionCode();
 			return false;
 		}
 	}
 
 	bool bNewRendererFailed = false;
+	int  iSceneCrashes = 0;
 
 	//******************************************************************************************
 	// Which holster (0 hip, 1 back) the given hand is at, or -1.
@@ -1548,11 +1573,18 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 	CRotate3<> ar3_hand[2] = { ar3HandWorld[0], ar3HandWorld[1] };
 
-	// Long guns aim along the line between the hands.
-	if (gVR.iTwoHand == 1 && !gVR.bTwoHandPistol)
-		ar3_hand[0] = r3LookAt(av3HandWorld[1] - av3HandWorld[0], CVector3<>(0, 0, 1) * ar3HandWorld[0]);
-	else if (gVR.iTwoHand == 2 && !gVR.bTwoHandPistol)
-		ar3_hand[1] = r3LookAt(av3HandWorld[0] - av3HandWorld[1], CVector3<>(0, 0, 1) * ar3HandWorld[1]);
+	// Long guns aim along the line between the hands: the gun hand turns (the least it can, so
+	// the gun keeps its roll) until the barrel points at the supporting hand.
+	if (gVR.iTwoHand && !gVR.bTwoHandPistol)
+	{
+		int g = gVR.iTwoHand == 1 ? 0 : 1, s = 1 - g;
+		const float* af_g = gVR.afHeldGrab[g];
+		CRotate3<> r3_grab(af_g[3], af_g[4], af_g[5], af_g[6], true);
+		CVector3<> v3_barrel = CVector3<>(0, 1, 0) * r3_grab * ar3HandWorld[g];
+		CVector3<> v3_want = av3HandWorld[s] - av3HandWorld[g];
+		if (fLen(v3_want) > 0.1f && fLen(v3_barrel) > 0.5f)
+			ar3_hand[g] = ar3HandWorld[g] * CRotate3<>(CDir3<>(v3_barrel), CDir3<>(v3_want));
+	}
 
 	for (int h = 0; h < 2; h++)
 	{
@@ -1570,6 +1602,19 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		StoreV(gVR.aafHandPos[h], av3HandWorld[h]);
 		StoreQ(gVR.aafHandRot[h], (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h]);
 		StoreV(gVR.aafHandVel[h], av3HandVelTrack[h] + v3MoveVel);
+		{
+			// Peak speed over the last ~0.1 s, for throws.
+			static double ad_peak_t[2] = { 0, 0 };
+			static CVector3<> av3_peak[2];
+			CVector3<> v3_now = av3HandVelTrack[h] + v3MoveVel;
+			double d_t = dNowMs();
+			if (fLen(v3_now) >= fLen(av3_peak[h]) || d_t - ad_peak_t[h] > 100.0)
+			{
+				av3_peak[h] = v3_now;
+				ad_peak_t[h] = d_t;
+			}
+			StoreV(gVR.aafHandVelPeak[h], av3_peak[h]);
+		}
 		gVR.afCurl[h]    = (std::max)(hi.fGrip, (std::min)(1.0f, 0.4f * hi.fTrigger + 0.6f * hi.fGrip));
 		gVR.abGrip[h]    = abGripLogical[h];
 		gVR.abTrigger[h] = hi.bTrigger;
@@ -1624,6 +1669,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fShadowDistance = setVR.iShadowMapSize > 0 ? setVR.fShadowDistance : 0.0f;
 		set.fBrightness = setVR.fBrightness;
 		set.fTerrainDetail = setVR.fTerrainDetail;
+		set.fFogDistance = setVR.fFogDistance;
 
 		double d_t0 = dNowMs();
 		SSceneCall sc = { &eyes, &set, false };
@@ -1633,8 +1679,17 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			b_ok = sc.bResult;
 		else
 		{
-			bNewRendererFailed = true;
-			Log("Modern renderer crashed (code %08X); switching to the game's renderer for this session.", (unsigned)u4_code);
+			// A bad frame is dropped and the next one tried (the game's old renderer can't
+			// safely take over mid-level); only repeated failures switch it off.
+			VRScene_AbortFrame();
+			iSceneCrashes++;
+			unsigned u_offset = (unsigned)((uintptr_t)pvSceneCrashAddress - (uintptr_t)GetModuleHandleA(nullptr));
+			Log("Modern renderer error %d (code %08X at exe offset %08X); frame skipped.", iSceneCrashes, (unsigned)u4_code, u_offset);
+			if (iSceneCrashes >= 30)
+			{
+				bNewRendererFailed = true;
+				Log("Modern renderer: too many errors; switching to the game's renderer for this session.");
+			}
 		}
 		adTimingMs[etPAINT] += dNowMs() - d_t0;
 

@@ -44,6 +44,7 @@
 #include "Lib/EntityDBase/WorldDBase.hpp"
 
 #include "Game/DesignDaemon/Player.hpp"
+#include "Lib/Control/VRShared.hpp"
 
 #include "Lib/Sys/Profile.hpp"
 
@@ -176,6 +177,23 @@ extern CProfileStat psCollisionMsgBrain;
 			return;
 		if (msgcoll.pins2 && msgcoll.pins2->pphiGetPhysicsInfo() && !msgcoll.pins2->pphiGetPhysicsInfo()->bIsMovable())
 			return;
+
+		// VR: Anne's body and hands are moved straight to where the player is, so the physics
+		// sees them arrive at speed; bumping into a dinosaur with them mustn't hurt it.
+		if (gVR.bActive)
+		{
+			for (int i = 0; i < 2; i++)
+			{
+				const CInstance* pins = i ? msgcoll.pins2 : msgcoll.pins1;
+				if (!pins)
+					continue;
+				if (pins == gpPlayer || (const void*)pins == gVR.apvHandBox[0] || (const void*)pins == gVR.apvHandBox[1])
+					return;
+				const CBoundaryBox* pbb = ptCast<CBoundaryBox>(const_cast<CInstance*>(pins));
+				if (pbb && pbb->paniAnimate == gpPlayer)
+					return;
+			}
+		}
 				
 		CAnimate::Process(msgcoll);
 	}

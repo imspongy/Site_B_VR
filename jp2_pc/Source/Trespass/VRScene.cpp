@@ -42,6 +42,8 @@
 #include "Lib/Renderer/Fog.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Renderer/Particles.hpp"
+#include "Lib/Renderer/PipeLine.hpp"
+#include "Lib/EntityDBase/Animal.hpp"
 #include "Lib/EntityDBase/Water.hpp"
 #include "Lib/View/Raster.hpp"
 #include "Lib/View/Palette.hpp"
@@ -56,6 +58,7 @@
 #include <cstring>
 #include <list>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <array>
 
@@ -235,7 +238,8 @@ namespace
 						u4 = u4RGBA(128, 128, 128);
 						break;
 				}
-				if (b_transparent && i_index == 0)
+				// (Bump-mapped textures have no see-through texels: colour 0 is a real colour.)
+				if (b_transparent && i_index == 0 && !ptex->seterfFeatures[erfBUMP])
 				{
 					u4 &= 0x00FFFFFF;
 					b_any_clear = true;
@@ -244,31 +248,43 @@ namespace
 			}
 		}
 
-		// See-through texels take the colour of a neighbour, so filtering doesn't halo.
+		// See-through texels take the colour of the nearest solid texel (spreading outward a
+		// ring at a time), so filtering and mipmaps never pull in the key colour (the blue
+		// fringes and splotches).
 		if (b_any_clear)
 		{
-			for (int i_pass = 0; i_pass < 2; i_pass++)
-			{
-				for (int y = 0; y < i_h; y++)
+			std::vector<uint8_t> au1_done((size_t)i_w * i_h, 0);
+			std::vector<int> ai_front, ai_next;
+			for (int i = 0; i < i_w * i_h; i++)
+				if (au4[i] >> 24)
 				{
-					for (int x = 0; x < i_w; x++)
+					au1_done[i] = 1;
+					ai_front.push_back(i);
+				}
+			if (ai_front.empty())
+			{
+				for (uint32_t& u4 : au4)
+					u4 &= 0x00808080;		// Wholly see-through: a neutral colour.
+			}
+			while (!ai_front.empty())
+			{
+				ai_next.clear();
+				for (int i : ai_front)
+				{
+					int x = i % i_w, y = i / i_w;
+					const int ai_dx[4] = { 1, -1, 0, 0 }, ai_dy[4] = { 0, 0, 1, -1 };
+					for (int k = 0; k < 4; k++)
 					{
-						uint32_t& u4 = au4[(size_t)y * i_w + x];
-						if (u4 >> 24)
+						int nx = (x + ai_dx[k] + i_w) % i_w, ny = (y + ai_dy[k] + i_h) % i_h;
+						int n = ny * i_w + nx;
+						if (au1_done[n])
 							continue;
-						const int ai_dx[4] = { 1, -1, 0, 0 }, ai_dy[4] = { 0, 0, 1, -1 };
-						for (int k = 0; k < 4; k++)
-						{
-							int nx = (x + ai_dx[k] + i_w) % i_w, ny = (y + ai_dy[k] + i_h) % i_h;
-							uint32_t u4_n = au4[(size_t)ny * i_w + nx];
-							if (u4_n >> 24)
-							{
-								u4 = u4_n & 0x00FFFFFF;
-								break;
-							}
-						}
+						au1_done[n] = 1;
+						au4[n] = au4[i] & 0x00FFFFFF;
+						ai_next.push_back(n);
 					}
 				}
+				ai_front.swap(ai_next);
 			}
 		}
 
@@ -385,7 +401,7 @@ namespace
 	}
 
 	// Queues draws of every subset of a mesh.
-	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0)
+	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0, int i_tex_force = -1)
 	{
 		for (const SSubset& sub : me.asub)
 		{
@@ -404,6 +420,8 @@ namespace
 				drw.u4Flags = (u4_flags & ~evrrALPHA_TEST) | evrrBLEND | evrrUNLIT | evrrTWO_SIDED | evrrNO_SHADOW;
 			if (u4_force)
 				drw.u4Flags = u4_force;
+			if (i_tex_force >= 0)
+				drw.iTexture = i_tex_force;
 			if (b_decal)
 				VRR_TerrainAddDecal(drw);
 			else
@@ -526,12 +544,16 @@ namespace
 	static void AddParticle(void* pv, const CVector3<>& v3_a, const CVector3<>& v3_b, float f_size, const CTexture* ptex)
 	{
 		SParticleBuild& pb = *(SParticleBuild*)pv;
-		float f_half = std::max(f_size, 0.004f) * 0.5f;
 		CVector3<> v3_mid = (v3_a + v3_b) * 0.5f;
 		CVector3<> v3_view = pb.v3Eye - v3_mid;
 		float f_view = v3_view.tLen();
 		if (f_view < 0.05f || f_view > 300.0f)
 			return;
+		// The game keeps particles between 1 and 5 pixels of its 640-wide view: specks of
+		// blood and dust, not lumps.  The same angular sizes here.
+		const float fPIXEL = 2.0f / 640.0f;
+		f_size = std::max(fPIXEL * 0.7f * f_view, std::min(f_size, fPIXEL * 4.0f * f_view));
+		float f_half = f_size * 0.5f;
 		v3_view /= f_view;
 		CVector3<> v3_d = v3_b - v3_a;
 		float f_len = v3_d.tLen();
@@ -601,6 +623,23 @@ namespace
 	}
 
 	//******************************************************************************************
+	// The game's per-frame "about to be drawn" step for an instance.  Water uses it to run its
+	// waves (which also float things), and dinosaurs to wake their AI when seen.  Only the
+	// camera in the context is used by these.
+	void PreRenderInstance(CInstance* pins)
+	{
+		CCamera* pcam = CWDbQueryActiveCamera().tGet();
+		if (!pcam)
+			return;
+		alignas(16) static char ac_unused[64];
+		CRenderContext renc(*reinterpret_cast<const CRenderer*>(ac_unused), *reinterpret_cast<CPipelineHeap*>(ac_unused),
+		                    *pcam, *reinterpret_cast<CLightList*>(ac_unused));
+		pins->PreRender(renc);
+	}
+
+	std::unordered_map<const void*, int> mapWaterTex;	// Water instance -> its plain colour.
+
+	//******************************************************************************************
 	// Something held in a hand (and anything magneted to it, like a gun's parts) is drawn where
 	// the controller is now, not where the last physics step left it.
 	bool bHeldPresence(CInstance* pins, CPresence3<>& rpr3)
@@ -627,7 +666,10 @@ namespace
 			CPlacement3<> p3_grab(CRotate3<>(af_g[3], af_g[4], af_g[5], af_g[6], true), CVector3<>(af_g[0], af_g[1], af_g[2]));
 			CPlacement3<> p3_render = p3_grab * p3_ctrl;
 			CPlacement3<> p3_inst = pins->p3GetPlacement() * ~pins_held->p3GetPlacement() * p3_render;
-			rpr3 = CPresence3<>(p3_inst.r3Rot, rpr3.rScale, p3_inst.v3Pos);
+			// Guns are drawn a little smaller, shrunk about the hand, to suit her hands.
+			float f_k = gVR.abHoldingGun[h] ? std::max(0.5f, std::min(gVR.fGunScale, 1.5f)) : 1.0f;
+			CVector3<> v3_pos = p3_ctrl.v3Pos + (p3_inst.v3Pos - p3_ctrl.v3Pos) * f_k;
+			rpr3 = CPresence3<>(p3_inst.r3Rot, rpr3.rScale * f_k, v3_pos);
 			return true;
 		}
 		return false;
@@ -687,6 +729,8 @@ namespace
 		if (!pbm.ptGet() && (gVR.apvHeldFirm[0] || gVR.apvHeldFirm[1]))
 			bHeldPresence(pins, pr3_draw);
 		WorldRows(pr3_draw, af_world);
+		if (pbm.ptGet() && ptCast<CAnimal>(pins))
+			PreRenderInstance(pins);
 		if (pbm.ptGet())
 			DrawSkinned(pins, pbm.ptGet(), *pme, af_world);
 		else if (pme->iHandle)
@@ -696,13 +740,37 @@ namespace
 				u4_flags |= evrrTWO_SIDED;
 			if (ptCast<CEntityWater>(pins))
 			{
-				// Water: see-through, with a reflection of the sky at low angles.
-				AddSubsets(*pme, pme->iHandle, af_world, 0, false, evrrBLEND | evrrWATER | evrrTWO_SIDED | evrrNO_SHADOW);
+				// Water: the game's own wave simulation runs (it floats things); drawn see-through
+				// in its original colour, with a reflection of the sky at low angles.
+				auto it = mapWaterTex.find(pins);
+				if (it == mapWaterTex.end())
+				{
+					bool b_alpha = false;
+					const CTexture* ptex = pmsh->pasfSurfaces.uLen ? pmsh->pasfSurfaces[0].ptexTexture.ptGet() : nullptr;
+					it = mapWaterTex.emplace(pins, iTexture(ptex, b_alpha)).first;
+				}
+				PreRenderInstance(pins);
+				AddSubsets(*pme, pme->iHandle, af_world, 0, false, evrrBLEND | evrrWATER | evrrTWO_SIDED | evrrNO_SHADOW, it->second);
 				iObjects++;
 				return;
 			}
 			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false);
 			iObjects++;
+		}
+	}
+
+	std::unordered_set<const void*> setBadInstances;
+
+	int iDrawInstanceSafe(CInstance* pins, SWalk* pwk, SWalkStats* pws)
+	{
+		__try
+		{
+			DrawInstance(pins, *pwk, *pws);
+			return 0;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return 1;
 		}
 	}
 
@@ -718,8 +786,16 @@ namespace
 				if (wk.papinsTerrainObjs)
 					wk.papinsTerrainObjs->push_back(pins);
 			}
-			else
-				DrawInstance(pins, wk, ws);
+			else if (!setBadInstances.count(pins))
+			{
+				if (iDrawInstanceSafe(pins, &wk, &ws) != 0)
+				{
+					// Something about this instance's data upset the renderer: leave it out from
+					// now on rather than lose the whole frame.
+					setBadInstances.insert(pins);
+					SceneLog("GPU renderer: skipping an instance that caused an error (%.0f so far).", (double)setBadInstances.size());
+				}
+			}
 		}
 
 		CPartition* ppartc = ppart->ppartChildren();
@@ -806,19 +882,20 @@ namespace
 	//
 	// Fine terrain near the player.  The level-wide grid is a few metres between points, which
 	// cuts the tops off bumps and leaves things standing on the real ground looking like they
-	// float.  Around the player the ground is sampled every metre, in 64 m patches, built a
+	// float.  Around the player the ground is sampled every half metre, in patches built a
 	// little each frame as you move.
 	//
-	const float fPATCH_SIZE = 64.0f;
-	const int   iPATCH_N = 65;				// Vertices along a side (1 m apart).
-	const int   iPATCH_RADIUS = 2;			// Patches either side of yours that are kept ready.
+	const float fPATCH_SIZE = 32.0f;
+	const int   iPATCH_N = 65;				// Vertices along a side (0.5 m apart).
+	const int   iPATCH_RADIUS = 4;			// Patches either side of yours that are kept ready (about 140 m).
+	const int   iPATCH_SLOTS = 128;
 
 	struct SPatch
 	{
 		int  iX, iY;
 		bool bUsed;
 	};
-	SPatch apatch[64];
+	SPatch apatch[iPATCH_SLOTS];
 	float  fPatchX0 = 0, fPatchY0 = 0;
 
 	// The patch being built.
@@ -833,7 +910,7 @@ namespace
 
 	void ResetPatches()
 	{
-		for (int i = 0; i < 64; i++)
+		for (int i = 0; i < iPATCH_SLOTS; i++)
 		{
 			apatch[i].bUsed = false;
 			VRR_TerrainPatchClear(i);
@@ -851,7 +928,7 @@ namespace
 		int i_py = (int)std::floor((v3_at.tY - fPatchY0) / fPATCH_SIZE);
 
 		// Drop patches that are well out of range.
-		for (int i = 0; i < 64; i++)
+		for (int i = 0; i < iPATCH_SLOTS; i++)
 		{
 			if (apatch[i].bUsed && (std::abs(apatch[i].iX - i_px) > iPATCH_RADIUS + 1 || std::abs(apatch[i].iY - i_py) > iPATCH_RADIUS + 1))
 			{
@@ -882,7 +959,7 @@ namespace
 					{
 						int i_x = i_px + dx, i_y = i_py + dy;
 						bool b_have = false;
-						for (int i = 0; i < 64; i++)
+						for (int i = 0; i < iPATCH_SLOTS; i++)
 							if (apatch[i].bUsed && apatch[i].iX == i_x && apatch[i].iY == i_y)
 								b_have = true;
 						int i_d = dx * dx + dy * dy;
@@ -896,7 +973,7 @@ namespace
 				if (i_best_d == (1 << 30))
 					break;
 				int i_slot = -1;
-				for (int i = 0; i < 64 && i_slot < 0; i++)
+				for (int i = 0; i < iPATCH_SLOTS && i_slot < 0; i++)
 					if (!apatch[i].bUsed)
 						i_slot = i;
 				if (i_slot < 0)
@@ -1142,6 +1219,8 @@ void VRScene_Shutdown()
 	mapMesh.clear();
 	mapTex.clear();
 	mapTexAlpha.clear();
+	mapWaterTex.clear();
+	setBadInstances.clear();
 	ptrrLevel = nullptr;
 	pvLevelPlayer = nullptr;
 	iSkyTexture = 0;
@@ -1175,6 +1254,8 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		mapMesh.clear();
 		mapTex.clear();
 		mapTexAlpha.clear();
+	mapWaterTex.clear();
+	setBadInstances.clear();
 		iSkyTexture = 0;
 		pvSkyTexture = nullptr;
 		VRR_ClearAll();
@@ -1277,7 +1358,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	fr.afFogColour[0] = clrDefEndDepth.u1Red / 255.0f;
 	fr.afFogColour[1] = clrDefEndDepth.u1Green / 255.0f;
 	fr.afFogColour[2] = clrDefEndDepth.u1Blue / 255.0f;
-	fr.fFogFar = wk.fFar;
+	fr.fFogFar = std::max(100.0f, set.fFogDistance);		// Haze is well built up by about this distance.
 	{
 		float f_max = fogFog.fGetFogLevel(1.0f);
 		if (f_max <= 0)
@@ -1333,12 +1414,12 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	VRB_SubmitTexture(0, VRR_EyeTexture(0));
 	VRB_SubmitTexture(1, VRR_EyeTexture(1));
 
-	int i_draws, i_tex, i_meshes;
+	int i_draws, i_batches, i_tex, i_meshes;
 	float f_mb;
-	VRR_GetStats(i_draws, i_tex, i_meshes, f_mb);
-	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws, %d textures (%.0f MB), %d meshes, %d textures loading; "
+	VRR_GetStats(i_draws, i_batches, i_tex, i_meshes, f_mb);
+	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws in %d card calls (3 passes), %d textures (%.0f MB), %d meshes, %d textures loading; "
 	              "walk: %d instances, %d hidden, %d no shape, %d not mesh, %d empty, %d far, %d behind.",
-	              iObjects, iSkinned, i_draws, i_tex, f_mb, i_meshes, iTexturesWaiting,
+	              iObjects, iSkinned, i_draws, i_batches, i_tex, f_mb, i_meshes, iTexturesWaiting,
 	              wsLast.iSeen, wsLast.iHidden, wsLast.iNoShape, wsLast.iNotMesh, wsLast.iEmpty, wsLast.iFar, wsLast.iBehind);
 	return true;
 }
@@ -1347,4 +1428,10 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 const char* VRScene_Stats()
 {
 	return strStats;
+}
+
+//**********************************************************************************************
+void VRScene_AbortFrame()
+{
+	VRR_AbortFrame();
 }

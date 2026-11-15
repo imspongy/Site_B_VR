@@ -51,6 +51,12 @@ jobs:
           name: TrespasserVR
           path: jp2_pc/package/
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maps
+          path: jp2_pc/Build/CI/cmake/trespass/**/*.map
+          if-no-files-found: warn
+
       # Latest build as a downloadable release (a direct link that needs no GitHub sign-in).
       - name: Publish latest build
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/vr-mod'

@@ -67,6 +67,8 @@ struct SVRShared
 	int   iTwoHand = 0;
 	bool  bTwoHandPistol = false;	// Support hand cups the bottom of the grip.
 	float fGunBack = 0.04f;			// Guns sit this far back from the controller's grip point (m).
+	float fGunSide = 0.02f;			// ... and this far across toward the middle of the palm (m).
+	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
 	// Where Anne's body should be (under the headset), world space.
 	bool  bBodyTargetValid = false;
@@ -102,6 +104,8 @@ struct SVRShared
 	bool  abHolding[2] = { false, false };
 	bool  abHoldingGun[2] = { false, false };
 	float afHeldLength[2] = { 0, 0 };
+	float aafHandVelPeak[2][3] = {};	// Fastest hand velocity over the last ~0.1 s (throwing).
+	float fThrowScale = 1.3f;			// Throws go this much faster than the hand.
 	// What each hand holds firmly, and where it sits relative to the controller (position,
 	// then rotation as a quaternion c, x, y, z).  The renderer draws it at the controller's
 	// latest pose, so it doesn't judder between physics steps.
