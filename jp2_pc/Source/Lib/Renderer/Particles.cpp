@@ -1532,6 +1532,26 @@ public:
 	}
 
 
+	//*****************************************************************************************
+	void CParticles::ForEachVR(TPFNVRParticle pfn, void* pv)
+	{
+		if (!pfn)
+			return;
+		CParticleList::iterator it = pprtParticleList->begin();
+		for (; it != pprtParticleList->end(); ++it)
+		{
+			CParticleBase& prt = *it;
+			prt.bRendered = true;
+			CVector3<> v3_b = prt.v3Position(prt.sAge);
+			TSec s_back = prt.bOneFrame ? 0.0f : Min(prt.sAge, 0.03f);
+			CVector3<> v3_a = prt.v3Position(prt.sAge - s_back);
+			float f_size = prt.fSize;
+			if (prt.sLifespan > 0.0f)
+				f_size *= MinMax(1.0f - 0.5f * prt.sAge / prt.sLifespan, 0.3f, 1.0f);
+			(*pfn)(pv, v3_a, v3_b, f_size, prt.ptexTexture);
+		}
+	}
+
 //
 // Global variables.
 //

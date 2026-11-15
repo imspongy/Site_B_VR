@@ -43,6 +43,8 @@ enum
 	evrrNO_SHADOW  = 4,		// Doesn't cast a shadow.
 	evrrUNLIT      = 8,		// Full brightness.
 	evrrNO_FOG     = 16,
+	evrrBLEND      = 32,	// See-through colour (glass, flashes, water): blended over what is behind.
+	evrrWATER      = 64,	// Water surface (see-through, sky reflection).
 };
 
 // One draw: part of a mesh, with a texture and a placement.
@@ -126,6 +128,11 @@ void  VRR_RenderFrame(const SVRRFrame& fr);
 
 // The finished eye image (an ID3D11Texture2D*).
 void* VRR_EyeTexture(int i_eye);
+
+// Fine terrain near the player: square patches of i_n x i_n vertices (slots 0..63).  Where a
+// patch is drawn it covers the coarse terrain.
+bool  VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv);
+void  VRR_TerrainPatchClear(int i_slot);
 
 // Debug snapshot of the left eye, i_size x i_size, as 0x00RRGGBB.  The copy is made on the
 // card now and read back on the next call (so the game never waits for the card); returns

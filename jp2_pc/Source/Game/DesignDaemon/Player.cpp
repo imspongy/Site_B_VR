@@ -61,6 +61,9 @@
 #include "Lib/EntityDBase/WorldDBase.hpp"
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
 #include "Lib/EntityDBase/Query/QPhysics.hpp"
+#include "Lib/EntityDBase/Query/QTerrain.hpp"
+#include "Lib/Renderer/GeomTypes.hpp"
+#include "Lib/GeomDBase/Terrain.hpp"
 #include "Lib/Loader/SaveFile.hpp"
 #include "Lib/Control/Control.hpp"
 #include "Lib/Physics/InfoPlayer.hpp"
@@ -1316,6 +1319,7 @@ private:
 	void IgnoreVR(int i_hand, CInstance* pins, bool b_ignore);
 	void PoseVRArm(CSkeletonRenderInfo& sri, const CTransform3<>* atf3, int i_transforms,
 	               rptr_const<CBioMesh> pbm, bool b_mirror, CPlacement3<> p3_target, float f_curl);
+	void VRStepSounds(const CVector3<>& v3_vel, float f_dt);
 	void BodyFollow();
 
 	// Visual second arm (a mirrored copy of Anne's mesh).
@@ -1328,6 +1332,10 @@ private:
 	float          fVRBodyAboveFeet = 0.95f;
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
+	bool           bVRLandSound = false;	// Play a landing footfall this step.
+	float          fVRLandSpeed = 0;
+	float          fVRStrideDist = 0;		// Distance walked since the last footstep.
+	float          fVRBrushDist = 0;		// Distance walked since the last check for plants.
 	bool           bVRKinInit = false;
 	bool           bVRKinSettled = false;
 	bool           bVRPrevJump = false;
@@ -2558,6 +2566,29 @@ private:
 			gVR.abHolding[i]    = pins != nullptr;
 			gVR.abHoldingGun[i] = pins && ptCast<CGun>(pins) != 0;
 			gVR.afHeldMass[i]   = pins ? pins->pphiGetPhysicsInfo()->fMass(pins) : 0.0f;
+			{
+				float f_len = 0;
+				if (pins && pins->prdtGetRenderInfo())
+				{
+					const CBoundVolBox* pbvb = pins->prdtGetRenderInfo()->bvGet().pbvbCast();
+					if (pbvb)
+					{
+						float f_s = fabsf(pins->fGetScale());
+						f_len = Max(Max((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]), (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s;
+					}
+				}
+				gVR.afHeldLength[i] = f_len;
+			}
+			if (pins && gVR.afHeldMass[i] <= 150.0f)
+			{
+				gVR.apvHeldFirm[i] = (const void*)pins;
+				const CPlacement3<>& p3g = avrh[i].p3Grab;
+				gVR.afHeldGrab[i][0] = p3g.v3Pos.tX; gVR.afHeldGrab[i][1] = p3g.v3Pos.tY; gVR.afHeldGrab[i][2] = p3g.v3Pos.tZ;
+				gVR.afHeldGrab[i][3] = p3g.r3Rot.tC;
+				gVR.afHeldGrab[i][4] = p3g.r3Rot.v3S.tX; gVR.afHeldGrab[i][5] = p3g.r3Rot.v3S.tY; gVR.afHeldGrab[i][6] = p3g.r3Rot.v3S.tZ;
+			}
+			else
+				gVR.apvHeldFirm[i] = nullptr;
 		}
 		if (gVR.bActive)
 		{
@@ -4373,7 +4404,17 @@ private:
 		// Guns (anything with a hold magnet) go into the hand the right way round.
 		const CMagnetPair* pmp_pickup = NMagnetSystem::pmpFindMagnet(pins, Set(emfHAND_HOLD));
 		if (pmp_pickup)
-			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand);
+		{
+			// The grip magnet lines up with the controller.  In the left hand it is turned half
+			// a turn about the barrel (the magnets are made for her right hand, which held the
+			// gun upside down in the left), and the gun sits a few centimetres back so the grip
+			// is in the palm rather than in front of it.
+			CPlacement3<> p3_adj;
+			if (i_hand == 1)
+				p3_adj.r3Rot = CRotate3<>(d3YAxis, CAngle(dPI));
+			p3_adj.v3Pos = CVector3<>(0, -gVR.fGunBack, 0);
+			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
+		}
 		else
 			vh.p3Grab = pins->p3GetPlacement() * ~p3_hand;
 
@@ -4638,6 +4679,115 @@ private:
 	}
 
 	//*****************************************************************************************
+	// Footsteps, landings and brushing through plants.  The game made these from her simulated
+	// feet and body boxes hitting things; she is moved directly now, so the same collision
+	// messages are sent from here (the sound system picks the sample from the two materials).
+	void CPlayerPriv::VRStepSounds(const CVector3<>& v3_vel, float f_dt)
+	{
+		CInstance* pins_foot = apbbBoundaryBoxes[ebbFOOT];
+		if (!pins_foot)
+			pins_foot = this;
+		static const TSoundMaterial smatFOOT = matHashIdentifier("Anne-Foot");
+
+		float f_speed = sqrtf(v3_vel.tX * v3_vel.tX + v3_vel.tY * v3_vel.tY);
+		CVector3<> v3_feet = v3VRFeet;
+
+		// What she is standing on: an object under her feet, or the ground.
+		auto pins_under = [&]() -> CInstance*
+		{
+			CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(0, 0, -1)), v3_feet + CVector3<>(0, 0, 0.3f));
+			CRayCast rc(p3_cast, 0.1f, 0.6f);
+			SObjectLoc* pobl;
+			while ((pobl = rc.poblNextIntersection()) != nullptr)
+			{
+				CInstance* pins = pobl->pinsObject;
+				if (!pins || pins == this || pins == pinsHand || pins == avrh[0].pinsBox || pins == avrh[1].pinsBox ||
+				    ptCast<CBoundaryBox>(pins) || ptCast<CEntityWater>(pins))
+					continue;
+				return pins;
+			}
+			CWDbQueryTerrain wqtrr;
+			return wqtrr.tGet();
+		};
+		auto step = [&](float f_energy)
+		{
+			CInstance* pins = pins_under();
+			if (!pins)
+				return;
+			CMessageCollision msg(pins, pins_foot, 0, smatFOOT, f_energy, f_energy, 0.0f, v3_feet, 0.0f, 0.0f);
+			msg.Dispatch();
+		};
+
+		// Landing.
+		if (bVRLandSound)
+		{
+			bVRLandSound = false;
+			step(Min(3.0f + fVRLandSpeed * fVRLandSpeed, 60.0f));
+			fVRStrideDist = 0;
+		}
+
+		// Footsteps: one a stride while on the ground.
+		if (bVRGrounded && f_speed > 0.4f)
+		{
+			fVRStrideDist += f_speed * f_dt;
+			float f_stride = f_speed > 3.5f ? 1.1f : 0.75f;
+			if (fVRStrideDist >= f_stride)
+			{
+				fVRStrideDist = 0;
+				// Louder when running (log scale: 3 is a soft step, 10 a run).
+				step(Min(2.0f + f_speed * 1.8f, 12.0f));
+			}
+		}
+		else if (f_speed <= 0.4f)
+			fVRStrideDist = 0.5f;		// First step comes soon after setting off.
+
+		// Plants (and other light, loose things) around her legs.
+		fVRBrushDist += f_speed * f_dt;
+		if (f_speed > 0.3f && fVRBrushDist >= 0.35f)
+		{
+			fVRBrushDist = 0;
+			struct SRecent { const CInstance* pins; TSec s; };
+			static SRecent arec[8];
+			TSec s_now = CMessageStep::sStaticTotal;
+
+			CBoundVolSphere bvs(0.45f);
+			CPresence3<> pr3(v3_feet + CVector3<>(0, 0, 0.5f));
+			CWDbQueryPhysics wqph(bvs, pr3);
+			int i_sent = 0;
+			for (CInstance* pins : wqph)
+			{
+				if (i_sent >= 2)
+					break;
+				if (!pins || pins == this || pins == pinsHand || ptCast<CBoundaryBox>(pins) || ptCast<CTerrain>(pins) ||
+				    pins == avrh[0].pinsBox || pins == avrh[1].pinsBox || pins == avrh[0].pinsHeld || pins == avrh[1].pinsHeld)
+					continue;
+				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+				if (!pphi || !pphi->bIsMovable() || pphi->fMass(pins) >= 60.0f)
+					continue;
+				// Not the same plant again too soon.
+				bool b_recent = false;
+				int i_old = 0;
+				for (int i = 0; i < 8; i++)
+				{
+					if (arec[i].pins == pins && s_now - arec[i].s < 0.4 && arec[i].s <= s_now)
+						b_recent = true;
+					if (arec[i].s < arec[i_old].s)
+						i_old = i;
+				}
+				if (b_recent)
+					continue;
+				arec[i_old].pins = pins;
+				arec[i_old].s = s_now;
+
+				float f_energy = Min(1.5f + f_speed * 2.0f, 10.0f);
+				CMessageCollision msg(pins, pins_foot, 0, smatFOOT, f_energy, f_energy * 0.5f, f_energy, v3_feet + CVector3<>(0, 0, 0.5f), 0.0f, 0.0f);
+				msg.Dispatch();
+				i_sent++;
+			}
+		}
+	}
+
+	//*****************************************************************************************
 	void CPlayerPriv::BodyFollow()
 	{
 		//
@@ -4872,6 +5022,8 @@ private:
 				v3VRFeet.tZ = f_floor;
 				fVRVz = 0;
 				bVRGrounded = true;
+				bVRLandSound = f_speed > 2.0f;
+				fVRLandSpeed = f_speed;
 			}
 			else
 				v3VRFeet.tZ = f_new_z;
@@ -4948,6 +5100,8 @@ private:
 		// things sounds as it should.
 		if (v3_vel.tX * v3_vel.tX + v3_vel.tY * v3_vel.tY > 0.3f * 0.3f)
 			bVRSetSkeletonBoxVelocity(this, v3_vel.tX, v3_vel.tY);
+
+		VRStepSounds(v3_vel, f_dt);
 
 		//
 		// Loose things she is standing on, or about to step onto (a plank, a crate), are held
@@ -5285,9 +5439,13 @@ private:
 			af_curl[i_support] = 1.0f;
 			if (gVR.bTwoHandPistol && avrh[i_gun].pinsHeld)
 			{
-				CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
-				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.075f;
+				// Cup under the gun hand: a little lower and further back than before, fingers
+				// only half closed so they wrap the other hand instead of going through the grip.
+				CVector3<> v3_gun_up  = CVector3<>(0, 0, 1) * ap3_target[i_gun].r3Rot;
+				CVector3<> v3_gun_fwd = CVector3<>(0, 1, 0) * ap3_target[i_gun].r3Rot;
+				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.095f - v3_gun_fwd * 0.02f;
 				ap3_target[i_support].r3Rot = ap3_target[i_gun].r3Rot;
+				af_curl[i_support] = 0.55f;
 			}
 		}
 

@@ -95,7 +95,7 @@ void VRB_GetD3D11(void** ppv_device, void** ppv_context);
 bool VRB_SubmitTexture(int i_eye, void* pv_texture);
 
 // Rumble on a controller (0 = left, 1 = right).
-void VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude);
+int   VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude);	// Returns the SteamVR input error (0 = fine).
 
 // Menu laser pointer events on the overlay (pixel coordinates, top-left origin).
 struct SVROverlayMouse

@@ -58,7 +58,8 @@ the new defaults (the old one is kept as `TrespasserVR.ini.old`). Highlights:
 - `SmoothTurn=1` for smooth turning, `SmoothTurnSpeed` for its speed; `SnapTurnDegrees` for snap.
 - `MoveWithHand=1` to walk where your left hand points instead of where you look.
 - `GripToggle=1` if you'd rather press grip once to grab and again to drop.
-- `HandPitch` / `HandYaw` / `HandRoll` to adjust how guns sit in your hand.
+- `HandPitch` / `HandYaw` / `HandRoll` to adjust how guns sit in your hand; `GunBack` (metres, default
+  0.04) moves guns back into the palm.
 - `SkyMode` (0 solid, 1 gradient, 2 clouds) and `Haptics` (vibration strength).
 - `HandScale` for the size of the drawn hands.
 - `DrawDistance` for how far away objects are drawn (1 = original game).
@@ -77,10 +78,10 @@ straight into the headset at its native resolution with anti-aliasing, real-time
 true distance. Settings in `TrespasserVR.ini`: `NewRenderer` (0 = the original renderer), `RenderScale`,
 `MSAA`, `ShadowMapSize`, `ShadowDistance`, `Brightness`, `TerrainDetail`.
 
-Not drawn yet by the new renderer: water surfaces, particles (blood, dust, muzzle flash) and on-screen text.
+It draws see-through water with sky reflections, particles (blood, dust, splashes), see-through
+effects such as muzzle flashes and glass, the terrain's own textures at full resolution, and the
+ground near you sampled every metre so things sit on it properly. Not drawn yet: on-screen text.
 
 ## Known limitations
 
-- The game renders on the CPU and copies each frame to the headset, so frame rates are modest.
-  SteamVR motion smoothing helps.
 - The left arm is a mirrored copy of Anne's right arm.

@@ -1164,11 +1164,11 @@ bool VRB_SubmitEye
 }
 
 //**********************************************************************************************
-void VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude)
+int VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude)
 {
 	if (!bInputOK || i_hand < 0 || i_hand > 1)
-		return;
-	vr::VRInput()->TriggerHapticVibrationAction(ahact[i_hand].hHaptic, 0, f_seconds, f_frequency, f_amplitude, vr::k_ulInvalidInputValueHandle);
+		return -1;
+	return (int)vr::VRInput()->TriggerHapticVibrationAction(ahact[i_hand].hHaptic, 0, f_seconds, f_frequency, f_amplitude, vr::k_ulInvalidInputValueHandle);
 }
 
 //**********************************************************************************************

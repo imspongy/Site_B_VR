@@ -66,6 +66,7 @@ struct SVRShared
 	// 2 = right hand supports the left hand's gun.
 	int   iTwoHand = 0;
 	bool  bTwoHandPistol = false;	// Support hand cups the bottom of the grip.
+	float fGunBack = 0.04f;			// Guns sit this far back from the controller's grip point (m).
 
 	// Where Anne's body should be (under the headset), world space.
 	bool  bBodyTargetValid = false;
@@ -100,6 +101,12 @@ struct SVRShared
 	//
 	bool  abHolding[2] = { false, false };
 	bool  abHoldingGun[2] = { false, false };
+	float afHeldLength[2] = { 0, 0 };
+	// What each hand holds firmly, and where it sits relative to the controller (position,
+	// then rotation as a quaternion c, x, y, z).  The renderer draws it at the controller's
+	// latest pose, so it doesn't judder between physics steps.
+	const void* apvHeldFirm[2] = { nullptr, nullptr };
+	float afHeldGrab[2][7] = {};	// Longest side of what each hand holds (m): long guns get a fore grip.
 	float afHeldMass[2] = { 0, 0 };
 	bool  abForceTarget[2] = { false, false };
 	int   aiForceTargetSerial[2] = { 0, 0 };

@@ -41,6 +41,7 @@
 #include "VRBackend.h"
 #include "VRScene.h"
 #include "VRRender.h"
+#include "Game/AI/AIMain.hpp"
 
 #include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/Camera.hpp"
@@ -449,6 +450,7 @@ namespace
 		s.bTwoHandAim     = fIni(str_file, "TwoHandAim", 1) != 0;
 		s.bSecondHand     = fIni(str_file, "SecondHand", 1) != 0;
 		s.fPistolMaxMass  = fIni(str_file, "PistolMaxMass", 2.5f);
+		gVR.fGunBack      = fIni(str_file, "GunBack", 0.04f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
 		s.fHaptics        = fIni(str_file, "Haptics", 1);
@@ -658,7 +660,19 @@ namespace
 	inline void Haptic(int i_hand, float f_seconds, float f_freq, float f_amp)
 	{
 		if (setVR.fHaptics > 0)
-			VRB_Haptic(iCtl(i_hand), f_seconds, f_freq, (std::min)(1.0f, f_amp * setVR.fHaptics));
+		{
+			// Some controllers (PlayStation VR2 Sense among them) barely respond to low
+			// frequencies or very short pulses.
+			f_freq = (std::max)(f_freq, 160.0f);
+			f_seconds = (std::max)(f_seconds, 0.04f);
+			int i_err = VRB_Haptic(iCtl(i_hand), f_seconds, f_freq, (std::min)(1.0f, f_amp * setVR.fHaptics));
+			static int iLogged = 0;
+			if (iLogged < 3)
+			{
+				iLogged++;
+				Log("Haptics: pulse on the %s hand (%.2f s), SteamVR result %d.", i_hand == 0 ? "right" : "left", (double)f_seconds, i_err);
+			}
+		}
 	}
 
 	inline CVector3<> v3Flat(const CVector3<>& v3)
@@ -986,10 +1000,10 @@ namespace
 			if (gVR.aiShotCount[h] != aiSeenShots[h])
 			{
 				aiSeenShots[h] = gVR.aiShotCount[h];
-				Haptic(h, 0.09f, 90.0f, 1.0f);
+				Haptic(h, 0.12f, 160.0f, 1.0f);
 				// The supporting hand feels it too.
 				if (gVR.iTwoHand == (h == 0 ? 1 : 2))
-					Haptic(1 - h, 0.07f, 90.0f, 0.6f);
+					Haptic(1 - h, 0.09f, 160.0f, 0.7f);
 			}
 			if (gVR.aiPickupCount[h] != aiSeenPickups[h])
 			{
@@ -1511,7 +1525,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			{
 				if (ab_grip_down[s] && gVR.abHoldingGun[g] && !gVR.abHolding[s])
 				{
-					bool b_pistol = gVR.afHeldMass[g] <= setVR.fPistolMaxMass;
+					// Long guns (shotgun, rifles) are held under the barrel; short ones by cupping the grip.
+					bool b_pistol = gVR.afHeldLength[g] > 0.0f ? gVR.afHeldLength[g] < 0.55f : gVR.afHeldMass[g] <= setVR.fPistolMaxMass;
 					if (f_gap < (b_pistol ? 0.25f : 0.7f))
 					{
 						gVR.iTwoHand = i_mode;
@@ -1625,6 +1640,11 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		if (gpPlayer)
 			gpPlayer->VRShowLeftArm(false);
+
+		// The game runs its dinosaur AI from inside its own renderer (while it waits for the
+		// card); that renderer is skipped here, so run it now.
+		if (gpaiSystem)
+			gpaiSystem->ProcessPending();
 
 		if (b_ok)
 		{

@@ -35,11 +35,14 @@
 #include "Lib/GeomDBase/TerrainObj.hpp"
 #include "Lib/GeomDBase/WaveletQuadTreeQuery.hpp"
 #include "Lib/Physics/InfoSkeleton.hpp"
+#include "Lib/Physics/Magnet.hpp"
 #include "Lib/Renderer/Camera.hpp"
 #include "Lib/Renderer/Light.hpp"
 #include "Lib/Renderer/Texture.hpp"
 #include "Lib/Renderer/Fog.hpp"
 #include "Lib/Renderer/Sky.hpp"
+#include "Lib/Renderer/Particles.hpp"
+#include "Lib/EntityDBase/Water.hpp"
 #include "Lib/View/Raster.hpp"
 #include "Lib/View/Palette.hpp"
 #include "Lib/View/Clut.hpp"
@@ -125,6 +128,7 @@ namespace
 			return 0;
 
 		bool b_transparent = ptex->seterfFeatures[erfTRANSPARENT];
+		bool b_alpha_colour = ptex->seterfFeatures[erfALPHA_COLOUR];
 
 		// Solid colour.
 		if (ptex->iGetNumMipLevels() <= 0)
@@ -133,6 +137,12 @@ namespace
 			if (it != mapTex.end())
 				return it->second;
 			uint32_t u4 = u4From565(ptex->tpSolid);
+			if (b_alpha_colour)
+			{
+				// See-through colour: stored as the card's 0xAARRGGBB.
+				uint32 u = (uint32)ptex->d3dpixColour;
+				u4 = u4RGBA((u >> 16) & 255, (u >> 8) & 255, u & 255, (u >> 24) & 255);
+			}
 			int i_h = VRR_TextureCreate(1, 1, &u4);
 			mapTex[ptex] = i_h;
 			return i_h;
@@ -194,7 +204,13 @@ namespace
 					case 16:
 					{
 						uint16 u = ((const uint16*)pu1)[x];
-						if (ptex->seterfFeatures[erfBUMP] && ppal)
+						if (b_alpha_colour)
+						{
+							// See-through textures (flashes, glass): 4 bits each of alpha, red,
+							// green, blue.
+							u4 = u4RGBA(((u >> 8) & 15) * 17, ((u >> 4) & 15) * 17, (u & 15) * 17, ((u >> 12) & 15) * 17);
+						}
+						else if (ptex->seterfFeatures[erfBUMP] && ppal)
 						{
 							i_index = (u >> 10) & 63;
 							u4 = pal(i_index);
@@ -369,7 +385,7 @@ namespace
 	}
 
 	// Queues draws of every subset of a mesh.
-	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal)
+	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0)
 	{
 		for (const SSubset& sub : me.asub)
 		{
@@ -384,6 +400,10 @@ namespace
 			drw.iTexture = iTexture(ptex, b_alpha);
 			std::memcpy(drw.afWorld, af_world, sizeof(drw.afWorld));
 			drw.u4Flags = u4_flags | (b_alpha ? (evrrALPHA_TEST | evrrTWO_SIDED) : 0);
+			if (ptex && ptex->seterfFeatures[erfALPHA_COLOUR] && !b_decal)
+				drw.u4Flags = (u4_flags & ~evrrALPHA_TEST) | evrrBLEND | evrrUNLIT | evrrTWO_SIDED | evrrNO_SHADOW;
+			if (u4_force)
+				drw.u4Flags = u4_force;
 			if (b_decal)
 				VRR_TerrainAddDecal(drw);
 			else
@@ -464,11 +484,9 @@ namespace
 		if (!i_mesh)
 			return;
 
-		// The player's own body is drawn from both sides: her hands are seen from every angle
-		// and some finger polygons face the wrong way.
-		uint32_t u4_flags = 0;
-		if (pins == gVR.pvMirrorInstance || pins == gVR.pvStubInstance)
-			u4_flags |= evrrTWO_SIDED;
+		// Characters are drawn from both sides: animated skins have polygons whose stored facing
+		// is wrong (parts of dinosaurs and fingers vanished with one-sided drawing).
+		uint32_t u4_flags = evrrTWO_SIDED;
 
 		SMeshEntry me_draw;
 		me_draw.asub = *pasub;
@@ -496,6 +514,124 @@ namespace
 		int iSeen, iHidden, iNoShape, iNotMesh, iEmpty, iFar, iBehind;
 	};
 	SWalkStats wsLast = {};
+
+	//******************************************************************************************
+	// Particles (blood, dust, splashes): streaks facing you, one dynamic mesh per colour.
+	struct SParticleBuild
+	{
+		CVector3<> v3Eye;
+		std::unordered_map<const CTexture*, std::vector<SVRRVertex>> mapQuads;
+	};
+
+	static void AddParticle(void* pv, const CVector3<>& v3_a, const CVector3<>& v3_b, float f_size, const CTexture* ptex)
+	{
+		SParticleBuild& pb = *(SParticleBuild*)pv;
+		float f_half = std::max(f_size, 0.004f) * 0.5f;
+		CVector3<> v3_mid = (v3_a + v3_b) * 0.5f;
+		CVector3<> v3_view = pb.v3Eye - v3_mid;
+		float f_view = v3_view.tLen();
+		if (f_view < 0.05f || f_view > 300.0f)
+			return;
+		v3_view /= f_view;
+		CVector3<> v3_d = v3_b - v3_a;
+		float f_len = v3_d.tLen();
+		if (f_len < 1e-4f)
+		{
+			// Not moving: a square facing you.
+			v3_d = CVector3<>(0, 0, 1) ^ v3_view;
+			if (v3_d.tLen() < 1e-3f)
+				v3_d = CVector3<>(1, 0, 0);
+			v3_d.Normalise();
+		}
+		else
+			v3_d /= f_len;
+		CVector3<> v3_side = v3_d ^ v3_view;
+		if (v3_side.tLen() < 1e-4f)
+			return;
+		v3_side.Normalise();
+		v3_side *= f_half;
+		CVector3<> v3_p0 = v3_a - v3_d * f_half, v3_p1 = v3_b + v3_d * f_half;
+		CVector3<> av3[4] = { v3_p0 - v3_side, v3_p0 + v3_side, v3_p1 + v3_side, v3_p1 - v3_side };
+		static const float af_uv[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+		std::vector<SVRRVertex>& av = pb.mapQuads[ptex];
+		for (int i = 0; i < 4; i++)
+		{
+			SVRRVertex v;
+			v.afPos[0] = av3[i].tX; v.afPos[1] = av3[i].tY; v.afPos[2] = av3[i].tZ;
+			v.afNormal[0] = v3_view.tX; v.afNormal[1] = v3_view.tY; v.afNormal[2] = v3_view.tZ;
+			v.afUV[0] = af_uv[i][0] * 0.5f + 0.25f; v.afUV[1] = af_uv[i][1] * 0.5f + 0.25f;
+			av.push_back(v);
+		}
+	}
+
+	void DrawParticles(const CVector3<>& v3_eye)
+	{
+		SParticleBuild pb;
+		pb.v3Eye = v3_eye;
+		Particles.ForEachVR(&AddParticle, &pb);
+		static const float af_identity[12] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0 };
+		for (auto& pr : pb.mapQuads)
+		{
+			std::vector<SVRRVertex>& av = pr.second;
+			int i_quads = (int)av.size() / 4;
+			if (i_quads <= 0)
+				continue;
+			std::vector<uint32_t> au4((size_t)i_quads * 6);
+			for (int q = 0; q < i_quads; q++)
+			{
+				uint32_t b = q * 4;
+				uint32_t* pu = &au4[(size_t)q * 6];
+				pu[0] = b; pu[1] = b + 1; pu[2] = b + 2; pu[3] = b; pu[4] = b + 2; pu[5] = b + 3;
+			}
+			int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
+			if (!i_mesh)
+				continue;
+			bool b_alpha = false;
+			SVRRDraw drw;
+			drw.iMesh = i_mesh;
+			drw.iFirstIndex = 0;
+			drw.iNumIndices = (int)au4.size();
+			drw.iTexture = iTexture(pr.first, b_alpha);
+			std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
+			drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW;
+			if (pr.first && pr.first->seterfFeatures[erfALPHA_COLOUR])
+				drw.u4Flags |= evrrBLEND | evrrUNLIT;
+			VRR_AddDraw(drw);
+		}
+	}
+
+	//******************************************************************************************
+	// Something held in a hand (and anything magneted to it, like a gun's parts) is drawn where
+	// the controller is now, not where the last physics step left it.
+	bool bHeldPresence(CInstance* pins, CPresence3<>& rpr3)
+	{
+		for (int h = 0; h < 2; h++)
+		{
+			CInstance* pins_held = (CInstance*)gVR.apvHeldFirm[h];
+			if (!pins_held || !gVR.abHandValid[h])
+				continue;
+			if (pins != pins_held)
+			{
+				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+				if (!pphi || !pphi->bIsMovable())
+					continue;
+				if ((pins->v3Pos() - pins_held->v3Pos()).tLenSqr() > 4.0f)
+					continue;
+				if (NMagnetSystem::pinsFindMaster(pins) != pins_held)
+					continue;
+			}
+			const float* af_q = gVR.aafHandRot[h];
+			const float* af_p = gVR.aafHandPos[h];
+			const float* af_g = gVR.afHeldGrab[h];
+			CPlacement3<> p3_ctrl(CRotate3<>(af_q[0], af_q[1], af_q[2], af_q[3], true), CVector3<>(af_p[0], af_p[1], af_p[2]));
+			CPlacement3<> p3_grab(CRotate3<>(af_g[3], af_g[4], af_g[5], af_g[6], true), CVector3<>(af_g[0], af_g[1], af_g[2]));
+			CPlacement3<> p3_render = p3_grab * p3_ctrl;
+			CPlacement3<> p3_inst = pins->p3GetPlacement() * ~pins_held->p3GetPlacement() * p3_render;
+			rpr3 = CPresence3<>(p3_inst.r3Rot, rpr3.rScale, p3_inst.v3Pos);
+			return true;
+		}
+		return false;
+	}
 
 	void DrawInstance(CInstance* pins, SWalk& wk, SWalkStats& ws)
 	{
@@ -547,7 +683,10 @@ namespace
 		}
 
 		float af_world[12];
-		WorldRows(pr3, af_world);
+		CPresence3<> pr3_draw = pr3;
+		if (!pbm.ptGet() && (gVR.apvHeldFirm[0] || gVR.apvHeldFirm[1]))
+			bHeldPresence(pins, pr3_draw);
+		WorldRows(pr3_draw, af_world);
 		if (pbm.ptGet())
 			DrawSkinned(pins, pbm.ptGet(), *pme, af_world);
 		else if (pme->iHandle)
@@ -555,6 +694,13 @@ namespace
 			uint32_t u4_flags = 0;
 			if (pr3.rScale < 0)
 				u4_flags |= evrrTWO_SIDED;
+			if (ptCast<CEntityWater>(pins))
+			{
+				// Water: see-through, with a reflection of the sky at low angles.
+				AddSubsets(*pme, pme->iHandle, af_world, 0, false, evrrBLEND | evrrWATER | evrrTWO_SIDED | evrrNO_SHADOW);
+				iObjects++;
+				return;
+			}
 			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false);
 			iObjects++;
 		}
@@ -654,6 +800,163 @@ namespace
 		af_map[3] = (float)ad_v[0]; af_map[4] = (float)ad_v[1];
 		af_map[5] = (float)(ad_v[2] - std::floor(ad_v[2]));
 		return true;
+	}
+
+	//******************************************************************************************
+	//
+	// Fine terrain near the player.  The level-wide grid is a few metres between points, which
+	// cuts the tops off bumps and leaves things standing on the real ground looking like they
+	// float.  Around the player the ground is sampled every metre, in 64 m patches, built a
+	// little each frame as you move.
+	//
+	const float fPATCH_SIZE = 64.0f;
+	const int   iPATCH_N = 65;				// Vertices along a side (1 m apart).
+	const int   iPATCH_RADIUS = 2;			// Patches either side of yours that are kept ready.
+
+	struct SPatch
+	{
+		int  iX, iY;
+		bool bUsed;
+	};
+	SPatch apatch[64];
+	float  fPatchX0 = 0, fPatchY0 = 0;
+
+	// The patch being built.
+	struct SPatchJob
+	{
+		bool  bActive = false;
+		int   iX = 0, iY = 0, iSlot = -1;
+		int   iNext = 0;					// Next sample.
+		std::vector<float> afH;				// (N + 2)^2 heights including a border.
+	};
+	SPatchJob pjob;
+
+	void ResetPatches()
+	{
+		for (int i = 0; i < 64; i++)
+		{
+			apatch[i].bUsed = false;
+			VRR_TerrainPatchClear(i);
+		}
+		pjob.bActive = false;
+	}
+
+	void ReleaseQueries(CTerrain* ptrr);
+
+	void UpdatePatches(CTerrain* ptrr, const CVector3<>& v3_at, double d_budget_ms)
+	{
+		if (!VRR_HasTerrain())
+			return;
+		int i_px = (int)std::floor((v3_at.tX - fPatchX0) / fPATCH_SIZE);
+		int i_py = (int)std::floor((v3_at.tY - fPatchY0) / fPATCH_SIZE);
+
+		// Drop patches that are well out of range.
+		for (int i = 0; i < 64; i++)
+		{
+			if (apatch[i].bUsed && (std::abs(apatch[i].iX - i_px) > iPATCH_RADIUS + 1 || std::abs(apatch[i].iY - i_py) > iPATCH_RADIUS + 1))
+			{
+				apatch[i].bUsed = false;
+				VRR_TerrainPatchClear(i);
+				if (pjob.bActive && pjob.iSlot == i)
+					pjob.bActive = false;
+			}
+		}
+
+		LARGE_INTEGER li_f, li_0, li_now;
+		QueryPerformanceFrequency(&li_f);
+		QueryPerformanceCounter(&li_0);
+		auto d_elapsed_ms = [&]()
+		{
+			QueryPerformanceCounter(&li_now);
+			return double(li_now.QuadPart - li_0.QuadPart) * 1000.0 / double(li_f.QuadPart);
+		};
+
+		for (;;)
+		{
+			// Pick the nearest missing patch.
+			if (!pjob.bActive)
+			{
+				int i_best_d = 1 << 30, i_bx = 0, i_by = 0;
+				for (int dy = -iPATCH_RADIUS; dy <= iPATCH_RADIUS; dy++)
+					for (int dx = -iPATCH_RADIUS; dx <= iPATCH_RADIUS; dx++)
+					{
+						int i_x = i_px + dx, i_y = i_py + dy;
+						bool b_have = false;
+						for (int i = 0; i < 64; i++)
+							if (apatch[i].bUsed && apatch[i].iX == i_x && apatch[i].iY == i_y)
+								b_have = true;
+						int i_d = dx * dx + dy * dy;
+						if (!b_have && i_d < i_best_d)
+						{
+							i_best_d = i_d;
+							i_bx = i_x;
+							i_by = i_y;
+						}
+					}
+				if (i_best_d == (1 << 30))
+					break;
+				int i_slot = -1;
+				for (int i = 0; i < 64 && i_slot < 0; i++)
+					if (!apatch[i].bUsed)
+						i_slot = i;
+				if (i_slot < 0)
+					break;
+				pjob.bActive = true;
+				pjob.iX = i_bx;
+				pjob.iY = i_by;
+				pjob.iSlot = i_slot;
+				pjob.iNext = 0;
+				pjob.afH.assign((size_t)(iPATCH_N + 2) * (iPATCH_N + 2), 0.0f);
+			}
+
+			// Sample.
+			const int i_side = iPATCH_N + 2;
+			const int i_total = i_side * i_side;
+			const float f_step = fPATCH_SIZE / (iPATCH_N - 1);
+			float f_ox = fPatchX0 + pjob.iX * fPATCH_SIZE, f_oy = fPatchY0 + pjob.iY * fPATCH_SIZE;
+			int i_since = 0;
+			while (pjob.iNext < i_total)
+			{
+				int i_x = pjob.iNext % i_side - 1, i_y = pjob.iNext / i_side - 1;
+				pjob.afH[pjob.iNext] = (float)ptrr->rHeight(f_ox + i_x * f_step, f_oy + i_y * f_step);
+				pjob.iNext++;
+				if (++i_since >= 400)
+				{
+					ReleaseQueries(ptrr);
+					i_since = 0;
+					if (d_elapsed_ms() > d_budget_ms)
+						break;
+				}
+			}
+			ReleaseQueries(ptrr);
+			if (pjob.iNext < i_total)
+				break;
+
+			// Finished: vertices with normals and base colours.
+			std::vector<SVRRTerrainVertex> atv((size_t)iPATCH_N * iPATCH_N);
+			for (int y = 0; y < iPATCH_N; y++)
+				for (int x = 0; x < iPATCH_N; x++)
+				{
+					auto h = [&](int i_x, int i_y) { return pjob.afH[(size_t)(i_y + 1) * i_side + (i_x + 1)]; };
+					float nx = h(x - 1, y) - h(x + 1, y), ny = h(x, y - 1) - h(x, y + 1), nz = 2.0f * f_step;
+					float f_len = std::sqrt(nx * nx + ny * ny + nz * nz);
+					SVRRTerrainVertex& tv = atv[(size_t)y * iPATCH_N + x];
+					float f_x = f_ox + x * f_step, f_y = f_oy + y * f_step;
+					tv.afPos[0] = f_x; tv.afPos[1] = f_y; tv.afPos[2] = h(x, y);
+					tv.afNormal[0] = nx / f_len; tv.afNormal[1] = ny / f_len; tv.afNormal[2] = nz / f_len;
+					CColour clr = ptrr->clrGetBaseTextureColour(f_x, f_y);
+					tv.u4Colour = u4RGBA(clr.u1Red, clr.u1Green, clr.u1Blue);
+				}
+			if (VRR_TerrainPatchSet(pjob.iSlot, iPATCH_N, atv.data()))
+			{
+				apatch[pjob.iSlot].bUsed = true;
+				apatch[pjob.iSlot].iX = pjob.iX;
+				apatch[pjob.iSlot].iY = pjob.iY;
+			}
+			pjob.bActive = false;
+			if (d_elapsed_ms() > d_budget_ms)
+				break;
+		}
 	}
 
 	//******************************************************************************************
@@ -768,6 +1071,8 @@ namespace
 		while (i_atlas < f_texels && i_atlas < 8192)
 			i_atlas *= 2;
 
+		fPatchX0 = f_x0;
+		fPatchY0 = f_y0;
 		if (!VRR_TerrainSet(i_nx, i_ny, f_x0, f_y0, f_spacing, atv.data(), i_atlas))
 		{
 			SceneLog("GPU renderer: could not create the terrain.");
@@ -904,8 +1209,17 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		Visit(pwWorld->ppartTerrainPartitionList(), wk, ws);
 	wsLast = ws;
 
+	DrawParticles(wk.v3Eye);
+
 	if (b_new_level && ptrr)
+	{
 		BuildTerrain(ptrr, apins_trr, std::max(0.25f, set.fTerrainDetail));
+		ResetPatches();
+		if (gpPlayer)
+			UpdatePatches(ptrr, gpPlayer->v3Pos(), 1.0e9);		// The ones around you, now.
+	}
+	else if (ptrr && gpPlayer)
+		UpdatePatches(ptrr, gpPlayer->v3Pos(), 2.0);			// Then about 2 ms a frame.
 
 	//
 	// Frame parameters.

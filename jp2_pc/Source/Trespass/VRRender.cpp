@@ -180,12 +180,34 @@ float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 		c.a = saturate((c.a - 0.5) / max(fwidth(c.a), 0.0001) + 0.5);
 		clip(c.a - 0.004);
 	}
-	else
+	else if (!(i.flags & 32))
 		c.a = 1.0;
+	// The shading normal is turned to the side of the surface you are looking at (the true
+	// face direction decides, so smooth normals near outlines are left alone).  Fixes dark
+	// patches on models whose normals point inward or that are seen from behind.
 	float3 n = normalize(i.wn);
-	if (!front)
+	float3 gn = cross(ddx(i.wp), ddy(i.wp));
+	float3 to_eye = gEyePos.xyz - i.wp;
+	if (dot(gn, to_eye) < 0)
+		gn = -gn;
+	if (dot(n, gn) < 0)
 		n = -n;
 	float3 col = Shade(c.rgb, n, i.wp, (i.flags & 8) != 0);
+	if (i.flags & 64)
+	{
+		// Water: clearer looking straight down, mirror-like toward the horizon, with the sun's
+		// glint.  Small moving ripples break up the surface.
+		float3 v = normalize(to_eye);
+		float t = gAtlasOn.z;
+		float2 q = i.wp.xy * 0.9;
+		float3 wn = normalize(float3(0.06 * sin(q.x * 1.7 + t * 1.3) + 0.04 * sin(q.y * 2.3 - t * 1.1),
+		                             0.06 * cos(q.y * 1.9 + t * 1.2) + 0.04 * cos(q.x * 2.1 - t * 0.9), 1.0));
+		float fres = pow(1.0 - saturate(dot(wn, v)), 4.0);
+		float3 r = reflect(-v, wn);
+		float spec = pow(saturate(dot(r, gSun.xyz)), 200.0) * gSun.w * 2.0;
+		col = lerp(col, gSkyFog.rgb * gLight.y, saturate(0.15 + fres * 0.8)) + spec;
+		c.a = saturate(0.55 + fres * 0.4);
+	}
 	if (!(i.flags & 16))
 		col = lerp(col, gFogColour.rgb, FogAt(i.wp));
 	return float4(col, c.a);
@@ -240,7 +262,9 @@ float3 TerrainDetail(float3 wp, float3 atlas_col)
 			float2 uv = float2(dot(m0.xy, wp.xy) + m0.z, dot(m1.xy, wp.xy) + m1.z);
 			float2 gx = float2(dot(m0.xy, dx), dot(m1.xy, dx));
 			float2 gy = float2(dot(m0.xy, dy), dot(m1.xy, dy));
-			col = gDetail.SampleGrad(gSamp, float3(uv, m0.w), gx, gy).rgb;
+			// See-through parts of a terrain texture show what was painted underneath.
+			float4 t = gDetail.SampleGrad(gSamp, float3(uv, m0.w), gx, gy);
+			col = lerp(atlas_col, t.rgb, t.a);
 		}
 		sum += col * wgt;
 	}
@@ -514,6 +538,10 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	ID3D11DepthStencilState* pdsTest = nullptr;
 	ID3D11DepthStencilState* pdsOff = nullptr;
 	ID3D11DepthStencilState* pdsShadow = nullptr;
+	ID3D11DepthStencilState* pdsTestNoWrite = nullptr;	// Blended surfaces.
+	ID3D11BlendState*        pbsBlend = nullptr;
+	ID3D11DepthStencilState* pdsFine = nullptr;		// Fine terrain: marks the stencil.
+	ID3D11DepthStencilState* pdsCoarse = nullptr;	// Coarse terrain: only where fine isn't.
 	ID3D11BlendState*        pbsOpaque = nullptr;
 	ID3D11BlendState*        pbsA2C = nullptr;
 	ID3D11SamplerState*      pssWrap = nullptr;
@@ -541,6 +569,12 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 
 	// Terrain.
 	ID3D11Buffer*             pvbTerrain = nullptr;
+
+	// Fine terrain patches near the player (square grids of iPatchN x iPatchN vertices).
+	static const int          iMAX_PATCHES = 64;
+	ID3D11Buffer*             apvbPatch[iMAX_PATCHES] = {};
+	ID3D11Buffer*             pibPatch = nullptr;
+	int                       iPatchN = 0, iPatchIndices = 0;
 	ID3D11Buffer*             pibTerrain = nullptr;
 	int                       iTerrainIndices = 0;
 	float                     afAtlas[4] = { 0, 0, 0, 0 };
@@ -729,7 +763,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 			td.Height = iHeight;
 			td.MipLevels = 1;
 			td.ArraySize = 1;
-			td.Format = DXGI_FORMAT_D32_FLOAT;
+			td.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;		// Stencil: fine terrain covers coarse.
 			td.SampleDesc.Count = iMSAA;
 			td.Usage = D3D11_USAGE_DEFAULT;
 			td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
@@ -798,8 +832,24 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 		dd.DepthFunc = D3D11_COMPARISON_GREATER;		// Reversed depth.
 		pDev->CreateDepthStencilState(&dd, &pdsTest);
+		dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		pDev->CreateDepthStencilState(&dd, &pdsTestNoWrite);
+		dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 		dd.DepthFunc = D3D11_COMPARISON_LESS;
 		pDev->CreateDepthStencilState(&dd, &pdsShadow);
+		dd.DepthFunc = D3D11_COMPARISON_GREATER;
+		dd.StencilEnable = TRUE;
+		dd.StencilReadMask = dd.StencilWriteMask = 0xFF;
+		dd.FrontFace.StencilFailOp = dd.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+		dd.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
+		dd.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+		dd.BackFace = dd.FrontFace;
+		pDev->CreateDepthStencilState(&dd, &pdsFine);
+		dd.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+		dd.FrontFace.StencilFunc = D3D11_COMPARISON_NOT_EQUAL;
+		dd.BackFace = dd.FrontFace;
+		pDev->CreateDepthStencilState(&dd, &pdsCoarse);
+		dd.StencilEnable = FALSE;
 		dd.DepthEnable = FALSE;
 		dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
 		pDev->CreateDepthStencilState(&dd, &pdsOff);
@@ -810,6 +860,18 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		pDev->CreateBlendState(&bd, &pbsOpaque);
 		bd.AlphaToCoverageEnable = TRUE;
 		pDev->CreateBlendState(&bd, &pbsA2C);
+		{
+			D3D11_BLEND_DESC bdb = {};
+			bdb.RenderTarget[0].BlendEnable = TRUE;
+			bdb.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+			bdb.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+			bdb.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+			bdb.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+			bdb.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+			bdb.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+			bdb.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+			pDev->CreateBlendState(&bdb, &pbsBlend);
+		}
 
 		D3D11_SAMPLER_DESC sd = {};
 		sd.Filter = D3D11_FILTER_ANISOTROPIC;
@@ -958,9 +1020,12 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				i_bound_mesh = drw.iMesh;
 			}
 
+			bool b_blend = (drw.u4Flags & evrrBLEND) != 0;
+			if (b_shadow && b_blend)
+				continue;
 			bool b_alpha = (drw.u4Flags & evrrALPHA_TEST) != 0;
 			bool b_two = (drw.u4Flags & evrrTWO_SIDED) != 0;
-			int i_new_state = (b_alpha ? 1 : 0) | (b_two ? 2 : 0);
+			int i_new_state = (b_alpha ? 1 : 0) | (b_two ? 2 : 0) | (b_blend ? 4 : 0);
 			if (i_new_state != i_state)
 			{
 				i_state = i_new_state;
@@ -969,7 +1034,16 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				else
 				{
 					pCtx->RSSetState(b_two ? prsNone : prsBack);
-					pCtx->OMSetBlendState(b_alpha && iMSAA > 1 ? pbsA2C : pbsOpaque, nullptr, 0xFFFFFFFF);
+					if (b_blend)
+					{
+						pCtx->OMSetBlendState(pbsBlend, nullptr, 0xFFFFFFFF);
+						pCtx->OMSetDepthStencilState(pdsTestNoWrite, 0);
+					}
+					else
+					{
+						pCtx->OMSetBlendState(b_alpha && iMSAA > 1 ? pbsA2C : pbsOpaque, nullptr, 0xFFFFFFFF);
+						pCtx->OMSetDepthStencilState(pdsTest, 0);
+					}
 				}
 			}
 
@@ -982,6 +1056,39 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 
 			pCtx->DrawIndexedInstanced(drw.iNumIndices, 1, i_first + drw.iFirstIndex, i_base, i);
 		}
+	}
+
+	bool bAnyPatch()
+	{
+		for (int i = 0; i < iMAX_PATCHES; i++)
+			if (apvbPatch[i])
+				return true;
+		return false;
+	}
+
+	void DrawPatches()
+	{
+		if (!pibPatch)
+			return;
+		UINT u_stride = sizeof(SVRRTerrainVertex), u_offset = 0;
+		pCtx->IASetIndexBuffer(pibPatch, DXGI_FORMAT_R32_UINT, 0);
+		pCtx->IASetInputLayout(pilTerrain);
+		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		for (int i = 0; i < iMAX_PATCHES; i++)
+		{
+			if (!apvbPatch[i])
+				continue;
+			pCtx->IASetVertexBuffers(0, 1, &apvbPatch[i], &u_stride, &u_offset);
+			pCtx->DrawIndexed(iPatchIndices, 0, 0);
+		}
+	}
+
+	void ReleasePatches()
+	{
+		for (int i = 0; i < iMAX_PATCHES; i++)
+			SafeRelease(apvbPatch[i]);
+		SafeRelease(pibPatch);
+		iPatchN = iPatchIndices = 0;
 	}
 
 	void DrawTerrain()
@@ -1120,6 +1227,7 @@ void VRR_ClearAll()
 	SafeRelease(pvbTerrain);
 	SafeRelease(pibTerrain);
 	iTerrainIndices = 0;
+	ReleasePatches();
 	SafeRelease(prtvAtlas);
 	SafeRelease(psrvAtlas);
 	SafeRelease(ptexAtlas);
@@ -1152,7 +1260,7 @@ void VRR_Shutdown()
 	{
 		pvsObject, ppsObject, pvsTerrain, ppsTerrain, pvsAtlasTerrain, ppsAtlasTerrain, pvsAtlasDecal, ppsAtlasDecal,
 		pvsSky, ppsSky, pvsShadowObject, ppsShadowAlpha, pvsShadowTerrain, pilObject, pilTerrain,
-		prsBack, prsNone, prsShadow, prsAtlas, pdsTest, pdsOff, pdsShadow, pbsOpaque, pbsA2C, pssWrap, pssShadow, pssClamp,
+		prsBack, prsNone, prsShadow, prsAtlas, pdsTest, pdsOff, pdsShadow, pdsFine, pdsCoarse, pdsTestNoWrite, pbsBlend, pbsOpaque, pbsA2C, pssWrap, pssShadow, pssClamp,
 		pcbEye, pcbFrame, pvsIdDecal, ppsIdDecal, pvsBlit, ppsBlit
 	};
 	for (ID3D11DeviceChild* p : ap)
@@ -1163,7 +1271,7 @@ void VRR_Shutdown()
 	pvsSky = nullptr; ppsSky = nullptr; pvsShadowObject = nullptr; ppsShadowAlpha = nullptr; pvsShadowTerrain = nullptr;
 	pilObject = nullptr; pilTerrain = nullptr;
 	prsBack = nullptr; prsNone = nullptr; prsShadow = nullptr; prsAtlas = nullptr;
-	pdsTest = nullptr; pdsOff = nullptr; pdsShadow = nullptr; pbsOpaque = nullptr; pbsA2C = nullptr;
+	pdsTest = nullptr; pdsOff = nullptr; pdsShadow = nullptr; pdsFine = nullptr; pdsCoarse = nullptr; pdsTestNoWrite = nullptr; pbsBlend = nullptr; pbsOpaque = nullptr; pbsA2C = nullptr;
 	pssWrap = nullptr; pssShadow = nullptr; pssClamp = nullptr; pcbEye = nullptr; pcbFrame = nullptr;
 	pvsIdDecal = nullptr; ppsIdDecal = nullptr; pvsBlit = nullptr; ppsBlit = nullptr;
 
@@ -1656,11 +1764,26 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 	aiOrder.resize(adrw.size());
 	for (size_t i = 0; i < adrw.size(); i++)
 		aiOrder[i] = (int)i;
-	std::sort(aiOrder.begin(), aiOrder.end(), [](int a, int b)
+	// Blended things last, farthest first.
+	float f_ex = fr.afEyePos[0][0], f_ey = fr.afEyePos[0][1], f_ez = fr.afEyePos[0][2];
+	std::sort(aiOrder.begin(), aiOrder.end(), [&](int a, int b)
 	{
 		const SVRRDraw& da = adrw[a];
 		const SVRRDraw& db = adrw[b];
-		uint32_t ka = da.u4Flags & (evrrALPHA_TEST | evrrTWO_SIDED), kb = db.u4Flags & (evrrALPHA_TEST | evrrTWO_SIDED);
+		const uint32_t u4_key = evrrALPHA_TEST | evrrTWO_SIDED | evrrBLEND;
+		uint32_t ka = (da.u4Flags & u4_key) + ((da.u4Flags & evrrBLEND) ? 1024 : 0);
+		uint32_t kb = (db.u4Flags & u4_key) + ((db.u4Flags & evrrBLEND) ? 1024 : 0);
+		if ((ka >= 1024) != (kb >= 1024))
+			return ka < kb;
+		if (ka >= 1024)
+		{
+			auto d2 = [&](const SVRRDraw& d)
+			{
+				float x = d.afWorld[3] - f_ex, y = d.afWorld[7] - f_ey, z = d.afWorld[11] - f_ez;
+				return x * x + y * y + z * z;
+			};
+			return d2(da) > d2(db);
+		}
 		if (ka != kb)
 			return ka < kb;
 		if (da.iMesh != db.iMesh)
@@ -1701,6 +1824,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			cb.afAtlas[k] = afAtlas[k];
 		cb.afAtlasOn[0] = bAtlasBuilt ? 1.0f : 0.0f;
 		cb.afAtlasOn[1] = bDetailBuilt ? 1.0f : 0.0f;
+		cb.afAtlasOn[2] = (float)(GetTickCount() % 3600000u) / 1000.0f;	// Seconds, for moving water.
 	}
 
 	//
@@ -1756,7 +1880,11 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 
 		pCtx->VSSetShader(pvsShadowTerrain, nullptr, 0);
 		pCtx->PSSetShader(nullptr, nullptr, 0);
-		DrawTerrain();
+		// The shadowed area lies inside the fine patches once they are there.
+		if (bAnyPatch())
+			DrawPatches();
+		else
+			DrawTerrain();
 
 		if (!adrw.empty() && pvbInst)
 		{
@@ -1777,7 +1905,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		float af_clear[4] = { fr.afSkyFogColour[0], fr.afSkyFogColour[1], fr.afSkyFogColour[2], 1 };
 		pCtx->OMSetRenderTargets(1, &prtv, pdsvDepth);
 		pCtx->ClearRenderTargetView(prtv, af_clear);
-		pCtx->ClearDepthStencilView(pdsvDepth, D3D11_CLEAR_DEPTH, 0.0f, 0);
+		pCtx->ClearDepthStencilView(pdsvDepth, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
 		D3D11_VIEWPORT vp = { 0, 0, (float)iWidth, (float)iHeight, 0, 1 };
 		pCtx->RSSetViewports(1, &vp);
 
@@ -1798,12 +1926,20 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		pCtx->PSSetShader(ppsSky, nullptr, 0);
 		pCtx->Draw(3, 0);
 
-		// Terrain.
-		pCtx->OMSetDepthStencilState(pdsTest, 0);
+		// Terrain: the fine patches near you first, then the coarse grid wherever they aren't.
 		pCtx->RSSetState(prsBack);
 		pCtx->VSSetShader(pvsTerrain, nullptr, 0);
 		pCtx->PSSetShader(ppsTerrain, nullptr, 0);
+		if (bAnyPatch())
+		{
+			pCtx->OMSetDepthStencilState(pdsFine, 1);
+			DrawPatches();
+			pCtx->OMSetDepthStencilState(pdsCoarse, 1);
+		}
+		else
+			pCtx->OMSetDepthStencilState(pdsTest, 0);
 		DrawTerrain();
+		pCtx->OMSetDepthStencilState(pdsTest, 0);
 
 		// Objects.
 		if (!adrw.empty() && pvbInst)
@@ -1892,4 +2028,41 @@ bool VRR_CaptureEye(int i_size, uint32_t* pu4_out)
 	pCtx->CopyResource(ptexCapture, aptexEye[0]);
 	bCapturePending = true;
 	return b_read;
+}
+
+//**********************************************************************************************
+bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv)
+{
+	if (!bReady || i_slot < 0 || i_slot >= iMAX_PATCHES || i_n < 2 || !ptv)
+		return false;
+	if (i_n != iPatchN || !pibPatch)
+	{
+		for (int i = 0; i < iMAX_PATCHES; i++)
+			SafeRelease(apvbPatch[i]);
+		SafeRelease(pibPatch);
+		std::vector<uint32_t> au4;
+		au4.reserve((size_t)(i_n - 1) * (i_n - 1) * 6);
+		for (int y = 0; y < i_n - 1; y++)
+			for (int x = 0; x < i_n - 1; x++)
+			{
+				uint32_t a = y * i_n + x, b = a + 1, c = a + i_n, d = c + 1;
+				au4.push_back(a); au4.push_back(b); au4.push_back(d);
+				au4.push_back(a); au4.push_back(d); au4.push_back(c);
+			}
+		pibPatch = pbufCreate((UINT)(sizeof(uint32_t) * au4.size()), D3D11_BIND_INDEX_BUFFER, false, au4.data());
+		if (!pibPatch)
+			return false;
+		iPatchN = i_n;
+		iPatchIndices = (int)au4.size();
+	}
+	SafeRelease(apvbPatch[i_slot]);
+	apvbPatch[i_slot] = pbufCreate((UINT)(sizeof(SVRRTerrainVertex) * i_n * i_n), D3D11_BIND_VERTEX_BUFFER, false, ptv);
+	return apvbPatch[i_slot] != nullptr;
+}
+
+//**********************************************************************************************
+void VRR_TerrainPatchClear(int i_slot)
+{
+	if (i_slot >= 0 && i_slot < iMAX_PATCHES)
+		SafeRelease(apvbPatch[i_slot]);
 }
