@@ -103,6 +103,8 @@ void  VRR_ClearAll();
 
 // Textures: RGBA8 pixels (0xAABBGGRR), mipmapped on the card.  Returns a handle (> 0), or 0.
 int   VRR_TextureCreate(int i_width, int i_height, const uint32_t* pu4_pixels);
+// Replaces a texture's pixels (same size); false if the size differs.
+bool  VRR_TextureUpdate(int i_handle, int i_width, int i_height, const uint32_t* pu4_pixels);
 
 // Static meshes.  Returns a handle (> 0), or 0.
 int   VRR_MeshCreate(const SVRRVertex* pv, int i_verts, const uint32_t* pu4_indices, int i_indices);

@@ -128,11 +128,15 @@ float3 ShadowPos(float3 w)
 // Haze: builds up gently with distance (none close by), thinner higher up, never a solid wall.
 float FogAt(float3 wp)
 {
-	float d = distance(wp, gEyePos.xyz) * gFogColour.w;
-	float f = 1.0 - exp(-d * d * 2.2);
+	// The game's own fog curve over the fog distance, a little thinner higher up.
+	float d = clamp(distance(wp, gEyePos.xyz) * gFogColour.w * 31.0, 0.0, 31.0);
+	int i0 = (int)d;
+	int i1 = min(i0 + 1, 31);
+	float a = gFogTable[i0 >> 2][i0 & 3];
+	float b = gFogTable[i1 >> 2][i1 & 3];
+	float f = lerp(a, b, d - i0);
 	float h = max(wp.z - gEyePos.z, 0.0);
-	f *= exp(-h / 350.0);
-	return min(f, 0.88);
+	return f * lerp(1.0, 0.6, saturate(h / 300.0));
 }
 
 // The haze colour looking along dir: the game's fog colour tinted toward the sky, bluer when
@@ -1403,6 +1407,23 @@ int VRR_TextureCreate(int i_width, int i_height, const uint32_t* pu4_pixels)
 }
 
 //**********************************************************************************************
+bool VRR_TextureUpdate(int i_handle, int i_width, int i_height, const uint32_t* pu4_pixels)
+{
+	if (!bReady || i_handle <= 0 || i_handle > (int)atex.size() || !pu4_pixels)
+		return false;
+	STexture& tex = atex[i_handle - 1];
+	if (!tex.ptex)
+		return false;
+	D3D11_TEXTURE2D_DESC td;
+	tex.ptex->GetDesc(&td);
+	if ((int)td.Width != i_width || (int)td.Height != i_height)
+		return false;
+	pCtx->UpdateSubresource(tex.ptex, 0, nullptr, pu4_pixels, i_width * 4, 0);
+	pCtx->GenerateMips(tex.psrv);
+	return true;
+}
+
+//**********************************************************************************************
 int VRR_MeshCreate(const SVRRVertex* pv, int i_verts, const uint32_t* pu4_indices, int i_indices)
 {
 	if (!bReady || i_verts <= 0 || i_indices <= 0)
@@ -1626,7 +1647,7 @@ static void BuildDetail()
 		pf[0] = m[0]; pf[1] = m[1]; pf[2] = m[2];
 		pf[3] = (float)map_slice[adrwDecal[i].iTexture];
 		pf[4] = m[3]; pf[5] = m[4]; pf[6] = m[5];
-		pf[7] = abDecalMap[i] ? 0.0f : 1.0f;		// 1: coordinates come from the coordinate map.
+		pf[7] = 0.0f;		// (1 would take coordinates from the coordinate map: off, it swirled.)
 	}
 	D3D11_BUFFER_DESC bd = {};
 	bd.ByteWidth = (UINT)(af_tab.size() * sizeof(float));
@@ -1699,7 +1720,9 @@ static void BuildDetail()
 	for (int i = 0; i < i_decals; i++)
 	{
 		std::memcpy(ainst[i].afRow, adrwDecal[i].afWorld, sizeof(ainst[i].afRow));
-		ainst[i].u4Flags = (uint32_t)i;
+		// Textures that don't lie flat on the ground (roads that follow a curve) use the
+		// painted overview instead.
+		ainst[i].u4Flags = abDecalMap[i] ? (uint32_t)i : 0xFFFEu;
 	}
 	ID3D11Buffer* pvb_inst = pbufCreate((UINT)(sizeof(SInstance) * ainst.size()), D3D11_BIND_VERTEX_BUFFER, false, ainst.data());
 	if (pvb_inst)

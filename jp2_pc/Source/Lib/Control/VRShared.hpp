@@ -67,7 +67,7 @@ struct SVRShared
 	int   iTwoHand = 0;
 	bool  bTwoHandPistol = false;	// Support hand cups the bottom of the grip.
 	float fGunBack = 0.04f;			// Guns sit this far back from the controller's grip point (m).
-	float fGunSide = 0.02f;			// ... and this far across toward the middle of the palm (m).
+	float fGunSide = -0.02f;			// ... and this far across toward the middle of the palm (m).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
 	// Where Anne's body should be (under the headset), world space.

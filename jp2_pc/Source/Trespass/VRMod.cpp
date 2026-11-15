@@ -43,6 +43,8 @@
 #include "VRRender.h"
 #include "Game/AI/AIMain.hpp"
 
+static void HideLoadingIfDone();
+
 #include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/Camera.hpp"
 #include "Lib/Renderer/ScreenRenderAuxD3D.hpp"
@@ -86,7 +88,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 5;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 6;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -131,7 +133,8 @@ namespace
 		float fShadowDistance = 60.0f;
 		float fBrightness     = 1.0f;
 		float fTerrainDetail  = 1.0f;
-		float fFogDistance    = 1600.0f;
+		float fFogScale       = 2.0f;
+		float fExtraHeight    = 0.1f;	// Metres added to Anne's eye height.
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -414,14 +417,16 @@ namespace
 			"Brightness=1.0\n"
 			"; Terrain mesh and texture detail (0.5 = half, 2 = double).  Applies on the next level load.\n"
 			"TerrainDetail=1.0\n"
-			"; How far away the distance haze builds up (metres).\n"
-			"FogDistance=1600\n"
+			"; The game's fog, spread over this many times its normal view distance (1 = original).\n"
+			"FogScale=2.0\n"
+			"; Extra height for Anne (metres): raises your view and hands above hers.\n"
+			"ExtraHeight=0.1\n"
 			"\n"
 			"; --- Guns and throwing ---\n"
 			"; How far guns sit back into the palm and across toward its middle (metres), and how big\n"
 			"; held guns are drawn (1 = the game's size).\n"
 			"GunBack=0.04\n"
-			"GunSide=0.02\n"
+			"GunSide=-0.02\n"
 			"GunScale=0.85\n"
 			"; Thrown things go this much faster than your hand.\n"
 			"ThrowScale=1.3\n"
@@ -464,7 +469,7 @@ namespace
 		s.fPistolMaxMass  = fIni(str_file, "PistolMaxMass", 2.5f);
 		gVR.fGunBack      = fIni(str_file, "GunBack", 0.04f);
 		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 1.3f);
-		gVR.fGunSide      = fIni(str_file, "GunSide", 0.02f);
+		gVR.fGunSide      = fIni(str_file, "GunSide", -0.02f);
 		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
@@ -483,7 +488,8 @@ namespace
 		s.fShadowDistance = fIni(str_file, "ShadowDistance", 60);
 		s.fBrightness     = fIni(str_file, "Brightness", 1.0f);
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
-		s.fFogDistance    = fIni(str_file, "FogDistance", 1600.0f);
+		s.fFogScale       = fIni(str_file, "FogScale", 2.0f);
+		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.1f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
@@ -1139,6 +1145,7 @@ namespace
 					iOverlayY0 = (i_h - i_ch) / 2;
 					iOverlayH  = i_ch;
 					const void* pv_crop = (const unsigned char*)pv + (size_t)iOverlayY0 * i_pitch + (size_t)iOverlayX0 * (i_bits / 8);
+					HideLoadingIfDone();
 					VRB_ShowOverlay(pv_crop, i_pitch, i_cw, i_ch, i_bits, r, g, b,
 					                setVR.fOverlayWidth, setVR.fOverlayDist, b_place);
 				});
@@ -1232,6 +1239,59 @@ void VRMod_Startup()
 }
 
 //**********************************************************************************************
+//**********************************************************************************************
+namespace
+{
+	bool bLoadingShown = false;		// The loading notice is up; hide it once the new level is drawn.
+	bool bLevelLoaded = false;
+}
+
+void VRMod_LevelLoading(const char* str_scene)
+{
+	if (!VRB_IsRunning())
+		return;
+	// The level's name from its file.
+	struct SName { const char* strFile; const char* strName; };
+	static const SName anames[] =
+	{
+		{ "be",  "Beach" },           { "jr",  "Jungle Road" },  { "pv",  "Pine Valley" },
+		{ "ij",  "Industrial Jungle" },{ "it",  "InGen Town" },   { "pl",  "Plains" },
+		{ "as",  "Ascent" },          { "as2", "Ascent" },       { "sum", "Summit" },
+		{ "lab", "InGen Lab" },
+	};
+	std::string str_file = str_scene ? str_scene : "";
+	size_t i_slash = str_file.find_last_of("\\/");
+	if (i_slash != std::string::npos)
+		str_file = str_file.substr(i_slash + 1);
+	size_t i_dot = str_file.find('.');
+	std::string str_base = i_dot != std::string::npos ? str_file.substr(0, i_dot) : str_file;
+	for (char& c : str_base)
+		c = (char)tolower((unsigned char)c);
+	std::string str_name = str_base;
+	for (const SName& n : anames)
+		if (str_base == n.strFile)
+			str_name = n.strName;
+	Log("Loading level %s (%s).", str_file.c_str(), str_name.c_str());
+	VRB_ShowLoading(str_name.c_str(), "Loading...");
+	bLoadingShown = true;
+	bLevelLoaded = false;
+}
+
+void VRMod_LevelLoaded()
+{
+	bLevelLoaded = true;
+}
+
+// Called after each VR frame is drawn: the new level is on screen, so the notice can go.
+static void HideLoadingIfDone()
+{
+	if (bLoadingShown && bLevelLoaded)
+	{
+		VRB_HideLoading();
+		bLoadingShown = false;
+	}
+}
+
 void VRMod_Shutdown()
 {
 	gpfnVRInputHook = nullptr;
@@ -1449,7 +1509,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		else
 			fBaseZ = f_target_z;
 		bBaseZInit = true;
-		v3Origin.tZ = fBaseZ - v3Calib.tZ;
+		v3Origin.tZ = fBaseZ - v3Calib.tZ + setVR.fExtraHeight;
 		gVR.fBodyZShift = fBaseZ - f_target_z;
 
 		//
@@ -1669,7 +1729,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fShadowDistance = setVR.iShadowMapSize > 0 ? setVR.fShadowDistance : 0.0f;
 		set.fBrightness = setVR.fBrightness;
 		set.fTerrainDetail = setVR.fTerrainDetail;
-		set.fFogDistance = setVR.fFogDistance;
+		set.fFogScale = setVR.fFogScale;
 
 		double d_t0 = dNowMs();
 		SSceneCall sc = { &eyes, &set, false };
@@ -1703,6 +1763,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		if (b_ok)
 		{
+			HideLoadingIfDone();
 			CaptureNewRenderer();
 			bStereoThisFrame = true;
 			iTimingFrames++;

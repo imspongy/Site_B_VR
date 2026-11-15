@@ -62,6 +62,7 @@
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
 #include "Lib/EntityDBase/Query/QPhysics.hpp"
 #include "Lib/EntityDBase/Query/QTerrain.hpp"
+#include <set>
 #include "Lib/Renderer/GeomTypes.hpp"
 #include "Lib/GeomDBase/Terrain.hpp"
 #include "Lib/Loader/SaveFile.hpp"
@@ -1335,7 +1336,7 @@ private:
 	float          fVRBodyAboveFeet = 0.95f;
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
-	bool           bVRGameHandParked = false;
+	std::set<CInstance*> setVRHingedIgnored;	// Hinged things her body boxes no longer push.
 	bool           bVRLandSound = false;	// Play a landing footfall this step.
 	float          fVRLandSpeed = 0;
 	float          fVRStrideDist = 0;		// Distance walked since the last footstep.
@@ -2919,16 +2920,6 @@ private:
 		if (!bVRHands())
 			HandleStow(msgc);
 
-		// VR: the game's own (invisible) physical hand isn't used; park it inside her body as an
-		// intangible passenger so it doesn't knock things over away from the real hands.
-		if (bVRHands() && pinsHand && !bVRGameHandParked)
-		{
-			pinsHand->Move(p3GetPlacement());
-			NMagnetSystem::AddMagnetPair(this, pinsHand, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
-			bVRGameHandParked = true;
-			if (gVR.pfnLog)
-				gVR.pfnLog("Hands: the game's own hand is parked (intangible).");
-		}
 
 		for (int i = 0; i < 2; i++)
 		{
@@ -4555,9 +4546,9 @@ private:
 		{
 			CPhysicsInfoBox phib
 			(
-				CBoundVolBox(0.08f, 0.14f, 0.05f),	// Width, length, thickness (m).
+				CBoundVolBox(0.09f, 0.16f, 0.06f),	// Width, length, thickness (m).
 				SPhysicsData(true, true),
-				1.5f								// Mass (kg): firm enough to push, light enough not to smash.
+				3.0f								// Mass (kg).
 			);
 			vh.pinsBox = new CInstance(CInstance::SInit
 			(
@@ -4882,7 +4873,20 @@ private:
 				// Hinged things (gates, doors) are walls: she pushes them open with her hands,
 				// she doesn't walk through them.
 				if (b_wall && NMagnetSystem::pmpFindMagnet(pins_master ? pins_master : pins, Set(emfHINGE)))
+				{
+					// Her body (moved straight to where you are) would shove it open with
+					// unstoppable force; only her hands may.
+					CInstance* pins_gate = pins_master ? pins_master : pins;
+					if (setVRHingedIgnored.insert(pins_gate).second)
+					{
+						for (int i = 0; i < (int)ebbEND; i++)
+							if (apbbBoundaryBoxes[i] && apbbBoundaryBoxes[i] != pinsHand)
+								pphSystem->IgnoreCollisions(apbbBoundaryBoxes[i], pins_gate, true);
+						if (gVR.pfnLog)
+							gVR.pfnLog("Body: %s is hinged: a wall to her body, pushed by her hands.", pins_gate->strGetInstanceName());
+					}
 					return true;
+				}
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
 				float f_mass = pphi->fMass(pins);
 				return f_mass >= (b_wall ? 60.0f : 1.5f);
@@ -5492,7 +5496,7 @@ private:
 				CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
 				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.085f;
 				ap3_target[i_support].r3Rot = ap3_target[i_gun].r3Rot;
-				af_curl[i_support] = 0.8f;
+				af_curl[i_support] = 1.0f;
 			}
 		}
 

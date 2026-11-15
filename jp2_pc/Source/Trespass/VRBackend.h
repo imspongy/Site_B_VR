@@ -88,6 +88,11 @@ void VRB_ShowOverlay
 
 void VRB_HideOverlay();
 
+// A text panel in front of the player while a level loads; SteamVR shows its own surroundings
+// meanwhile.
+void VRB_ShowLoading(const char* str_title, const char* str_sub);
+void VRB_HideLoading();
+
 // The Direct3D 11 device and context used for the headset (for the GPU renderer).
 void VRB_GetD3D11(void** ppv_device, void** ppv_context);
 

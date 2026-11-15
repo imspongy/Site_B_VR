@@ -12,6 +12,7 @@
 #include "uiwnd.h"
 #include "uidlgs.h"
 #include "main.h"
+#include "VRMod.h"
 
 
 extern HINSTANCE    g_hInst;
@@ -395,6 +396,8 @@ int CTPassGlobals::LoadScene(LPSTR pszScene, LPSTR pszOrigSCN)
 
     (g_pfnWorldLoadNotify)(g_u4NotifyParam, 6, 0, 0);
 
+    VRMod_LevelLoading(pszOrigSCN ? pszOrigSCN : pszScene);
+
     // Loads the scene.  If a reset is required, this function handles it.
 	iRet = wWorld.bLoadScene(pszScene, 
                              (PFNWORLDLOADNOTIFY)TPassLoadNotify, 
@@ -410,6 +413,8 @@ int CTPassGlobals::LoadScene(LPSTR pszScene, LPSTR pszOrigSCN)
 
     g_pfnWorldLoadNotify = NULL;
     g_u4NotifyParam = 0;
+
+    VRMod_LevelLoaded();
 
 	// Create the input object as required.
 	gpInputDeemone->Capture(true);

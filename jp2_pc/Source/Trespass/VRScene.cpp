@@ -42,6 +42,7 @@
 #include "Lib/Renderer/Fog.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Renderer/Particles.hpp"
+#include "Lib/Renderer/LightBlend.hpp"
 #include "Lib/Renderer/PipeLine.hpp"
 #include "Lib/EntityDBase/Animal.hpp"
 #include "Lib/EntityDBase/Water.hpp"
@@ -140,6 +141,12 @@ namespace
 			if (it != mapTex.end())
 				return it->second;
 			uint32_t u4 = u4From565(ptex->tpSolid);
+			if (!b_alpha_colour && (((uint32)ptex->d3dpixColour >> 24) != 0))
+			{
+				// The exact colour the card would use (the screen-format one may not be 565).
+				uint32 u = (uint32)ptex->d3dpixColour;
+				u4 = u4RGBA((u >> 16) & 255, (u >> 8) & 255, u & 255);
+			}
 			if (b_alpha_colour)
 			{
 				// See-through colour: stored as the card's 0xAARRGGBB.
@@ -615,7 +622,8 @@ namespace
 			drw.iNumIndices = (int)au4.size();
 			drw.iTexture = iTexture(pr.first, b_alpha);
 			std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
-			drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW;
+			// The game draws particles flat, in their colour, unlit.
+			drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW | evrrUNLIT;
 			if (pr.first && pr.first->seterfFeatures[erfALPHA_COLOUR])
 				drw.u4Flags |= evrrBLEND | evrrUNLIT;
 			VRR_AddDraw(drw);
@@ -637,7 +645,127 @@ namespace
 		pins->PreRender(renc);
 	}
 
-	std::unordered_map<const void*, int> mapWaterTex;	// Water instance -> its plain colour.
+	std::unordered_map<const void*, int> mapWaterTex;	// Water instance -> its plain colour (fallback).
+
+	//******************************************************************************************
+	//
+	// Water, as the game draws it: its wave simulation paints each water surface's texture
+	// every frame, with pixels that are entries of the water colour table (colour + see-
+	// through amount).  Those textures are decoded and sent to the card each frame.
+	//
+	std::vector<uint32_t> au4WaterLUT;
+	uint32_t u4WaterLUTSum = 0;
+
+	void UpdateWaterLUT()
+	{
+		const int i_n = 1 << iRAMP_SHIFT_BITS;
+		uint32_t u4_sum = 0;
+		for (int i = 0; i < i_n; i++)
+			u4_sum = u4_sum * 31 + au2IntensityToAlpha[i];
+		if (!au4WaterLUT.empty() && u4_sum == u4WaterLUTSum)
+			return;
+		u4WaterLUTSum = u4_sum;
+		au4WaterLUT.assign(65536, 0);
+		for (int i = 0; i < i_n; i++)
+		{
+			int j = (i * 16) / i_n;
+			const CLightBlend::SLightBlendSettings& lbs = lbAlphaWater.lpsSettings[j];
+			int a = (int)(std::max(0.0f, std::min(1.0f, lbs.fAlpha)) * 255.0f + 0.5f);
+			au4WaterLUT[au2IntensityToAlpha[i]] = u4RGBA(lbs.clrBlendColour.u1Red, lbs.clrBlendColour.u1Green, lbs.clrBlendColour.u1Blue, a);
+		}
+		// Anything else (shouldn't happen): the middle colour.
+		const CLightBlend::SLightBlendSettings& lbs_mid = lbAlphaWater.lpsSettings[8];
+		uint32_t u4_mid = u4RGBA(lbs_mid.clrBlendColour.u1Red, lbs_mid.clrBlendColour.u1Green, lbs_mid.clrBlendColour.u1Blue, 160);
+		std::vector<bool> ab_set(65536, false);
+		for (int i = 0; i < i_n; i++)
+			ab_set[au2IntensityToAlpha[i]] = true;
+		for (int i = 0; i < 65536; i++)
+			if (!ab_set[i])
+				au4WaterLUT[i] = u4_mid;
+	}
+
+	struct SWaterTex { int iHandle; int iW, iH; };
+	std::unordered_map<const void*, SWaterTex> mapWaterRaster;
+	std::vector<uint32_t> au4WaterScratch;
+
+	// The texture for one of the water's rasters, refreshed now; 0 if it can't be read.
+	int iWaterTexture(const CTexture* ptex)
+	{
+		if (!ptex || ptex->iGetNumMipLevels() <= 0)
+			return 0;
+		rptr<CRaster> pras = ptex->prasGetTexture(0);
+		const CRaster* praw = pras.ptGet();
+		if (!praw || !praw->pSurface || praw->iPixelBits != 16 || praw->iWidth <= 0 || praw->iHeight <= 0)
+			return 0;
+		int i_w = praw->iWidth, i_h = praw->iHeight;
+		au4WaterScratch.resize((size_t)i_w * i_h);
+		for (int y = 0; y < i_h; y++)
+		{
+			const uint16* pu2 = (const uint16*)praw->pSurface + (size_t)y * praw->iLinePixels;
+			uint32_t* pu4 = &au4WaterScratch[(size_t)y * i_w];
+			for (int x = 0; x < i_w; x++)
+				pu4[x] = au4WaterLUT[pu2[x]];
+		}
+		auto it = mapWaterRaster.find(praw);
+		if (it != mapWaterRaster.end() && it->second.iW == i_w && it->second.iH == i_h &&
+		    VRR_TextureUpdate(it->second.iHandle, i_w, i_h, au4WaterScratch.data()))
+			return it->second.iHandle;
+		int i_handle = VRR_TextureCreate(i_w, i_h, au4WaterScratch.data());
+		mapWaterRaster[praw] = { i_handle, i_w, i_h };
+		return i_handle;
+	}
+
+	// Draws the water's current surface (its mesh and textures change as the simulation runs).
+	bool bDrawWater(const CMesh* pmsh, const float af_world[12])
+	{
+		UpdateWaterLUT();
+		std::unordered_map<const CTexture*, std::vector<SVRRVertex>> map_tris;
+		for (uint u = 0; u < pmsh->pampPolygons.uLen; u++)
+		{
+			const CMesh::SPolygon& mp = pmsh->pampPolygons[u];
+			if (mp.papmvVertices.uLen < 3 || !mp.pSurface)
+				continue;
+			const CTexture* ptex = mp.pSurface->ptexTexture.ptGet();
+			std::vector<SVRRVertex>& av = map_tris[ptex];
+			for (uint k = 1; k + 1 < mp.papmvVertices.uLen; k++)
+			{
+				const CMesh::SVertex* apmv[3] = { mp.papmvVertices[0], mp.papmvVertices[k], mp.papmvVertices[k + 1] };
+				for (int v = 0; v < 3; v++)
+				{
+					SVRRVertex vx;
+					const CVector3<>& p = *apmv[v]->pv3Point;
+					vx.afPos[0] = p.tX; vx.afPos[1] = p.tY; vx.afPos[2] = p.tZ;
+					vx.afNormal[0] = 0; vx.afNormal[1] = 0; vx.afNormal[2] = 1;
+					vx.afUV[0] = apmv[v]->tcTex.tX; vx.afUV[1] = apmv[v]->tcTex.tY;
+					av.push_back(vx);
+				}
+			}
+		}
+		bool b_any = false;
+		for (auto& pr : map_tris)
+		{
+			int i_tex = iWaterTexture(pr.first);
+			if (!i_tex)
+				continue;
+			std::vector<SVRRVertex>& av = pr.second;
+			std::vector<uint32_t> au4(av.size());
+			for (size_t i = 0; i < au4.size(); i++)
+				au4[i] = (uint32_t)i;
+			int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
+			if (!i_mesh)
+				continue;
+			SVRRDraw drw;
+			drw.iMesh = i_mesh;
+			drw.iFirstIndex = 0;
+			drw.iNumIndices = (int)au4.size();
+			drw.iTexture = i_tex;
+			std::memcpy(drw.afWorld, af_world, sizeof(drw.afWorld));
+			drw.u4Flags = evrrBLEND | evrrUNLIT | evrrTWO_SIDED | evrrNO_SHADOW;
+			VRR_AddDraw(drw);
+			b_any = true;
+		}
+		return b_any;
+	}
 
 	//******************************************************************************************
 	// Something held in a hand (and anything magneted to it, like a gun's parts) is drawn where
@@ -750,7 +878,8 @@ namespace
 					it = mapWaterTex.emplace(pins, iTexture(ptex, b_alpha)).first;
 				}
 				PreRenderInstance(pins);
-				AddSubsets(*pme, pme->iHandle, af_world, 0, false, evrrBLEND | evrrWATER | evrrTWO_SIDED | evrrNO_SHADOW, it->second);
+				if (!bDrawWater(pmsh.ptGet(), af_world))
+					AddSubsets(*pme, pme->iHandle, af_world, 0, false, evrrBLEND | evrrWATER | evrrTWO_SIDED | evrrNO_SHADOW, it->second);
 				iObjects++;
 				return;
 			}
@@ -1145,7 +1274,7 @@ namespace
 		// Atlas: about 4 texels a metre at normal detail.
 		float f_texels = std::max(f_w, f_h) * 4.0f * f_detail;
 		int i_atlas = 1024;
-		while (i_atlas < f_texels && i_atlas < 8192)
+		while (i_atlas < f_texels && i_atlas < 16384)
 			i_atlas *= 2;
 
 		fPatchX0 = f_x0;
@@ -1220,6 +1349,7 @@ void VRScene_Shutdown()
 	mapTex.clear();
 	mapTexAlpha.clear();
 	mapWaterTex.clear();
+	mapWaterRaster.clear();
 	setBadInstances.clear();
 	ptrrLevel = nullptr;
 	pvLevelPlayer = nullptr;
@@ -1255,6 +1385,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		mapTex.clear();
 		mapTexAlpha.clear();
 	mapWaterTex.clear();
+	mapWaterRaster.clear();
 	setBadInstances.clear();
 		iSkyTexture = 0;
 		pvSkyTexture = nullptr;
@@ -1358,7 +1489,8 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	fr.afFogColour[0] = clrDefEndDepth.u1Red / 255.0f;
 	fr.afFogColour[1] = clrDefEndDepth.u1Green / 255.0f;
 	fr.afFogColour[2] = clrDefEndDepth.u1Blue / 255.0f;
-	fr.fFogFar = std::max(100.0f, set.fFogDistance);		// Haze is well built up by about this distance.
+	// The game's own fog, stretched over its view distance times FogScale.
+	fr.fFogFar = std::max(50.0f, f_far * std::max(0.5f, set.fFogScale));
 	{
 		float f_max = fogFog.fGetFogLevel(1.0f);
 		if (f_max <= 0)

@@ -18,7 +18,7 @@ struct SVRSceneEyes
 
 struct SVRSceneSettings
 {
-	float fFogDistance = 1600.0f;	// Metres; the haze is heavy (but never solid) by about here.
+	float fFogScale = 2.0f;		// The game's fog, spread over this many times its view distance.
 	float fDrawDistance = 1.0f;		// Multiplier on the game's view distance.
 	float fShadowDistance = 60.0f;	// Metres of real-time shadows around the player (0 = off).
 	float fBrightness = 1.0f;

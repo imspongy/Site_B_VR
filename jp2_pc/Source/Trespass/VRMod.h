@@ -19,6 +19,10 @@ void VRMod_Startup();
 
 void VRMod_Shutdown();
 
+// A level is about to load (scene file name, e.g. "be.scn") / has finished loading.
+void VRMod_LevelLoading(const char* str_scene);
+void VRMod_LevelLoaded();
+
 // True while the game is being rendered to a headset.
 bool VRMod_Active();
 

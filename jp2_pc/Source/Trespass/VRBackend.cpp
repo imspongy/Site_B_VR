@@ -17,6 +17,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1374,4 +1375,135 @@ bool VRB_SubmitTexture(int i_eye, void* pv_texture)
 	if (i_eye == 1)
 		pd3dContext->Flush();
 	return err == vr::VRCompositorError_None;
+}
+
+//**********************************************************************************************
+//
+// Loading notice: a panel of text floating in front of you while a level loads (the game
+// stops drawing during the load, which otherwise looks like a freeze).
+//
+namespace
+{
+	vr::VROverlayHandle_t hLoading = vr::k_ulOverlayHandleInvalid;
+	ID3D11Texture2D*      pd3dLoadingTex = nullptr;
+}
+
+void VRB_ShowLoading(const char* str_title, const char* str_sub)
+{
+	vr::IVROverlay* pov = vr::VROverlay();
+	if (!pvrSystem || !pd3dDevice || !pov)
+		return;
+	if (hLoading == vr::k_ulOverlayHandleInvalid)
+	{
+		if (pov->CreateOverlay("opentrespasser.vr.loading", "Trespasser loading", &hLoading) != vr::VROverlayError_None)
+		{
+			hLoading = vr::k_ulOverlayHandleInvalid;
+			return;
+		}
+	}
+
+	// Draw the text with GDI into a 32-bit image.
+	const int i_w = 1024, i_h = 256;
+	BITMAPINFO bmi = {};
+	bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+	bmi.bmiHeader.biWidth = i_w;
+	bmi.bmiHeader.biHeight = -i_h;
+	bmi.bmiHeader.biPlanes = 1;
+	bmi.bmiHeader.biBitCount = 32;
+	bmi.bmiHeader.biCompression = BI_RGB;
+	void* pv_bits = nullptr;
+	HDC hdc = CreateCompatibleDC(nullptr);
+	HBITMAP hbm = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pv_bits, nullptr, 0);
+	if (!hdc || !hbm || !pv_bits)
+	{
+		if (hbm) DeleteObject(hbm);
+		if (hdc) DeleteDC(hdc);
+		return;
+	}
+	HGDIOBJ h_old = SelectObject(hdc, hbm);
+	std::memset(pv_bits, 0, (size_t)i_w * i_h * 4);
+	SetBkMode(hdc, TRANSPARENT);
+	HFONT hf_big = CreateFontA(96, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	                           CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, "Georgia");
+	HFONT hf_small = CreateFontA(44, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+	                             CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, "Georgia");
+	RECT rc_big = { 0, 30, i_w, 150 }, rc_small = { 0, 160, i_w, 230 };
+	SetTextColor(hdc, RGB(255, 255, 255));
+	SelectObject(hdc, hf_big);
+	DrawTextA(hdc, str_title ? str_title : "", -1, &rc_big, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+	SelectObject(hdc, hf_small);
+	SetTextColor(hdc, RGB(200, 200, 200));
+	DrawTextA(hdc, str_sub ? str_sub : "", -1, &rc_small, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+	GdiFlush();
+
+	// GDI leaves alpha at 0: use the text brightness as alpha, over a faint dark panel.
+	std::vector<uint32_t> au4((size_t)i_w * i_h);
+	const uint32_t* pu4_src = (const uint32_t*)pv_bits;
+	for (int i = 0; i < i_w * i_h; i++)
+	{
+		uint32_t u = pu4_src[i];
+		int b = u & 255, g = (u >> 8) & 255, r = (u >> 16) & 255;
+		int a = (std::max)(r, (std::max)(g, b));
+		int y = i / i_w;
+		int a_bg = (y > 10 && y < i_h - 10) ? 110 : 0;
+		int a_out = (std::max)(a, a_bg);
+		au4[i] = (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16) | ((uint32_t)a_out << 24);
+	}
+	SelectObject(hdc, h_old);
+	DeleteObject(hf_big);
+	DeleteObject(hf_small);
+	DeleteObject(hbm);
+	DeleteDC(hdc);
+
+	if (pd3dLoadingTex)
+	{
+		pd3dLoadingTex->Release();
+		pd3dLoadingTex = nullptr;
+	}
+	D3D11_TEXTURE2D_DESC td = {};
+	td.Width = i_w;
+	td.Height = i_h;
+	td.MipLevels = 1;
+	td.ArraySize = 1;
+	td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	td.SampleDesc.Count = 1;
+	td.Usage = D3D11_USAGE_DEFAULT;
+	td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	D3D11_SUBRESOURCE_DATA srd = { au4.data(), (UINT)(i_w * 4), 0 };
+	if (FAILED(pd3dDevice->CreateTexture2D(&td, &srd, &pd3dLoadingTex)))
+		return;
+
+	vr::Texture_t tex = { (void*)pd3dLoadingTex, vr::TextureType_DirectX, vr::ColorSpace_Gamma };
+	pov->SetOverlayTexture(hLoading, &tex);
+	pov->SetOverlayWidthInMeters(hLoading, 1.6f);
+
+	// 2 m in front of where you are looking, level, facing you.
+	vr::TrackedDevicePose_t pose;
+	pvrSystem->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
+	const vr::HmdMatrix34_t& m = pose.mDeviceToAbsoluteTracking;
+	float f_fx = -m.m[0][2], f_fz = -m.m[2][2];
+	float f_len = std::sqrt(f_fx * f_fx + f_fz * f_fz);
+	if (f_len < 1e-3f) { f_fx = 0; f_fz = -1; f_len = 1; }
+	f_fx /= f_len; f_fz /= f_len;
+	float f_px = m.m[0][3] + f_fx * 2.0f, f_py = m.m[1][3], f_pz = m.m[2][3] + f_fz * 2.0f;
+	// Overlay faces +Z toward the viewer: its Z axis points back at you.
+	vr::HmdMatrix34_t mt = {};
+	float f_zx = -f_fx, f_zz = -f_fz;
+	mt.m[0][0] = f_zz;  mt.m[0][1] = 0; mt.m[0][2] = f_zx; mt.m[0][3] = f_px;
+	mt.m[1][0] = 0;     mt.m[1][1] = 1; mt.m[1][2] = 0;    mt.m[1][3] = f_py;
+	mt.m[2][0] = -f_zx; mt.m[2][1] = 0; mt.m[2][2] = f_zz; mt.m[2][3] = f_pz;
+	pov->SetOverlayTransformAbsolute(hLoading, vr::TrackingUniverseStanding, &mt);
+	pov->ShowOverlay(hLoading);
+
+	// Let SteamVR show its own surroundings while the game isn't drawing.
+	vr::VRCompositor()->SuspendRendering(true);
+}
+
+void VRB_HideLoading()
+{
+	vr::IVROverlay* pov = vr::VROverlay();
+	if (pov && hLoading != vr::k_ulOverlayHandleInvalid)
+		pov->HideOverlay(hLoading);
+	if (pvrSystem)
+		vr::VRCompositor()->SuspendRendering(false);
 }
