@@ -45,7 +45,6 @@ enum
 	evrrNO_FOG     = 16,
 	evrrBLEND      = 32,	// See-through colour (glass, flashes, water): blended over what is behind.
 	evrrWATER      = 64,	// Water surface (see-through, sky reflection).
-	evrrBUMP       = 128,	// Has a normal map (iNormalTex).
 };
 
 // One draw: part of a mesh, with a texture and a placement.
@@ -57,8 +56,6 @@ struct SVRRDraw
 	int      iTexture;		// Texture handle (0 = white).
 	float    afWorld[12];	// Object -> world: rows (x', y', z') of a 3x4 matrix.
 	uint32_t u4Flags;
-	int      iNormalTex = 0;	// Normal map handle (bump-mapped surfaces), 0 = none.
-	float    afUVOffset[2] = { 0, 0 };	// Added to the texture coordinates (scrolling textures).
 };
 
 // Per frame parameters.

@@ -81,7 +81,6 @@ Texture2DArray         gDetail     : register(t3);
 Texture2D<uint>        gIdMap      : register(t4);
 StructuredBuffer<float4> gDecal    : register(t5);
 Texture2D<float2>      gUvMap      : register(t6);
-Texture2D              gNormalTex  : register(t7);
 
 struct VSObjIn
 {
@@ -92,7 +91,6 @@ struct VSObjIn
 	float4 r1    : TEXCOORD2;
 	float4 r2    : TEXCOORD3;
 	uint   flags : TEXCOORD4;
-	float2 uvoff : TEXCOORD5;		// Scrolling textures (surf, waterfalls).
 };
 
 struct PSObjIn
@@ -138,14 +136,7 @@ float FogAt(float3 wp)
 	float b = gFogTable[i1 >> 2][i1 & 3];
 	float f = lerp(a, b, d - i0);
 	float h = max(wp.z - gEyePos.z, 0.0);
-	f *= lerp(1.0, 0.75, saturate(h / 300.0));
-
-	// Low mist: thicker in hollows and over the sea, thinning with height, so the land seems
-	// to sit in the haze rather than behind a flat curtain.
-	float dist = distance(wp, gEyePos.xyz);
-	float low = exp(-max(wp.z - gEyePos.z + 25.0, 0.0) / 70.0);
-	float mist = 1.0 - exp(-dist / 900.0 * low);
-	return 1.0 - (1.0 - f) * (1.0 - mist * 0.55);
+	return f * lerp(1.0, 0.6, saturate(h / 300.0));
 }
 
 // The haze colour looking along dir: the game's fog colour tinted toward the sky, bluer when
@@ -196,7 +187,7 @@ PSObjIn VSObject(VSObjIn i)
 	PSObjIn o;
 	o.wp = WorldPos(i);
 	o.wn = WorldNormal(i);
-	o.uv = i.uv + i.uvoff;
+	o.uv = i.uv;
 	o.flags = i.flags;
 	o.pos = ClipPos(o.wp);
 	return o;
@@ -217,29 +208,12 @@ float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 	// face direction decides, so smooth normals near outlines are left alone).  Fixes dark
 	// patches on models whose normals point inward or that are seen from behind.
 	float3 n = normalize(i.wn);
-	float3 dpx = ddx(i.wp), dpy = ddy(i.wp);
-	float3 gn = cross(dpx, dpy);
+	float3 gn = cross(ddx(i.wp), ddy(i.wp));
 	float3 to_eye = gEyePos.xyz - i.wp;
 	if (dot(gn, to_eye) < 0)
 		gn = -gn;
 	if (dot(n, gn) < 0)
 		n = -n;
-	if (i.flags & 128)
-	{
-		// Bump map: the texel's tilt, in the surface's texture directions (from how the
-		// texture coordinates change across the screen).
-		float3 tn = gNormalTex.Sample(gSamp, i.uv).xyz * 2.0 - 1.0;
-		float2 duvx = ddx(i.uv), duvy = ddy(i.uv);
-		float3 t = dpx * duvy.y - dpy * duvx.y;
-		float3 b = dpy * duvx.x - dpx * duvy.x;
-		float det = duvx.x * duvy.y - duvx.y * duvy.x;
-		if (abs(det) > 1e-12 && dot(t, t) > 1e-20 && dot(b, b) > 1e-20)
-		{
-			t = normalize(t - n * dot(n, t)) * sign(det);
-			b = normalize(b - n * dot(n, b)) * sign(det);
-			n = normalize(t * tn.x + b * tn.y + n * max(tn.z, 0.2));
-		}
-	}
 	float3 col = Shade(c.rgb, n, i.wp, (i.flags & 8) != 0);
 	if (i.flags & 64)
 	{
@@ -561,7 +535,6 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	{
 		float    afRow[12];
 		uint32_t u4Flags;
-		float    afUV[2];
 	};
 
 	struct STexture
@@ -1043,7 +1016,6 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				{ "TEXCOORD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 				{ "TEXCOORD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 				{ "TEXCOORD", 4, DXGI_FORMAT_R32_UINT,           1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-				{ "TEXCOORD", 5, DXGI_FORMAT_R32G32_FLOAT,       1, 52, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 			};
 			D3D11_INPUT_ELEMENT_DESC aied_ter[] =
 			{
@@ -1051,7 +1023,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 				{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM,  0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			};
-			b_ok = SUCCEEDED(pDev->CreateInputLayout(aied_obj, 8, pblob_obj->GetBufferPointer(), pblob_obj->GetBufferSize(), &pilObject)) &&
+			b_ok = SUCCEEDED(pDev->CreateInputLayout(aied_obj, 7, pblob_obj->GetBufferPointer(), pblob_obj->GetBufferSize(), &pilObject)) &&
 			       SUCCEEDED(pDev->CreateInputLayout(aied_ter, 3, pblob_ter->GetBufferPointer(), pblob_ter->GetBufferSize(), &pilTerrain));
 			if (!b_ok)
 				str_err = "could not create the vertex layouts";
@@ -1103,7 +1075,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		pCtx->IASetInputLayout(pilObject);
 		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		int i_bound_mesh = -1, i_bound_tex = -1, i_bound_ntex = -1, i_base = 0, i_first = 0;
+		int i_bound_mesh = -1, i_bound_tex = -1, i_base = 0, i_first = 0;
 		int i_state = -1;
 		int i_count = (int)aiOrder.size();
 		for (int k = 0; k < i_count; )
@@ -1118,8 +1090,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				{
 					const SVRRDraw& d2 = adrw[aiOrder[k + i_run]];
 					if (d2.iMesh != drw.iMesh || d2.iFirstIndex != drw.iFirstIndex || d2.iNumIndices != drw.iNumIndices ||
-					    d2.iTexture != drw.iTexture || d2.iNormalTex != drw.iNormalTex ||
-					    (d2.u4Flags & u4_run_key) != (drw.u4Flags & u4_run_key))
+					    d2.iTexture != drw.iTexture || (d2.u4Flags & u4_run_key) != (drw.u4Flags & u4_run_key))
 						break;
 					i_run++;
 				}
@@ -1168,12 +1139,6 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				ID3D11ShaderResourceView* psrv = psrvTex(drw.iTexture);
 				pCtx->PSSetShaderResources(0, 1, &psrv);
 				i_bound_tex = drw.iTexture;
-			}
-			if (!b_shadow && drw.iNormalTex && drw.iNormalTex != i_bound_ntex)
-			{
-				ID3D11ShaderResourceView* psrv_n = psrvTex(drw.iNormalTex);
-				pCtx->PSSetShaderResources(7, 1, &psrv_n);
-				i_bound_ntex = drw.iNormalTex;
 			}
 
 			pCtx->DrawIndexedInstanced(drw.iNumIndices, i_run, i_first + drw.iFirstIndex, i_base, i);
@@ -1624,7 +1589,7 @@ static void BuildDetail()
 		return;
 	iDetailSlices = (int)map_slice.size();
 	iDetailSize = 64;
-	while (iDetailSize < i_max_dim && iDetailSize < 1024)
+	while (iDetailSize < i_max_dim && iDetailSize < 512)
 		iDetailSize *= 2;
 
 	D3D11_TEXTURE2D_DESC td = {};
@@ -1927,8 +1892,6 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			return da.iFirstIndex < db.iFirstIndex;
 		if (da.iTexture != db.iTexture)
 			return da.iTexture < db.iTexture;
-		if (da.iNormalTex != db.iNormalTex)
-			return da.iNormalTex < db.iNormalTex;
 		return (da.u4Flags & evrrNO_SHADOW) < (db.u4Flags & evrrNO_SHADOW);
 	});
 
@@ -1948,8 +1911,6 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			const SVRRDraw& d = adrw[aiOrder[i]];
 			std::memcpy(ainst[i].afRow, d.afWorld, sizeof(ainst[i].afRow));
 			ainst[i].u4Flags = d.u4Flags;
-			ainst[i].afUV[0] = d.afUVOffset[0];
-			ainst[i].afUV[1] = d.afUVOffset[1];
 		}
 		if (pvbInst)
 			bUpload(pvbInst, ainst.data(), sizeof(SInstance) * ainst.size());

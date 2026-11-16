@@ -62,7 +62,6 @@
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
 #include "Lib/EntityDBase/Query/QPhysics.hpp"
 #include "Lib/EntityDBase/Query/QTerrain.hpp"
-#include "Lib/EntityDBase/Query/QWater.hpp"
 #include <set>
 #include "Lib/Renderer/GeomTypes.hpp"
 #include "Lib/GeomDBase/Terrain.hpp"
@@ -1338,10 +1337,6 @@ private:
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
 	std::set<CInstance*> setVRHingedIgnored;	// Hinged things her body boxes no longer push.
-	CInstance*     pinsVRBlocker = nullptr;		// What stopped her this step (if anything).
-	bool           bVRSwimming = false;
-	CVector3<>     v3VRBlockAt;
-	TSec           sVRLastShove = -100;
 	bool           bVRLandSound = false;	// Play a landing footfall this step.
 	float          fVRLandSpeed = 0;
 	float          fVRStrideDist = 0;		// Distance walked since the last footstep.
@@ -4387,7 +4382,7 @@ private:
 			if (v3_peak.tLen() > v3_vel.tLen())
 				v3_vel = v3_peak;
 			float f_mass = pins->pphiGetPhysicsInfo()->fMass(pins);
-			float f_max = 30.0f / (1.0f + f_mass / 40.0f);
+			float f_max = 20.0f / (1.0f + f_mass / 30.0f);
 			if (v3_vel.tLen() > f_max)
 				v3_vel *= f_max / v3_vel.tLen();
 			v3_throw = v3_vel * gVR.fThrowScale;
@@ -4480,23 +4475,6 @@ private:
 			apinsStowed[i_slot] = pins;
 			NMagnetSystem::AddMagnetPair(this, pins, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
 			ap3StowedObj[i_slot] = pins->p3GetPlacement() / p3GetPlacement();
-			if (i_slot == 1 && gVR.afHeldLength[i_hand] >= 0.55f)
-			{
-				// A long gun on the back: muzzle up over the shoulder, nearly upright, behind her
-				// (not hanging into view).  Its length runs along its longest axis.
-				const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
-				CVector3<> v3_long = d3YAxis;
-				if (pbvb)
-				{
-					float f_x = (*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], f_y = (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y], f_z = (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z];
-					v3_long = (f_x >= f_y && f_x >= f_z) ? CVector3<>(1, 0, 0) : (f_y >= f_z ? CVector3<>(0, 1, 0) : CVector3<>(0, 0, 1));
-				}
-				CVector3<> v3_up_back = CVector3<>(0.15f, -0.2f, 1.0f);	// Body space: up, a little back and out.
-				CPlacement3<> p3_stow;
-				p3_stow.r3Rot = CRotate3<>(CDir3<>(v3_long), CDir3<>(v3_up_back));
-				p3_stow.v3Pos = PlayerSettings.aap3Stow[1][2].v3Pos + CVector3<>(0, -0.18f, -0.15f);
-				ap3StowedObj[i_slot] = p3_stow;
-			}
 			CMessagePickUp(pins, epuSTOW).Dispatch();
 			return true;
 		}
@@ -4679,22 +4657,6 @@ private:
 			}
 			else
 			{
-				// A feeling of weight: things trail the hand a little, more the heavier they are
-				// (a rock barely, a crate noticeably), and heavy ones sag.  Guns stay put.
-				bool b_gun = ptCast<CGun>(vh.pinsHeld) != nullptr;
-				if (!b_gun && f_mass > 1.0f && gVR.fHeldWeight > 0)
-				{
-					float f_dt = Max((float)CMessageStep::sStaticStep, 0.001f);
-					float f_tau = gVR.fHeldWeight * (0.012f + f_mass * 0.0035f);
-					float f_k = 1.0f - expf(-f_dt / Max(f_tau, 0.001f));
-					CPlacement3<> p3_now = vh.pinsHeld->p3GetPlacement();
-					CVector3<> v3_sag(0, 0, -Min(f_mass, 60.0f) * 0.0012f * gVR.fHeldWeight);
-					CPlacement3<> p3_lag;
-					p3_lag.v3Pos = p3_now.v3Pos + (p3_target.v3Pos + v3_sag - p3_now.v3Pos) * f_k;
-					CRotate3<> r3_d = ~p3_now.r3Rot * p3_target.r3Rot;
-					p3_lag.r3Rot = p3_now.r3Rot * (r3_d * f_k);
-					p3_target = p3_lag;
-				}
 				vh.pinsHeld->Move(p3_target);
 				pphi->ForceVelocity(vh.pinsHeld, v3_hand_vel);
 			}
@@ -4926,10 +4888,8 @@ private:
 					return true;
 				}
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
-				// (Anything heavier than a small crate, gates included, is a wall: running into
-				// one shoves it, below.)
 				float f_mass = pphi->fMass(pins);
-				return f_mass >= (b_wall ? 15.0f : 1.5f);
+				return f_mass >= (b_wall ? 60.0f : 1.5f);
 			}
 			return true;
 		};
@@ -5003,8 +4963,7 @@ private:
 		if (gVR.bBodyTargetValid)
 			v3_d = CVector3<>(gVR.afBodyTarget[0] - v3VRFeet.tX, gVR.afBodyTarget[1] - v3VRFeet.tY, 0);
 		{
-			// (Swimming is slower.)
-			float f_max = (bVRSwimming ? 2.0f : 7.0f) * f_dt;
+			float f_max = 7.0f * f_dt;
 			if (v3_d.tLen() > f_max)
 				v3_d *= f_max / v3_d.tLen();
 		}
@@ -5019,20 +4978,12 @@ private:
 				return CVector3<>(0, 0, 0);
 			CVector3<> v3_dir = v3_move / f_len;
 			float f_allowed = f_len;
-			// A grid of rays (several heights, across her width) so she can't slip through the
-			// gaps between a gate's boards.
-			const int iHEIGHTS = 6;
-			float af_heights[iHEIGHTS];
-			for (int i = 0; i < iHEIGHTS; i++)
-				af_heights[i] = fSTEP + 0.08f + (f_tall - fSTEP - 0.08f) * i / (iHEIGHTS - 1);
-			CVector3<> v3_side(-v3_dir.tY, v3_dir.tX, 0);
-			for (int i = 0; i < iHEIGHTS * 3; i++)
+			const float af_heights[3] = { fSTEP + 0.08f, (fSTEP + f_tall) * 0.5f, f_tall };
+			for (int i = 0; i < 3; i++)
 			{
-				float f_side = (i % 3 - 1) * (fRADIUS * 0.7f);
-				int i_h = i / 3;
-				CVector3<> v3_from = v3VRFeet + CVector3<>(0, 0, af_heights[i_h]) + v3_side * f_side - v3_dir * 0.15f;
+				CVector3<> v3_from = v3VRFeet + CVector3<>(0, 0, af_heights[i]) - v3_dir * 0.15f;
 				CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(v3_dir)), v3_from);
-				CRayCast rc(p3_cast, 0.1f, 0.15f + f_len + fRADIUS);
+				CRayCast rc(p3_cast, 0.3f, 0.15f + f_len + fRADIUS);
 				SObjectLoc* pobl;
 				while (pobl = rc.poblNextIntersection())
 				{
@@ -5053,12 +5004,10 @@ private:
 							s_last_block = CMessageStep::sStaticTotal;
 							std::string str_name = pobl->pinsObject->strGetInstanceName();
 							gVR.pfnLog("Body: blocked by %s at %.2f m (height %.2f, face %.2f %.2f %.2f).", str_name.c_str(),
-								pobl->rDist, af_heights[i_h], pobl->d3Face.tX, pobl->d3Face.tY, pobl->d3Face.tZ);
+								pobl->rDist, af_heights[i], pobl->d3Face.tX, pobl->d3Face.tY, pobl->d3Face.tZ);
 						}
 						f_allowed = f_room;
 						v3_normal = CVector3<>(pobl->d3Face.tX, pobl->d3Face.tY, 0);
-						pinsVRBlocker = pobl->pinsObject;
-						v3VRBlockAt = pobl->v3Location;
 					}
 					break;
 				}
@@ -5069,25 +5018,7 @@ private:
 		};
 
 		CVector3<> v3_normal;
-		pinsVRBlocker = nullptr;
 		CVector3<> v3_step = v3_sweep(v3_d, v3_normal);
-
-		// Running into something movable (a gate, a crate) shoves it, as hard as she is moving:
-		// enough to knock down the beach gate at a sprint, not enough to push a wall of crates
-		// at a walk.
-		if (pinsVRBlocker && f_dt > 0)
-		{
-			const CPhysicsInfo* pphi_b = pinsVRBlocker->pphiGetPhysicsInfo();
-			float f_speed = v3_d.tLen() / f_dt;
-			if (pphi_b && pphi_b->bIsMovable() && f_speed > 1.0f && CMessageStep::sStaticTotal - sVRLastShove > 0.25)
-			{
-				sVRLastShove = CMessageStep::sStaticTotal;
-				CVector3<> v3_dir = v3_d / v3_d.tLen();
-				// Her weight times her speed, more when sprinting (a shoulder charge).
-				float f_impulse = 60.0f * f_speed * (f_speed > 3.5f ? 2.0f : 0.6f);
-				pphi_b->ApplyImpulse(pinsVRBlocker, 0, v3VRBlockAt, v3_dir * f_impulse);
-			}
-		}
 		v3VRFeet += v3_step;
 		CVector3<> v3_rest = v3_d - v3_step;
 		if (v3_rest.tLen() > 0.001f && v3_normal.tLen() > 0.1f)
@@ -5103,49 +5034,7 @@ private:
 		//
 		bool b_jump = gVR.bJump && !bVRPrevJump;
 		bVRPrevJump = gVR.bJump;
-
-		// Deep water: she floats, head and shoulders out, instead of walking on the bottom.
-		{
-			const float fFLOAT = 1.3f;		// Feet this far under the surface when floating.
-			bool b_was = bVRSwimming;
-			bVRSwimming = false;
-			CWDbQueryWaterHeight wqwh(CVector2<>(v3VRFeet.tX, v3VRFeet.tY));
-			if (wqwh.petWater && wqwh.v3Water.tZ > rWATER_NONE * 0.5)
-			{
-				float f_surface = wqwh.v3Water.tZ;
-				float f_bottom;
-				bool b_bottom = b_floor(v3VRFeet.tX, v3VRFeet.tY, f_surface, 30.0f, f_bottom);
-				if (!b_bottom || f_surface - f_bottom > fFLOAT)
-				{
-					bVRSwimming = true;
-					float f_float_z = f_surface - fFLOAT;
-					// Sink in from a jump or fall, then bob up to the surface.
-					if (v3VRFeet.tZ > f_float_z && !b_was)
-					{
-						fVRVz -= fGRAVITY * f_dt;
-						v3VRFeet.tZ += fVRVz * f_dt;
-					}
-					else
-					{
-						v3VRFeet.tZ += (f_float_z - v3VRFeet.tZ) * Min(1.0f, 3.0f * f_dt);
-						fVRVz = 0;
-					}
-					if (v3VRFeet.tZ < f_float_z - 1.0f)
-						v3VRFeet.tZ = f_float_z - 1.0f;
-					bVRGrounded = false;
-					if (!b_was && gVR.pfnLog)
-						gVR.pfnLog("Body: swimming.");
-				}
-				else if (b_was)
-					bVRGrounded = true;		// Wading ashore.
-			}
-		}
-
-		if (bVRSwimming)
-		{
-			// (No jumping, falling or steps while afloat.)
-		}
-		else if (bVRGrounded && b_jump)
+		if (bVRGrounded && b_jump)
 		{
 			fVRVz = sqrtf(2.0f * fGRAVITY * gVR.fJumpHeight);
 			bVRGrounded = false;
@@ -5153,10 +5042,7 @@ private:
 		}
 
 		float f_floor;
-		if (bVRSwimming)
-		{
-		}
-		else if (bVRGrounded)
+		if (bVRGrounded)
 		{
 			if (b_floor(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fSTEP, fSTEP + 0.45f, f_floor))
 				v3VRFeet.tZ = f_floor;
@@ -5193,15 +5079,6 @@ private:
 			}
 			else
 				v3VRFeet.tZ = f_new_z;
-		}
-
-		// Her weight on whatever loose thing she stands on (a plank, a seesaw, a crate): she is
-		// moved directly, so the physics never felt it.
-		if (bVRGrounded && !bVRSwimming && pins_floor && f_dt > 0)
-		{
-			const CPhysicsInfo* pphi_f = pins_floor->pphiGetPhysicsInfo();
-			if (pphi_f && pphi_f->bIsMovable() && !ptCast<CTerrain>(pins_floor))
-				pphi_f->ApplyImpulse(pins_floor, 0, v3VRFeet, CVector3<>(0, 0, -gVR.fBodyWeight * fGRAVITY * f_dt));
 		}
 
 		// Crouch button: lowers the body (and so the view).
@@ -5368,18 +5245,6 @@ private:
 		TReal r_upper = (v3_e - v3_s).tLen(), r_fore = (v3_w - v3_e).tLen();
 		if (r_upper < 0.01f || r_fore < 0.01f)
 			return;
-		// The bones' real lengths: the physics arm the pose starts from can be pulled long (when
-		// running), which drew rubbery arms.  The shortest seen is the true length.
-		{
-			static TReal ar_upper[2] = { 0, 0 }, ar_fore[2] = { 0, 0 };
-			int i = b_mirror ? 1 : 0;
-			if (ar_upper[i] <= 0 || r_upper < ar_upper[i])
-				ar_upper[i] = r_upper;
-			if (ar_fore[i] <= 0 || r_fore < ar_fore[i])
-				ar_fore[i] = r_fore;
-			r_upper = ar_upper[i];
-			r_fore = ar_fore[i];
-		}
 
 		// The reference hand frame (the physics hand box).
 		// (Measured from where the physics body really is, not where the body is drawn.)
@@ -5628,52 +5493,10 @@ private:
 			{
 				// Cup under the gun hand: a little lower and further back than before, fingers
 				// only half closed so they wrap the other hand instead of going through the grip.
-				// The supporting hand cups the bottom of the grip: palm up under the gun hand,
-				// fingers pointing along the barrel, curled up around the other hand.
-				CVector3<> v3_gun_up  = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
-				CVector3<> v3_gun_fwd = CVector3<>(0, 1, 0) * avrh[i_gun].pinsHeld->r3Rot();
+				CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
 				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.085f;
-				CRotate3<> r3_fwd(d3YAxis, CDir3<>(v3_gun_fwd));
-				CVector3<> v3_palm_now = CVector3<>(0, 0, -1) * r3_fwd;
-				CVector3<> v3_up_perp = v3_gun_up - v3_gun_fwd * (v3_gun_up * v3_gun_fwd);
-				if (v3_up_perp.tLen() > 1e-3f && v3_palm_now.tLen() > 1e-3f)
-					ap3_target[i_support].r3Rot = r3_fwd * CRotate3<>(CDir3<>(v3_palm_now), CDir3<>(v3_up_perp));
-				else
-					ap3_target[i_support].r3Rot = r3_fwd;
+				ap3_target[i_support].r3Rot = ap3_target[i_gun].r3Rot;
 				af_curl[i_support] = 1.0f;
-			}
-		}
-
-		// Empty hands stop at walls and solid things instead of going through them: a ray from
-		// the shoulder to the controller; the hand is drawn just short of what it hits.
-		for (int h = 0; h < 2; h++)
-		{
-			if (avrh[h].pinsHeld || !gVR.abHandValid[h])
-				continue;
-			CVector3<> v3_sh = v3Pos() + CVector3<>(h == 0 ? 0.18f : -0.18f, 0, 0.45f) * r3Rot();
-			CVector3<> v3_to = ap3_target[h].v3Pos - v3_sh;
-			float f_len = v3_to.tLen();
-			if (f_len < 0.05f)
-				continue;
-			CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(v3_to)), v3_sh);
-			CRayCast rc(p3_cast, 0.0f, f_len + 0.04f);
-			SObjectLoc* pobl;
-			while ((pobl = rc.poblNextIntersection()) != nullptr)
-			{
-				CInstance* pins = pobl->pinsObject;
-				if (!pins || pins == this || pins == pinsHand || pins == avrh[0].pinsBox || pins == avrh[1].pinsBox ||
-				    ptCast<CBoundaryBox>(pins) || ptCast<CEntityWater>(pins) || pins == avrh[0].pinsHeld || pins == avrh[1].pinsHeld)
-					continue;
-				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
-				bool b_solid = ptCast<CTerrain>(pins) != nullptr ||
-				               (pphi && pphi->bIsTangible() && (!pphi->bIsMovable() || pphi->fMass(pins) >= 60.0f));
-				if (!b_solid)
-					continue;
-				float f_hit = (pobl->v3Location - v3_sh).tLen();
-				float f_stop = Max(0.05f, f_hit - 0.04f);
-				if (f_stop < f_len)
-					ap3_target[h].v3Pos = v3_sh + v3_to * (f_stop / f_len);
-				break;
 			}
 		}
 

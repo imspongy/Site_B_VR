@@ -42,8 +42,6 @@
 #include "Lib/Renderer/Fog.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Renderer/Particles.hpp"
-#include "Game/DesignDaemon/BloodSplat.hpp"
-#include "Lib/Renderer/Primitives/FastBump.hpp"
 #include "Lib/Renderer/LightBlend.hpp"
 #include "Lib/Renderer/PipeLine.hpp"
 #include "Lib/EntityDBase/Animal.hpp"
@@ -87,17 +85,11 @@ namespace
 		std::vector<SSubset>  asub;
 		std::vector<uint32_t> au4Indices;		// All indices, by subset.
 		std::vector<int>      aiTriPoly;		// Polygon of each triangle (skinned only).
-		float                 afUV0[2] = { 0, 0 };	// First vertex's texture coordinates when cached (scrolling).
 	};
-
-	// Animated textures (surf, waterfalls, flickering): advanced once a frame.
-	std::unordered_set<const CMesh*> setAnimatedThisFrame;
 
 	std::unordered_map<const CMesh*, SMeshEntry> mapMesh;
 	std::unordered_map<const void*, int>         mapTex;		// Raster (or texture) -> handle.
 	std::unordered_map<const void*, bool>        mapTexAlpha;
-	std::unordered_map<const void*, int>         mapNormalTex;	// Raster -> normal map (bump-mapped textures).
-	bool gbBumpMaps = true;
 
 	const CTerrain* ptrrLevel = nullptr;
 	const void*     pvLevelPlayer = nullptr;
@@ -307,37 +299,7 @@ namespace
 		mapTex[praw] = i_handle;
 		mapTexAlpha[praw] = b_any_clear;
 		rb_alpha = b_any_clear;
-
-		// Bump-mapped textures: their surface relief (each texel's tilt) as a normal map, so the
-		// light picks out the detail as in the original.
-		if (ptex->seterfFeatures[erfBUMP] && (i_bytes == 2 || i_bytes == 4))
-		{
-			std::vector<uint32_t> au4_n((size_t)i_w * i_h);
-			const uint8* pu1_r = (const uint8*)praw->pSurface;
-			for (int y = 0; y < i_h; y++, pu1_r += (size_t)i_stride * i_bytes)
-				for (int x = 0; x < i_w; x++)
-				{
-					CBumpAnglePair bang;
-					bang.br = i_bytes == 2 ? (TBumpRes)((const uint16*)pu1_r)[x] : (TBumpRes)((const uint32*)pu1_r)[x];
-					CDir3<> d3 = bang.dir3MakeNormal();
-					auto enc = [](float f) { return (uint32_t)std::max(0, std::min(255, (int)(f * 127.5f + 127.5f))); };
-					au4_n[(size_t)y * i_w + x] = enc(d3.tX) | (enc(d3.tY) << 8) | (enc(d3.tZ) << 16) | 0xFF000000u;
-				}
-			int i_n = VRR_TextureCreate(i_w, i_h, au4_n.data());
-			if (i_n)
-				mapNormalTex[praw] = i_n;
-		}
 		return i_handle;
-	}
-
-	// The normal map made for a bump-mapped texture (0 if none).
-	int iNormalTexture(const CTexture* ptex)
-	{
-		if (!ptex || ptex->iGetNumMipLevels() <= 0 || !ptex->seterfFeatures[erfBUMP])
-			return 0;
-		rptr<CRaster> pras = ptex->prasGetTexture(0);
-		auto it = mapNormalTex.find(pras.ptGet());
-		return it != mapNormalTex.end() ? it->second : 0;
 	}
 
 	//******************************************************************************************
@@ -354,11 +316,6 @@ namespace
 		me.u4Points = pmsh->pav3Points.uLen;
 		me.u4Polys = pmsh->pampPolygons.uLen;
 		me.bSkinned = b_skinned;
-		if (pmsh->pamvVertices.uLen > 0)
-		{
-			me.afUV0[0] = pmsh->pamvVertices[0].tcTex.tX;
-			me.afUV0[1] = pmsh->pamvVertices[0].tcTex.tY;
-		}
 
 		const CMesh::SVertex* pmv0 = pmsh->pamvVertices.atArray;
 		int i_verts = (int)pmsh->pamvVertices.uLen;
@@ -451,8 +408,7 @@ namespace
 	}
 
 	// Queues draws of every subset of a mesh.
-	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0, int i_tex_force = -1,
-	                const float* pf_uv = nullptr)
+	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0, int i_tex_force = -1)
 	{
 		for (const SSubset& sub : me.asub)
 		{
@@ -473,14 +429,6 @@ namespace
 				drw.u4Flags = u4_force;
 			if (i_tex_force >= 0)
 				drw.iTexture = i_tex_force;
-			drw.iNormalTex = (i_tex_force < 0 && !b_decal && gbBumpMaps) ? iNormalTexture(ptex) : 0;
-			if (pf_uv)
-			{
-				drw.afUVOffset[0] = pf_uv[0];
-				drw.afUVOffset[1] = pf_uv[1];
-			}
-			if (drw.iNormalTex)
-				drw.u4Flags |= evrrBUMP;
 			if (b_decal)
 				VRR_TerrainAddDecal(drw);
 			else
@@ -592,133 +540,57 @@ namespace
 	};
 	SWalkStats wsLast = {};
 
-	void ReleaseQueries(CTerrain* ptrr);
-	void WorldRows(const CPresence3<>& pr3, float af[12]);
-
 	//******************************************************************************************
-	// Blood on the ground: the game moves terrain texture objects about for splats and streaks;
-	// the terrain's textures are baked at level start, so these are drawn on top, laid flat on
-	// the ground where they are.
-	void DrawBlood(CTerrain* ptrr, const CVector3<>& v3_eye)
-	{
-		if (!pBloodSplats || !ptrr)
-			return;
-		pBloodSplats->ForEachVR([&](CTerrainObj* ptobj)
-		{
-			CVector3<> v3 = ptobj->v3Pos();
-			if ((CVector2<>(v3) - CVector2<>(v3_eye)).tLen() > 80.0f)
-				return;
-			rptr_const<CRenderType> prdt = ptobj->prdtGetRenderInfo();
-			rptr_const<CMesh> pmsh = prdt ? ptCastRenderType<CMesh>(prdt) : rptr_const<CMesh>();
-			if (!pmsh)
-				return;
-			SMeshEntry* pme = pmeGet(pmsh.ptGet(), false);
-			if (!pme || !pme->iHandle || pme->asub.empty())
-				return;
-			float f_z = (float)ptrr->rHeight(v3.tX, v3.tY);
-			CPresence3<> pr3 = ptobj->pr3Presence();
-			pr3.v3Pos.tZ = f_z + 0.04f;
-			float af_world[12];
-			WorldRows(pr3, af_world);
-			// Flatten: whatever height the mesh has, it lies on the ground.
-			af_world[8] = af_world[9] = 0.0f;
-			af_world[10] = 1.0f;
-			af_world[11] = f_z + 0.04f;
-			AddSubsets(*pme, pme->iHandle, af_world, evrrALPHA_TEST | evrrTWO_SIDED | evrrNO_SHADOW, false);
-		});
-		ReleaseQueries(ptrr);
-	}
-
-	//******************************************************************************************
-	// Particles, as the game draws them: drops of blood and water are see-through streaks
-	// (176/255 at the head fading to nothing at the tail); chips, sparks and dust are small
-	// solid triangles that shrink away.  Both flat colour, unlit, sized as on the game's
-	// 640-wide screen (1 to 5 pixels each way from the middle).
+	// Particles (blood, dust, splashes): streaks facing you, one dynamic mesh per colour.
 	struct SParticleBuild
 	{
 		CVector3<> v3Eye;
-		std::unordered_map<const CTexture*, std::vector<SVRRVertex>> mapDrops;	// Quads.
-		std::unordered_map<const CTexture*, std::vector<SVRRVertex>> mapChips;	// Triangles.
+		std::unordered_map<const CTexture*, std::vector<SVRRVertex>> mapQuads;
 	};
-	std::unordered_map<uint32_t, int> mapFluidTex;		// Colour -> gradient texture.
 
-	static void AddParticle(void* pv, const CVector3<>& v3_a, const CVector3<>& v3_b, float f_size, const CTexture* ptex, int i_kind)
+	static void AddParticle(void* pv, const CVector3<>& v3_a, const CVector3<>& v3_b, float f_size, const CTexture* ptex)
 	{
 		SParticleBuild& pb = *(SParticleBuild*)pv;
-		CVector3<> v3_view = pb.v3Eye - v3_b;
+		CVector3<> v3_mid = (v3_a + v3_b) * 0.5f;
+		CVector3<> v3_view = pb.v3Eye - v3_mid;
 		float f_view = v3_view.tLen();
-		if (f_view < 0.05f || f_view > 400.0f)
+		if (f_view < 0.05f || f_view > 300.0f)
 			return;
+		// The game keeps particles between 1 and 5 pixels of its 640-wide view: specks of
+		// blood and dust, not lumps.  The same angular sizes here.
+		const float fPIXEL = 2.0f / 640.0f;
+		f_size = std::max(fPIXEL * 0.7f * f_view, std::min(f_size, fPIXEL * 4.0f * f_view));
+		float f_half = f_size * 0.5f;
 		v3_view /= f_view;
-		if (i_kind == 1 && f_size <= 0)
-			return;
-		const float fPIXEL = 1.0f / 320.0f;
-		f_size = std::max(fPIXEL * 1.0f * f_view, std::min(f_size, fPIXEL * 5.0f * f_view));
-
-		// The view plane's directions.
-		CVector3<> v3_right = CVector3<>(0, 0, 1) ^ v3_view;
-		if (v3_right.tLen() < 1e-3f)
-			v3_right = CVector3<>(1, 0, 0);
-		v3_right.Normalise();
-		CVector3<> v3_up = v3_view ^ v3_right;
-
-		auto vert = [&](const CVector3<>& v3, float f_u, float f_v)
-		{
-			SVRRVertex v;
-			v.afPos[0] = v3.tX; v.afPos[1] = v3.tY; v.afPos[2] = v3.tZ;
-			v.afNormal[0] = v3_view.tX; v.afNormal[1] = v3_view.tY; v.afNormal[2] = v3_view.tZ;
-			v.afUV[0] = f_u; v.afUV[1] = f_v;
-			return v;
-		};
-
-		if (i_kind == 1)
-		{
-			// Equilateral triangle about the point.
-			std::vector<SVRRVertex>& av = pb.mapChips[ptex];
-			av.push_back(vert(v3_b + v3_up * f_size, 0.5f, 0.5f));
-			av.push_back(vert(v3_b + v3_right * (0.866f * f_size) - v3_up * (0.5f * f_size), 0.5f, 0.5f));
-			av.push_back(vert(v3_b - v3_right * (0.866f * f_size) - v3_up * (0.5f * f_size), 0.5f, 0.5f));
-			return;
-		}
-
-		// Diamond: head ahead of where it is, tail behind where it was, sides at the head.
 		CVector3<> v3_d = v3_b - v3_a;
-		v3_d -= v3_view * (v3_d * v3_view);
 		float f_len = v3_d.tLen();
-		if (f_len < 1e-5f)
-			v3_d = v3_up;
+		if (f_len < 1e-4f)
+		{
+			// Not moving: a square facing you.
+			v3_d = CVector3<>(0, 0, 1) ^ v3_view;
+			if (v3_d.tLen() < 1e-3f)
+				v3_d = CVector3<>(1, 0, 0);
+			v3_d.Normalise();
+		}
 		else
 			v3_d /= f_len;
 		CVector3<> v3_side = v3_d ^ v3_view;
+		if (v3_side.tLen() < 1e-4f)
+			return;
 		v3_side.Normalise();
-		std::vector<SVRRVertex>& av = pb.mapDrops[ptex];
-		av.push_back(vert(v3_b + v3_d * f_size, 0.03f, 0.5f));		// Head.
-		av.push_back(vert(v3_b - v3_side * f_size, 0.03f, 0.5f));
-		av.push_back(vert(v3_a - v3_d * f_size, 0.97f, 0.5f));		// Tail.
-		av.push_back(vert(v3_b + v3_side * f_size, 0.03f, 0.5f));
-	}
-
-	// A drop's colour, see-through as the game draws it: alpha from 176 (u = 0) to 0 (u = 1).
-	int iFluidTexture(const CTexture* ptex)
-	{
-		uint32_t u_col = 0x808080;
-		if (ptex)
-			u_col = (uint32_t)ptex->d3dpixColour & 0x00FFFFFF;
-		auto it = mapFluidTex.find(u_col);
-		if (it != mapFluidTex.end())
-			return it->second;
-		const int i_w = 32, i_h = 4;
-		std::vector<uint32_t> au4((size_t)i_w * i_h);
-		int r = (u_col >> 16) & 255, g = (u_col >> 8) & 255, b = u_col & 255;
-		for (int x = 0; x < i_w; x++)
+		v3_side *= f_half;
+		CVector3<> v3_p0 = v3_a - v3_d * f_half, v3_p1 = v3_b + v3_d * f_half;
+		CVector3<> av3[4] = { v3_p0 - v3_side, v3_p0 + v3_side, v3_p1 + v3_side, v3_p1 - v3_side };
+		static const float af_uv[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+		std::vector<SVRRVertex>& av = pb.mapQuads[ptex];
+		for (int i = 0; i < 4; i++)
 		{
-			int a = (int)(176.0f * (1.0f - (float)x / (i_w - 1)) + 0.5f);
-			for (int y = 0; y < i_h; y++)
-				au4[(size_t)y * i_w + x] = u4RGBA(r, g, b, a);
+			SVRRVertex v;
+			v.afPos[0] = av3[i].tX; v.afPos[1] = av3[i].tY; v.afPos[2] = av3[i].tZ;
+			v.afNormal[0] = v3_view.tX; v.afNormal[1] = v3_view.tY; v.afNormal[2] = v3_view.tZ;
+			v.afUV[0] = af_uv[i][0] * 0.5f + 0.25f; v.afUV[1] = af_uv[i][1] * 0.5f + 0.25f;
+			av.push_back(v);
 		}
-		int i_tex = VRR_TextureCreate(i_w, i_h, au4.data());
-		mapFluidTex[u_col] = i_tex;
-		return i_tex;
 	}
 
 	void DrawParticles(const CVector3<>& v3_eye)
@@ -727,48 +599,34 @@ namespace
 		pb.v3Eye = v3_eye;
 		Particles.ForEachVR(&AddParticle, &pb);
 		static const float af_identity[12] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0 };
-		for (int i_kind = 0; i_kind < 2; i_kind++)
+		for (auto& pr : pb.mapQuads)
 		{
-			auto& map = i_kind == 0 ? pb.mapDrops : pb.mapChips;
-			int i_per = i_kind == 0 ? 4 : 3;
-			for (auto& pr : map)
+			std::vector<SVRRVertex>& av = pr.second;
+			int i_quads = (int)av.size() / 4;
+			if (i_quads <= 0)
+				continue;
+			std::vector<uint32_t> au4((size_t)i_quads * 6);
+			for (int q = 0; q < i_quads; q++)
 			{
-				std::vector<SVRRVertex>& av = pr.second;
-				int i_n = (int)av.size() / i_per;
-				if (i_n <= 0)
-					continue;
-				std::vector<uint32_t> au4;
-				au4.reserve((size_t)i_n * 6);
-				for (int q = 0; q < i_n; q++)
-				{
-					uint32_t b = q * i_per;
-					au4.push_back(b); au4.push_back(b + 1); au4.push_back(b + 2);
-					if (i_per == 4)
-					{
-						au4.push_back(b); au4.push_back(b + 2); au4.push_back(b + 3);
-					}
-				}
-				int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
-				if (!i_mesh)
-					continue;
-				SVRRDraw drw;
-				drw.iMesh = i_mesh;
-				drw.iFirstIndex = 0;
-				drw.iNumIndices = (int)au4.size();
-				std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
-				drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW | evrrUNLIT;
-				if (i_kind == 0)
-				{
-					drw.iTexture = iFluidTexture(pr.first);
-					drw.u4Flags |= evrrBLEND;
-				}
-				else
-				{
-					bool b_alpha = false;
-					drw.iTexture = iTexture(pr.first, b_alpha);
-				}
-				VRR_AddDraw(drw);
+				uint32_t b = q * 4;
+				uint32_t* pu = &au4[(size_t)q * 6];
+				pu[0] = b; pu[1] = b + 1; pu[2] = b + 2; pu[3] = b; pu[4] = b + 2; pu[5] = b + 3;
 			}
+			int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
+			if (!i_mesh)
+				continue;
+			bool b_alpha = false;
+			SVRRDraw drw;
+			drw.iMesh = i_mesh;
+			drw.iFirstIndex = 0;
+			drw.iNumIndices = (int)au4.size();
+			drw.iTexture = iTexture(pr.first, b_alpha);
+			std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
+			// The game draws particles flat, in their colour, unlit.
+			drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW | evrrUNLIT;
+			if (pr.first && pr.first->seterfFeatures[erfALPHA_COLOUR])
+				drw.u4Flags |= evrrBLEND | evrrUNLIT;
+			VRR_AddDraw(drw);
 		}
 	}
 
@@ -917,8 +775,7 @@ namespace
 		for (int h = 0; h < 2; h++)
 		{
 			CInstance* pins_held = (CInstance*)gVR.apvHeldFirm[h];
-			// (Only guns: other things trail the hand with their weight, drawn where they are.)
-			if (!pins_held || !gVR.abHandValid[h] || !gVR.abHoldingGun[h])
+			if (!pins_held || !gVR.abHandValid[h])
 				continue;
 			if (pins != pins_held)
 			{
@@ -1026,20 +883,7 @@ namespace
 				iObjects++;
 				return;
 			}
-			float af_uv[2] = { 0, 0 };
-			if (pmsh->bIsAnimated())
-			{
-				// The game animates these as it draws them: swap texture frames, scroll.
-				const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
-				if (setAnimatedThisFrame.insert(pmsh.ptGet()).second)
-					pma->Animate();
-				if (pma->bScrolls() && pmsh->pamvVertices.uLen > 0)
-				{
-					af_uv[0] = pmsh->pamvVertices[0].tcTex.tX - pme->afUV0[0];
-					af_uv[1] = pmsh->pamvVertices[0].tcTex.tY - pme->afUV0[1];
-				}
-			}
-			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false, 0, -1, af_uv);
+			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false);
 			iObjects++;
 		}
 	}
@@ -1504,8 +1348,6 @@ void VRScene_Shutdown()
 	mapMesh.clear();
 	mapTex.clear();
 	mapTexAlpha.clear();
-	mapNormalTex.clear();
-	mapFluidTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
 	setBadInstances.clear();
@@ -1542,8 +1384,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		mapMesh.clear();
 		mapTex.clear();
 		mapTexAlpha.clear();
-	mapNormalTex.clear();
-	mapFluidTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
 	setBadInstances.clear();
@@ -1575,7 +1415,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wk.papinsTerrainObjs = b_new_level ? &apins_trr : nullptr;
 
 	iObjects = iSkinned = iTexturesWaiting = 0;
-	setAnimatedThisFrame.clear();
 	SWalkStats ws = {};
 	Visit(pwWorld->ppartPartitionList(), wk, ws);
 	if (b_new_level && pwWorld->ppartTerrainPartitionList())
@@ -1583,7 +1422,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wsLast = ws;
 
 	DrawParticles(wk.v3Eye);
-	DrawBlood(ptrr, wk.v3Eye);
 
 	if (b_new_level && ptrr)
 	{
@@ -1653,7 +1491,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	fr.afFogColour[2] = clrDefEndDepth.u1Blue / 255.0f;
 	// The game's own fog, stretched over its view distance times FogScale.
 	fr.fFogFar = std::max(50.0f, f_far * std::max(0.5f, set.fFogScale));
-	gbBumpMaps = set.bBumpMaps;
 	{
 		float f_max = fogFog.fGetFogLevel(1.0f);
 		if (f_max <= 0)
