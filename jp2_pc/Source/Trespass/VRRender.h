@@ -56,6 +56,7 @@ struct SVRRDraw
 	int      iTexture;		// Texture handle (0 = white).
 	float    afWorld[12];	// Object -> world: rows (x', y', z') of a 3x4 matrix.
 	uint32_t u4Flags;
+	float    afUVOffset[2] = { 0, 0 };	// Added to the texture coordinates (scrolling textures).
 };
 
 // Per frame parameters.

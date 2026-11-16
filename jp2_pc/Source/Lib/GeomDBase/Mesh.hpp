@@ -1014,6 +1014,16 @@ protected:
 	CVector2<>	v2TexCoordDelta;		// Amount to increment texture coords per second.
 
 public:
+	// Advances the texture animation (frame changes and scrolling) to now; the game's renderer
+	// does this as it draws the mesh.  (The VR renderer calls it once a frame.)
+	void Animate() const;
+
+	// Whether the texture coordinates scroll.
+	bool bScrolls() const
+	{
+		return bAnimateCoords;
+	}
+
 	CMAArray<rptr<CTexture> > aptexTextures;	// The array of textures to use.
 
 	//******************************************************************************************
