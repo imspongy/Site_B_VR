@@ -62,7 +62,6 @@
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
 #include "Lib/EntityDBase/Query/QPhysics.hpp"
 #include "Lib/EntityDBase/Query/QTerrain.hpp"
-#include "Lib/EntityDBase/Query/QWater.hpp"
 #include <set>
 #include "Lib/Renderer/GeomTypes.hpp"
 #include "Lib/GeomDBase/Terrain.hpp"
@@ -1338,7 +1337,6 @@ private:
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
 	std::set<CInstance*> setVRHingedIgnored;	// Hinged things her body boxes no longer push.
-	bool           bVRSwimming = false;
 	bool           bVRLandSound = false;	// Play a landing footfall this step.
 	float          fVRLandSpeed = 0;
 	float          fVRStrideDist = 0;		// Distance walked since the last footstep.
@@ -4384,7 +4382,7 @@ private:
 			if (v3_peak.tLen() > v3_vel.tLen())
 				v3_vel = v3_peak;
 			float f_mass = pins->pphiGetPhysicsInfo()->fMass(pins);
-			float f_max = 30.0f / (1.0f + f_mass / 40.0f);
+			float f_max = 20.0f / (1.0f + f_mass / 30.0f);
 			if (v3_vel.tLen() > f_max)
 				v3_vel *= f_max / v3_vel.tLen();
 			v3_throw = v3_vel * gVR.fThrowScale;
@@ -4477,23 +4475,6 @@ private:
 			apinsStowed[i_slot] = pins;
 			NMagnetSystem::AddMagnetPair(this, pins, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
 			ap3StowedObj[i_slot] = pins->p3GetPlacement() / p3GetPlacement();
-			if (i_slot == 1 && gVR.afHeldLength[i_hand] >= 0.55f)
-			{
-				// A long gun on the back: muzzle up over the shoulder, nearly upright, behind her
-				// (not hanging into view).  Its length runs along its longest axis.
-				const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
-				CVector3<> v3_long = d3YAxis;
-				if (pbvb)
-				{
-					float f_x = (*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], f_y = (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y], f_z = (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z];
-					v3_long = (f_x >= f_y && f_x >= f_z) ? CVector3<>(1, 0, 0) : (f_y >= f_z ? CVector3<>(0, 1, 0) : CVector3<>(0, 0, 1));
-				}
-				CVector3<> v3_up_back = CVector3<>(0.15f, -0.2f, 1.0f);	// Body space: up, a little back and out.
-				CPlacement3<> p3_stow;
-				p3_stow.r3Rot = CRotate3<>(CDir3<>(v3_long), CDir3<>(v3_up_back));
-				p3_stow.v3Pos = PlayerSettings.aap3Stow[1][2].v3Pos + CVector3<>(0, -0.18f, -0.15f);
-				ap3StowedObj[i_slot] = p3_stow;
-			}
 			CMessagePickUp(pins, epuSTOW).Dispatch();
 			return true;
 		}
@@ -4676,22 +4657,6 @@ private:
 			}
 			else
 			{
-				// A feeling of weight: things trail the hand a little, more the heavier they are
-				// (a rock barely, a crate noticeably), and heavy ones sag.  Guns stay put.
-				bool b_gun = ptCast<CGun>(vh.pinsHeld) != nullptr;
-				if (!b_gun && f_mass > 1.0f && gVR.fHeldWeight > 0)
-				{
-					float f_dt = Max((float)CMessageStep::sStaticStep, 0.001f);
-					float f_tau = gVR.fHeldWeight * (0.012f + f_mass * 0.0035f);
-					float f_k = 1.0f - expf(-f_dt / Max(f_tau, 0.001f));
-					CPlacement3<> p3_now = vh.pinsHeld->p3GetPlacement();
-					CVector3<> v3_sag(0, 0, -Min(f_mass, 60.0f) * 0.0012f * gVR.fHeldWeight);
-					CPlacement3<> p3_lag;
-					p3_lag.v3Pos = p3_now.v3Pos + (p3_target.v3Pos + v3_sag - p3_now.v3Pos) * f_k;
-					CRotate3<> r3_d = ~p3_now.r3Rot * p3_target.r3Rot;
-					p3_lag.r3Rot = p3_now.r3Rot * (r3_d * f_k);
-					p3_target = p3_lag;
-				}
 				vh.pinsHeld->Move(p3_target);
 				pphi->ForceVelocity(vh.pinsHeld, v3_hand_vel);
 			}
@@ -4998,8 +4963,7 @@ private:
 		if (gVR.bBodyTargetValid)
 			v3_d = CVector3<>(gVR.afBodyTarget[0] - v3VRFeet.tX, gVR.afBodyTarget[1] - v3VRFeet.tY, 0);
 		{
-			// (Swimming is slower.)
-			float f_max = (bVRSwimming ? 2.0f : 7.0f) * f_dt;
+			float f_max = 7.0f * f_dt;
 			if (v3_d.tLen() > f_max)
 				v3_d *= f_max / v3_d.tLen();
 		}
@@ -5070,49 +5034,7 @@ private:
 		//
 		bool b_jump = gVR.bJump && !bVRPrevJump;
 		bVRPrevJump = gVR.bJump;
-
-		// Deep water: she floats, head and shoulders out, instead of walking on the bottom.
-		{
-			const float fFLOAT = 1.3f;		// Feet this far under the surface when floating.
-			bool b_was = bVRSwimming;
-			bVRSwimming = false;
-			CWDbQueryWaterHeight wqwh(CVector2<>(v3VRFeet.tX, v3VRFeet.tY));
-			if (wqwh.petWater && wqwh.v3Water.tZ > rWATER_NONE * 0.5)
-			{
-				float f_surface = wqwh.v3Water.tZ;
-				float f_bottom;
-				bool b_bottom = b_floor(v3VRFeet.tX, v3VRFeet.tY, f_surface, 30.0f, f_bottom);
-				if (!b_bottom || f_surface - f_bottom > fFLOAT)
-				{
-					bVRSwimming = true;
-					float f_float_z = f_surface - fFLOAT;
-					// Sink in from a jump or fall, then bob up to the surface.
-					if (v3VRFeet.tZ > f_float_z && !b_was)
-					{
-						fVRVz -= fGRAVITY * f_dt;
-						v3VRFeet.tZ += fVRVz * f_dt;
-					}
-					else
-					{
-						v3VRFeet.tZ += (f_float_z - v3VRFeet.tZ) * Min(1.0f, 3.0f * f_dt);
-						fVRVz = 0;
-					}
-					if (v3VRFeet.tZ < f_float_z - 1.0f)
-						v3VRFeet.tZ = f_float_z - 1.0f;
-					bVRGrounded = false;
-					if (!b_was && gVR.pfnLog)
-						gVR.pfnLog("Body: swimming.");
-				}
-				else if (b_was)
-					bVRGrounded = true;		// Wading ashore.
-			}
-		}
-
-		if (bVRSwimming)
-		{
-			// (No jumping, falling or steps while afloat.)
-		}
-		else if (bVRGrounded && b_jump)
+		if (bVRGrounded && b_jump)
 		{
 			fVRVz = sqrtf(2.0f * fGRAVITY * gVR.fJumpHeight);
 			bVRGrounded = false;
@@ -5120,10 +5042,7 @@ private:
 		}
 
 		float f_floor;
-		if (bVRSwimming)
-		{
-		}
-		else if (bVRGrounded)
+		if (bVRGrounded)
 		{
 			if (b_floor(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fSTEP, fSTEP + 0.45f, f_floor))
 				v3VRFeet.tZ = f_floor;
@@ -5326,23 +5245,11 @@ private:
 		TReal r_upper = (v3_e - v3_s).tLen(), r_fore = (v3_w - v3_e).tLen();
 		if (r_upper < 0.01f || r_fore < 0.01f)
 			return;
-		// The bones' real lengths: the physics arm the pose starts from can be pulled long (when
-		// running), which drew rubbery arms.  The shortest seen is the true length.
-		{
-			static TReal ar_upper[2] = { 0, 0 }, ar_fore[2] = { 0, 0 };
-			int i = b_mirror ? 1 : 0;
-			if (ar_upper[i] <= 0 || r_upper < ar_upper[i])
-				ar_upper[i] = r_upper;
-			if (ar_fore[i] <= 0 || r_fore < ar_fore[i])
-				ar_fore[i] = r_fore;
-			r_upper = ar_upper[i];
-			r_fore = ar_fore[i];
-		}
 
 		// The reference hand frame (the physics hand box).
 		// (Measured from where the physics body really is, not where the body is drawn.)
 		const CPresence3<>& pr3_real = bVRBodyShifted ? pr3VRRealPresence : pr3;
-		CVector3<> v3_hand_r = ((pinsHand->v3Pos() - pr3_real.v3Pos) / pr3_real.r3Rot) * (1.0f / pr3_real.rScale);
+		CVector3<> v3_hand_r = ((pinsHand->v3Pos() - pr3_real.v3Pos) / pr3_real.r3Rot) * r_inv_scale;
 		CRotate3<> r3_hand_r = pinsHand->r3Rot() / pr3_real.r3Rot;
 
 		CVector3<> v3_t = v3Obj(p3_target.v3Pos);
@@ -5524,12 +5431,6 @@ private:
 			{
 				CPresence3<> pr3_shifted = pr3VRRealPresence;
 				pr3_shifted.v3Pos += v3_shift;
-				// Drawn taller to match the raised view (ExtraHeight), feet kept on the ground.
-				if (gVR.fBodyScale > 1.001f && gVR.fBodyScale < 1.5f)
-				{
-					pr3_shifted.rScale *= gVR.fBodyScale;
-					pr3_shifted.v3Pos.tZ += (gVR.fBodyScale - 1.0f) * fVRBodyAboveFeet;
-				}
 				SetPresence(pr3_shifted);
 				bVRBodyShifted = true;
 			}
@@ -5592,39 +5493,10 @@ private:
 			{
 				// Cup under the gun hand: a little lower and further back than before, fingers
 				// only half closed so they wrap the other hand instead of going through the grip.
-				// The supporting hand cups the bottom of the grip: palm up under the gun hand,
-				// fingers pointing along the barrel, curled up around the other hand.
-				CVector3<> v3_gun_up  = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
-				CVector3<> v3_gun_fwd = CVector3<>(0, 1, 0) * avrh[i_gun].pinsHeld->r3Rot();
+				CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
 				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.085f;
-				CRotate3<> r3_fwd(d3YAxis, CDir3<>(v3_gun_fwd));
-				CVector3<> v3_palm_now = CVector3<>(0, 0, -1) * r3_fwd;
-				CVector3<> v3_up_perp = v3_gun_up - v3_gun_fwd * (v3_gun_up * v3_gun_fwd);
-				if (v3_up_perp.tLen() > 1e-3f && v3_palm_now.tLen() > 1e-3f)
-					ap3_target[i_support].r3Rot = r3_fwd * CRotate3<>(CDir3<>(v3_palm_now), CDir3<>(v3_up_perp));
-				else
-					ap3_target[i_support].r3Rot = r3_fwd;
+				ap3_target[i_support].r3Rot = ap3_target[i_gun].r3Rot;
 				af_curl[i_support] = 1.0f;
-			}
-			else if (avrh[i_gun].pinsHeld)
-			{
-				// The shotgun's forend sits higher than where the hand is drawn: lift the
-				// supporting hand up to it (that gun only).
-				const CGun* pgun = ptCast<CGun>(avrh[i_gun].pinsHeld);
-				bool b_shotgun = pgun && gVR.afHeldLength[i_gun] >= 0.55f && !pgun->bAutoFire && pgun->sTimeBetweenShots >= 0.6f;
-				static const void* pv_logged = nullptr;
-				if (pgun && pv_logged != (const void*)pgun && gVR.pfnLog)
-				{
-					pv_logged = (const void*)pgun;
-					gVR.pfnLog("Two-handed gun %s: length %.2f, auto %d, %.2f s between shots, ammo %d, damage %.0f -> %s.",
-						pgun->strGetInstanceName(), gVR.afHeldLength[i_gun], (int)pgun->bAutoFire, (float)pgun->sTimeBetweenShots,
-						pgun->iMaxAmmo, pgun->gdGunData.fDamage, b_shotgun ? "shotgun" : "other");
-				}
-				if (b_shotgun)
-				{
-					CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
-					ap3_target[i_support].v3Pos += v3_gun_up * gVR.fShotgunSupportUp;
-				}
 			}
 		}
 

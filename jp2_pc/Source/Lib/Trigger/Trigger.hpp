@@ -55,8 +55,6 @@
 #include "common.hpp"
 
 #include <list>
-#include <set>
-#include <vector>
 
 #include "Lib/EntityDBase/Entity.hpp"
 #include "Lib/Renderer/GeomTypes.hpp"
@@ -761,11 +759,6 @@ public:
 	// List control functions
 	void AddObject(uint32 u4_hash);
 	bool bInList(uint32 u4_hash);
-
-	//******************************************************************************************
-	// VR: every object a pickup trigger is waiting for (to make them glint).
-	static void VRGetPickupObjects(std::vector<uint32>& rau4_handles);
-	static std::set<const CObjectTrigger*>& setVRObjectTriggers();
 
 	//*****************************************************************************************
 	static bool bValidateTriggerProperties

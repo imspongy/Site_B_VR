@@ -43,7 +43,6 @@
 #include "common.hpp"
 #include "Lib/W95/WinInclude.hpp"
 #include "TextOverlay.hpp"
-#include "Lib/Control/VRShared.hpp"
 #include <algorithm>
 #include "Lib/View/RasterVid.hpp"
 #include "Lib/W95/DDFont.hpp"
@@ -115,9 +114,6 @@ uint32 CTextOverlay::u4DisplayFormattedString
 	STextElement	tel;
 	uint8			pu1_buf[u4MAX_FORMAT_BUFFER];	// 1K local buffer on the stack
 
-	if (gVR.bActive && gVR.pfnShowText && str_text)
-		gVR.pfnShowText(str_text, (float)s_time, u4_prev != 0, (int)ett);
-
 	// we cannot be a raw string
 	u4_flags &= ~TEXT_FORMAT_RAW;
 
@@ -176,9 +172,6 @@ uint32 CTextOverlay::u4DisplayPositionedString
 //*************************************
 {
 	STextElement	tel;
-
-	if (gVR.bActive && gVR.pfnShowText && str_text)
-		gVR.pfnShowText(str_text, (float)s_time, u4_prev != 0, (int)ett);
 
 	tel.sRemove		= CMessageStep::sElapsedRealTime + s_time;
 	tel.strString	= new char[ strlen(str_text)+1 ];
@@ -319,8 +312,6 @@ void CTextOverlay::RemoveText
 )
 //*************************************
 {
-	if (gVR.pfnRemoveText)
-		gVR.pfnRemoveText((int)ett);
 	if (ett == ettALL)
 	{
 		ttlTextItems.erase(ttlTextItems.begin(),ttlTextItems.end());

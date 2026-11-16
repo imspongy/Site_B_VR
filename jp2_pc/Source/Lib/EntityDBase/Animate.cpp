@@ -702,11 +702,6 @@ public:
 			}
 		}
 
-		// VR: the first seconds of a level are safe for Anne (her body is being placed and the
-		// physics settles; she could be hurt before you can even see).
-		if (gVR.bActive && this == gpPlayer && gVR.bDamageGrace)
-			f_damage = 0.0f;
-
 		// Are we already dead?
 		if (fHitPoints > fReallyDead)
 		{

@@ -62,11 +62,6 @@ the new defaults (the old one is kept as `TrespasserVR.ini.old`). Highlights:
   (metres) move them back into / across the palm and `GunScale` sets their drawn size.
 - `ThrowScale` (how much faster than your hand thrown things fly), `FogScale` (the game's fog spread over
   this many times its view distance) and `ExtraHeight` (metres added to Anne's height).
-- `HeldWeight` (how much carried things trail your hand and sag), `ShotgunHandUp` (how much higher the
-  supporting hand sits on the shotgun), `Glints=1` (guns and key items sparkle until first picked up).
-- `Subtitles=1` shows voice-over subtitles below your view; `Tutorial=1` shows the tutorial and game
-  messages above your view, reworded for VR. Each level's name fades in after it loads (JurassicPark.ttf).
-- Square / X on the left controller opens the game's hint screen. Either hand can use either holster.
 - `SkyMode` (0 solid, 1 gradient, 2 clouds) and `Haptics` (vibration strength).
 - `HandScale` for the size of the drawn hands.
 - `DrawDistance` for how far away objects are drawn (1 = original game).
