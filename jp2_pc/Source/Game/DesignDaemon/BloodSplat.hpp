@@ -80,6 +80,18 @@ class CBloodSplats : public CSubsystem
 public:
 	CBloodSplats();
 
+	// VR renderer: every blood splat and streak object (they are terrain textures the game
+	// moves about as blood is spilt).
+	template<class F> void ForEachVR(F f) const
+	{
+		for (const SBloodSplatObj& bso : contSplats)
+			if (bso.ptrobjShape)
+				f(bso.ptrobjShape);
+		for (const SBloodSplatObj& bso : contStreaks)
+			if (bso.ptrobjShape)
+				f(bso.ptrobjShape);
+	}
+
 	~CBloodSplats();
 
 	//******************************************************************************************

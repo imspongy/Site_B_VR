@@ -104,8 +104,13 @@ struct SVRShared
 	bool  abHolding[2] = { false, false };
 	bool  abHoldingGun[2] = { false, false };
 	float afHeldLength[2] = { 0, 0 };
+	bool  bDamageGrace = false;		// Just after a level loads: Anne can't be hurt yet.
 	float aafHandVelPeak[2][3] = {};	// Fastest hand velocity over the last ~0.1 s (throwing).
-	float fThrowScale = 1.3f;			// Throws go this much faster than the hand.
+	float fThrowScale = 2.0f;			// Throws go this much faster than the hand.
+	float fMeleeScale = 1.0f;			// Melee hits (things swung in the hand) hurt this much more.
+	float fBodyWeight = 70.0f;			// Anne's weight (kg) pressing on loose things she stands on.
+	bool  bSubtitles = true;			// Voice-over subtitles in the headset.
+	float fHeldWeight = 1.0f;			// How much held things trail and sag (0 = none).
 	// What each hand holds firmly, and where it sits relative to the controller (position,
 	// then rotation as a quaternion c, x, y, z).  The renderer draws it at the controller's
 	// latest pose, so it doesn't judder between physics steps.
@@ -120,6 +125,10 @@ struct SVRShared
 
 	// Writes a line to TrespasserVR.log (null when the VR mod isn't running).
 	void (*pfnLog)(const char* str_fmt, ...) = nullptr;
+	// The game's on-screen text (tutorial, subtitles, hints), shown in the headset instead.
+	// i_type: 1 unknown, 2 subtitle, 3 tutorial; b_chained: follows the previous line.
+	void (*pfnShowText)(const char* str_text, float f_secs, bool b_chained, int i_type) = nullptr;
+	void (*pfnRemoveText)(int i_type) = nullptr;		// 0 = all.
 
 	// Performance diagnostics: accumulated milliseconds, read and reset by the VR mod.
 	double dFlipMs = 0;				// Showing frames on the monitor.

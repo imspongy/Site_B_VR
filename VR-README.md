@@ -62,6 +62,13 @@ the new defaults (the old one is kept as `TrespasserVR.ini.old`). Highlights:
   (metres) move them back into / across the palm and `GunScale` sets their drawn size.
 - `ThrowScale` (how much faster than your hand thrown things fly), `FogScale` (the game's fog spread over
   this many times its view distance) and `ExtraHeight` (metres added to Anne's height).
+- `Recoil` (gun kick; one-handed kicks harder than steadied), `HeldWeight` (how much carried things trail
+  your hand and sag), `MeleeDamage` (bats, pipes and sticks swung hard hurt), `BodyWeight` (kg Anne presses
+  onto planks and seesaws), `BumpMaps` (relief lighting on rocks, bark and skin).
+- `Subtitles=1` shows voice-over subtitles below your view; `Tutorial=1` shows the level 1 tutorial and
+  other game messages in front of you, reworded for VR controls. Each level's name fades in after it loads.
+- Holsters work with either hand. Long guns sit upright over the shoulder.
+- In deep water Anne floats with her head out and swims slowly.
 - `SkyMode` (0 solid, 1 gradient, 2 clouds) and `Haptics` (vibration strength).
 - `HandScale` for the size of the drawn hands.
 - `DrawDistance` for how far away objects are drawn (1 = original game).

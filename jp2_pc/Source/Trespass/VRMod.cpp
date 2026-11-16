@@ -72,6 +72,7 @@ static void HideLoadingIfDone();
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <deque>
 #include <thread>
 #include <vector>
 
@@ -88,7 +89,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 6;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 7;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -133,8 +134,11 @@ namespace
 		float fShadowDistance = 60.0f;
 		float fBrightness     = 1.0f;
 		float fTerrainDetail  = 1.0f;
-		float fFogScale       = 2.0f;
-		float fExtraHeight    = 0.1f;	// Metres added to Anne's eye height.
+		float fFogScale       = 1.3f;
+		float fExtraHeight    = 0.2f;
+		bool  bBumpMaps       = true;
+		bool  bTutorial       = true;
+		float fRecoil         = 1.0f;	// Metres added to Anne's eye height.
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -418,9 +422,11 @@ namespace
 			"; Terrain mesh and texture detail (0.5 = half, 2 = double).  Applies on the next level load.\n"
 			"TerrainDetail=1.0\n"
 			"; The game's fog, spread over this many times its normal view distance (1 = original).\n"
-			"FogScale=2.0\n"
+			"FogScale=1.3\n"
+			"; Light bump-mapped surfaces (rocks, bark, dinosaur skin) with their relief: 1 on, 0 off.\n"
+			"BumpMaps=1\n"
 			"; Extra height for Anne (metres): raises your view and hands above hers.\n"
-			"ExtraHeight=0.1\n"
+			"ExtraHeight=0.2\n"
 			"\n"
 			"; --- Guns and throwing ---\n"
 			"; How far guns sit back into the palm and across toward its middle (metres), and how big\n"
@@ -429,7 +435,19 @@ namespace
 			"GunSide=-0.02\n"
 			"GunScale=0.85\n"
 			"; Thrown things go this much faster than your hand.\n"
-			"ThrowScale=1.3\n"
+			"ThrowScale=2.0\n"
+			"; How much guns kick (0 = none).\n"
+			"Recoil=1.0\n"
+			"; How much held things trail your hand and sag with their weight (0 = none).\n"
+			"HeldWeight=1.0\n"
+			"; Melee damage (bats, pipes, sticks swung in the hand): 1 = useful as a last resort.\n"
+			"MeleeDamage=1.0\n"
+			"; Anne's weight (kg) on planks, seesaws and loose things she stands on.\n"
+			"BodyWeight=70\n"
+			"; Voice-over subtitles floating below your view: 1 on, 0 off.\n"
+			"Subtitles=1\n"
+			"; Tutorial and hint messages (with VR controls) in front of you: 1 on, 0 off.\n"
+			"Tutorial=1\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -468,7 +486,13 @@ namespace
 		s.bSecondHand     = fIni(str_file, "SecondHand", 1) != 0;
 		s.fPistolMaxMass  = fIni(str_file, "PistolMaxMass", 2.5f);
 		gVR.fGunBack      = fIni(str_file, "GunBack", 0.04f);
-		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 1.3f);
+		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 2.0f);
+		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
+		gVR.fHeldWeight   = fIni(str_file, "HeldWeight", 1.0f);
+		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 1.0f);
+		gVR.fBodyWeight   = fIni(str_file, "BodyWeight", 70.0f);
+		gVR.bSubtitles    = fIni(str_file, "Subtitles", 1.0f) > 0.5f;
+		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
 		gVR.fGunSide      = fIni(str_file, "GunSide", -0.02f);
 		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
@@ -488,8 +512,9 @@ namespace
 		s.fShadowDistance = fIni(str_file, "ShadowDistance", 60);
 		s.fBrightness     = fIni(str_file, "Brightness", 1.0f);
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
-		s.fFogScale       = fIni(str_file, "FogScale", 2.0f);
-		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.1f);
+		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
+		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.2f);
+		s.bBumpMaps       = fIni(str_file, "BumpMaps", 1.0f) > 0.5f;
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
 		s.bMoveWithHand   = fIni(str_file, "MoveWithHand", 0) != 0;
@@ -956,21 +981,27 @@ namespace
 		float f_best = setVR.fHolsterRadius;
 		for (int i = 0; i < 2; i++)
 		{
-			CVector3<> v3_h(gVR.aafHolsterPosWorld[i][0], gVR.aafHolsterPosWorld[i][1], gVR.aafHolsterPosWorld[i][2]);
-			// The holster points are on Anne's right side; mirror them for the left hand.
-			if (i_hand == 1 && gpPlayer)
+			// Either hand can reach either holster, on its own side or across: the holster
+			// point (on Anne's right) and its mirror image on her left both count.
+			for (int m = 0; m < 2; m++)
 			{
-				CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
-				CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
-				v3_local.tX = -v3_local.tX;
-				v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
-			}
-			// The back slot is hard to reach precisely; be more generous there.
-			float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
-			if (f_dist < f_best)
-			{
-				f_best = f_dist;
-				i_best = i;
+				CVector3<> v3_h(gVR.aafHolsterPosWorld[i][0], gVR.aafHolsterPosWorld[i][1], gVR.aafHolsterPosWorld[i][2]);
+				if (m == 1)
+				{
+					if (!gpPlayer)
+						continue;
+					CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
+					CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
+					v3_local.tX = -v3_local.tX;
+					v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
+				}
+				// The back slot is hard to reach precisely; be more generous there.
+				float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
+				if (f_dist < f_best)
+				{
+					f_best = f_dist;
+					i_best = i;
+				}
 			}
 		}
 		return i_best;
@@ -1244,6 +1275,180 @@ namespace
 {
 	bool bLoadingShown = false;		// The loading notice is up; hide it once the new level is drawn.
 	bool bLevelLoaded = false;
+	DWORD u4LevelLoadedTick = 0;
+
+	// Level title card, faded in once the level is on screen.
+	std::string strTitleLevel, strTitleName;
+	bool  bTitlePending = false;
+	DWORD u4TitleStart = 0;
+
+	// The game's tutorial/hint lines (0) and voice-over subtitles (1), queued.
+	struct STextItem { std::string str; float fSecs; };
+	std::deque<STextItem> atqText[2];
+	DWORD au4TextStart[2] = { 0, 0 };
+
+	std::string strSquash(const char* psz)
+	{
+		std::string str;
+		bool b_space = false;
+		for (const char* p = psz; *p; p++)
+		{
+			unsigned char c = (unsigned char)*p;
+			if (c == '\n' || c == '\r' || c == '\t' || c == ' ')
+			{
+				b_space = !str.empty();
+				continue;
+			}
+			if (b_space)
+				str += ' ';
+			b_space = false;
+			str += (char)c;
+		}
+		return str;
+	}
+
+	// The level 1 tutorial, retold for VR controls.
+	std::string strVRText(const std::string& str_in)
+	{
+		struct SPair { const char* strFrom; const char* strTo; };
+		static const SPair apairs[] =
+		{
+			{ "To look around, move your mouse.", "To look around, just turn your head. The right stick turns you too." },
+			{ "To move forward, press and hold 'W'.", "To move, push the left stick. Click it in to sprint." },
+			{ "Press 'Q' to jump up.", "Press Cross (A) to jump up." },
+			{ "Press 'A' and 'D' to step left and right.", "Push the left stick sideways to step left and right." },
+			{ "And press 'Z' to crouch.", "And crouch down for real, or press Circle (B) to crouch." },
+			{ "You can use your hand to move and carry objects.", "You can use your hands to move and carry objects." },
+			{ "Try pressing and holding the left mouse button.", "Reach out with either hand." },
+			{ "Now, moving the mouse moves your hand.", "Your hands follow your controllers." },
+			{ "To pick up an object, move your hand near it....", "To pick up an object, put your hand on it..." },
+			{ "Then click the right mouse button.", "...then squeeze and hold the grip." },
+			{ "Good! Hold the left mouse button and move the mouse to wield the two-by-four.", "Good! Swing your arm to wield the two-by-four." },
+			{ "Press the right button to drop it.", "Let go of the grip to drop it." },
+			{ "You may have to crouch to reach them if they're on the ground.", "Crouch down, or press Circle (B), to reach things on the ground." },
+			{ "To fire a gun, pick it up, and press the space bar.", "To fire a gun, pick it up and pull the trigger. Grab the barrel with your other hand to steady it." },
+			{ "You can aim the gun using the sights.", "Aim down the gun's sights." },
+			{ "To adjust your wrist, press shift + left mouse button, and move the mouse.", "Let go of a gun at your hip or over your shoulder to holster it." },
+			{ "You can rotate your arm by holding control + the left mouse button, and moving the mouse.", "Squeeze the grip there with an empty hand to draw it again." },
+			{ "Press 'F' to throw an object you are holding.", "To throw something, swing your arm and let go of the grip." },
+			{ "You will always throw toward the center of your view.", "It flies the way your hand was moving." },
+			{ "To strike with an object, pick up the object and press the space bar.", "To strike with an object, hold it and swing it hard." },
+			{ "You can always press F1 for a hint about what to do next", "If you get stuck, press F1 on the keyboard for a hint." },
+		};
+		for (const SPair& pr : apairs)
+			if (_stricmp(str_in.c_str(), strSquash(pr.strFrom).c_str()) == 0)
+				return pr.strTo;
+		// Anything else: swap the mouse and keyboard words for the controllers'.
+		static const SPair arepl[] =
+		{
+			{ "left mouse button", "grip" }, { "right mouse button", "grip" }, { "mouse button", "grip" },
+			{ "space bar", "trigger" }, { "spacebar", "trigger" }, { "the mouse", "your hand" },
+		};
+		std::string str = str_in;
+		for (const SPair& pr : arepl)
+		{
+			std::string str_lo = str;
+			for (char& c : str_lo) c = (char)tolower((unsigned char)c);
+			size_t i = str_lo.find(pr.strFrom);
+			if (i != std::string::npos)
+				str = str.substr(0, i) + pr.strTo + str.substr(i + strlen(pr.strFrom));
+		}
+		return str;
+	}
+
+	void ShowGameText(const char* str_text, float f_secs, bool b_chained, int i_type)
+	{
+		if (!str_text || !*str_text)
+			return;
+		int q = i_type == 2 ? 1 : 0;		// Subtitles; everything else.
+		if (q == 1 && !gVR.bSubtitles)
+			return;
+		if (q == 0 && !setVR.bTutorial)
+			return;
+		std::string str = strSquash(str_text);
+		if (str.empty() || str.find("TUTORIAL") == 0)
+			return;
+		if (q == 0)
+			str = strVRText(str);
+		Log("Text (%d%s, %.1f s): %s", i_type, b_chained ? ", next" : "", f_secs, str.c_str());
+		if (!b_chained)
+		{
+			atqText[q].clear();
+			au4TextStart[q] = 0;
+		}
+		atqText[q].push_back({ str, (std::max)(f_secs, q == 0 ? 3.5f : 1.0f) });
+	}
+
+	void RemoveGameText(int i_type)
+	{
+		if (i_type == 0 || i_type == 2)
+			atqText[1].clear();
+		if (i_type == 0 || i_type == 3)
+			atqText[0].clear();
+	}
+
+	void UpdateTextPanels()
+	{
+		DWORD u4_now = GetTickCount();
+
+		// Level title: fades in a second after the level appears, holds, fades away.
+		if (bTitlePending && bLevelLoaded && !bLoadingShown)
+		{
+			if (!u4TitleStart)
+			{
+				u4TitleStart = u4_now + 1200;
+				VRB_TextPanelSet(0, strTitleLevel.c_str(), strTitleName.c_str());
+			}
+			float t = (float)((int)(u4_now - u4TitleStart)) / 1000.0f;
+			const float fIN = 1.6f, fHOLD = 4.0f, fOUT = 1.8f;
+			if (t < 0)
+				VRB_TextPanelShow(0, 0, 1.6f, 3.0f, 0, false, true);
+			else if (t < fIN + fHOLD + fOUT)
+			{
+				float f_a = t < fIN ? t / fIN : (t < fIN + fHOLD ? 1.0f : 1.0f - (t - fIN - fHOLD) / fOUT);
+				f_a = f_a * f_a * (3.0f - 2.0f * f_a);
+				// Drifts toward you and widens slowly as it appears.
+				float f_grow = (std::min)(t / (fIN + fHOLD + fOUT), 1.0f);
+				VRB_TextPanelShow(0, f_a, 1.7f + 0.15f * f_grow, 3.0f, 0.05f, false, t < 0.05f);
+			}
+			else
+			{
+				VRB_TextPanelShow(0, 0, 1.6f, 3.0f, 0, false, false);
+				bTitlePending = false;
+			}
+		}
+
+		// Messages (panel 1) and subtitles (panel 2).
+		for (int q = 0; q < 2; q++)
+		{
+			int i_panel = q + 1;
+			if (atqText[q].empty() || bLoadingShown)
+			{
+				VRB_TextPanelShow(i_panel, 0, 1, 1, 0, true, false);
+				continue;
+			}
+			if (!au4TextStart[q])
+			{
+				au4TextStart[q] = u4_now;
+				VRB_TextPanelSet(i_panel, "", atqText[q].front().str.c_str());
+			}
+			float t = (float)(u4_now - au4TextStart[q]) / 1000.0f;
+			float f_len = atqText[q].front().fSecs;
+			if (t >= f_len)
+			{
+				atqText[q].pop_front();
+				au4TextStart[q] = 0;
+				if (atqText[q].empty())
+					VRB_TextPanelShow(i_panel, 0, 1, 1, 0, true, false);
+				continue;
+			}
+			float f_a = (std::min)((std::min)(t / 0.3f, (f_len - t) / 0.4f), 1.0f);
+			if (q == 0)
+				VRB_TextPanelShow(1, f_a, 0.9f, 1.3f, 0.32f, true, false);
+			else
+				VRB_TextPanelShow(2, f_a * 0.95f, 0.85f, 1.3f, 0.45f, true, false);
+		}
+	}
 }
 
 void VRMod_LevelLoading(const char* str_scene)
@@ -1251,13 +1456,17 @@ void VRMod_LevelLoading(const char* str_scene)
 	if (!VRB_IsRunning())
 		return;
 	// The level's name from its file.
-	struct SName { const char* strFile; const char* strName; };
+	struct SName { const char* strFile; const char* strLevel; const char* strName; };
 	static const SName anames[] =
 	{
-		{ "be",  "Beach" },           { "jr",  "Jungle Road" },  { "pv",  "Pine Valley" },
-		{ "ij",  "Industrial Jungle" },{ "it",  "InGen Town" },   { "pl",  "Plains" },
-		{ "as",  "Ascent" },          { "as2", "Ascent" },       { "sum", "Summit" },
-		{ "lab", "InGen Lab" },
+		{ "be",  "Level 1", "The Beach" },
+		{ "jr",  "Level 2", "The Jungle Road" },
+		{ "ij",  "Level 3", "The Industrial Jungle" },
+		{ "it",  "Level 4", "The Town" },
+		{ "lab", "Level 5", "The Lab" },
+		{ "as",  "Level 6", "The Ascent Part 1" },
+		{ "as2", "Level 7", "The Ascent Part 2" },
+		{ "sum", "Level 8", "The Summit" },
 	};
 	std::string str_file = str_scene ? str_scene : "";
 	size_t i_slash = str_file.find_last_of("\\/");
@@ -1267,24 +1476,43 @@ void VRMod_LevelLoading(const char* str_scene)
 	std::string str_base = i_dot != std::string::npos ? str_file.substr(0, i_dot) : str_file;
 	for (char& c : str_base)
 		c = (char)tolower((unsigned char)c);
-	std::string str_name = str_base;
+	std::string str_name = str_base, str_level;
 	for (const SName& n : anames)
 		if (str_base == n.strFile)
+		{
 			str_name = n.strName;
-	Log("Loading level %s (%s).", str_file.c_str(), str_name.c_str());
-	VRB_ShowLoading(str_name.c_str(), "Loading...");
+			str_level = n.strLevel;
+		}
+	Log("Loading level %s (%s %s).", str_file.c_str(), str_level.c_str(), str_name.c_str());
+	VRB_ShowLoading("Loading...", "");
 	bLoadingShown = true;
 	bLevelLoaded = false;
+	gVR.pfnShowText = ShowGameText;
+	gVR.pfnRemoveText = RemoveGameText;
+	strTitleLevel = str_level;
+	strTitleName = str_name;
+	u4TitleStart = 0;
+	bTitlePending = !str_level.empty();
+	atqText[0].clear();
+	atqText[1].clear();
 }
 
 void VRMod_LevelLoaded()
 {
 	bLevelLoaded = true;
+	u4LevelLoadedTick = GetTickCount();
+	gVR.bDamageGrace = true;
 }
 
 // Called after each VR frame is drawn: the new level is on screen, so the notice can go.
 static void HideLoadingIfDone()
 {
+	gVR.pfnShowText = ShowGameText;
+	gVR.pfnRemoveText = RemoveGameText;
+	UpdateTextPanels();
+	// Anne's grace period ends 14 seconds after loading (about 8 after it is on screen).
+	if (gVR.bDamageGrace && GetTickCount() - u4LevelLoadedTick > 14000)
+		gVR.bDamageGrace = false;
 	if (bLoadingShown && bLevelLoaded)
 	{
 		VRB_HideLoading();
@@ -1297,6 +1525,8 @@ void VRMod_Shutdown()
 	gpfnVRInputHook = nullptr;
 	gpfnVRFlipHook  = nullptr;
 	gVR.pfnLog      = nullptr;
+	gVR.pfnShowText = nullptr;
+	gVR.pfnRemoveText = nullptr;
 	gVR.bActive     = false;
 	gVR.bHeadValid  = false;
 	gVR.bBodyTargetValid = false;
@@ -1489,6 +1719,25 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		// than when you recentred.
 		//
 		float f_target_z = v3_cam_pos.tZ;
+		if (gVR.pvKinInstance)
+		{
+			// The game's camera rides her physics head, which sometimes drifts up off her body.
+			// With the character controller, her eyes are a fixed height above its body origin
+			// (learned when she first stands); the camera may go lower (crouching), not higher.
+			static float f_eye_above = -1.0f;
+			static const void* pv_last_kin = nullptr;
+			float f_kin_z = gVR.afKinPos[2];
+			if (pv_last_kin != gVR.pvKinInstance)
+			{
+				pv_last_kin = gVR.pvKinInstance;
+				f_eye_above = -1.0f;
+			}
+			float f_now = v3_cam_pos.tZ - f_kin_z;
+			if (f_eye_above < 0 && gVR.bKinGrounded && f_now > 0.2f && f_now < 1.3f)
+				f_eye_above = f_now;
+			if (f_eye_above > 0)
+				f_target_z = f_kin_z + (std::min)(f_now, f_eye_above);
+		}
 		if (!bBaseZInit || std::fabs(f_target_z - fBaseZ) > 1.5f)
 			fBaseZ = f_target_z;
 		else if (gVR.pvKinInstance)
@@ -1640,10 +1889,60 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		int g = gVR.iTwoHand == 1 ? 0 : 1, s = 1 - g;
 		const float* af_g = gVR.afHeldGrab[g];
 		CRotate3<> r3_grab(af_g[3], af_g[4], af_g[5], af_g[6], true);
-		CVector3<> v3_barrel = CVector3<>(0, 1, 0) * r3_grab * ar3HandWorld[g];
+		// (The game's hand frame includes the grip offset rotation, as stored below.)
+		CVector3<> v3_barrel = CVector3<>(0, 1, 0) * r3_grab * (g == 0 ? r3_offset : r3_offset_l) * ar3HandWorld[g];
 		CVector3<> v3_want = av3HandWorld[s] - av3HandWorld[g];
 		if (fLen(v3_want) > 0.1f && fLen(v3_barrel) > 0.5f)
 			ar3_hand[g] = ar3HandWorld[g] * CRotate3<>(CDir3<>(v3_barrel), CDir3<>(v3_want));
+	}
+
+	//
+	// Recoil: each shot kicks the gun hand's muzzle up and the gun back, easing off over a
+	// fraction of a second.  Harder held in one hand; a supporting hand steadies it.
+	//
+	{
+		static int ai_seen[2] = { 0, 0 };
+		static float af_kick[2] = { 0, 0 };		// 0..1, decaying.
+		static double d_last = 0;
+		double d_now = dNowMs();
+		float f_dt_k = d_last > 0 ? (float)((d_now - d_last) / 1000.0) : 0.0f;
+		d_last = d_now;
+		for (int h = 0; h < 2; h++)
+		{
+			if (gVR.aiShotCount[h] != ai_seen[h])
+			{
+				ai_seen[h] = gVR.aiShotCount[h];
+				if (gVR.abHoldingGun[h])
+					af_kick[h] = 1.0f;
+			}
+			af_kick[h] *= std::exp(-f_dt_k / 0.09f);
+			if (af_kick[h] < 0.01f || !gVR.abHoldingGun[h])
+			{
+				af_kick[h] = 0;
+				continue;
+			}
+			bool b_steadied = gVR.iTwoHand == (h == 0 ? 1 : 2);
+			bool b_long = gVR.afHeldLength[h] >= 0.55f;
+			float f_deg = (b_steadied ? 5.0f : (b_long ? 16.0f : 11.0f)) * setVR.fRecoil;
+			float f_back = (b_steadied ? 0.02f : 0.05f) * setVR.fRecoil;
+			const float* af_g = gVR.afHeldGrab[h];
+			CRotate3<> r3_grab(af_g[3], af_g[4], af_g[5], af_g[6], true);
+			CVector3<> v3_barrel = CVector3<>(0, 1, 0) * r3_grab * (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h];
+			CVector3<> v3_axis = v3_barrel ^ CVector3<>(0, 0, 1);
+			if (fLen(v3_axis) < 0.05f || fLen(v3_barrel) < 0.5f)
+				continue;
+			// Turn the barrel toward up by the kick angle (rotation in world space, after the hand).
+			CVector3<> v3_b = v3_barrel / fLen(v3_barrel);
+			float f_rad = f_deg * af_kick[h] * fDEG;
+			CVector3<> v3_up_dir = CVector3<>(0, 0, 1) - v3_b * v3_b.tZ;
+			if (fLen(v3_up_dir) > 0.05f)
+			{
+				v3_up_dir = v3_up_dir / fLen(v3_up_dir);
+				CVector3<> v3_kicked = v3_b * std::cos(f_rad) + v3_up_dir * std::sin(f_rad);
+				ar3_hand[h] = ar3_hand[h] * CRotate3<>(CDir3<>(v3_b), CDir3<>(v3_kicked));
+			}
+			av3HandWorld[h] = av3HandWorld[h] - v3_b * (f_back * af_kick[h]);
+		}
 	}
 
 	for (int h = 0; h < 2; h++)
@@ -1730,6 +2029,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fBrightness = setVR.fBrightness;
 		set.fTerrainDetail = setVR.fTerrainDetail;
 		set.fFogScale = setVR.fFogScale;
+		set.bBumpMaps = setVR.bBumpMaps;
 
 		double d_t0 = dNowMs();
 		SSceneCall sc = { &eyes, &set, false };

@@ -62,6 +62,7 @@
 #include "Lib/EntityDBase/MessageTypes/MsgSystem.hpp"
 #include "Lib/EntityDBase/Query/QRenderer.hpp"
 #include "Lib/EntityDBase/TextOverlay.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/Camera.hpp"
 #include "Game/DesignDaemon/Player.hpp"
 #include "Lib/Groff/EasyString.hpp"
@@ -289,7 +290,7 @@ void CAudioDaemon::Process(const CMessageStep& msg_step)
 	if (bVoiceOver)
 	{
 		// we have a voice sample, maybe no sound buffer, we still have to process the subtitle
-		if (u4GetFeatures(AUDIO_FEATURE_SUBTITLES))
+		if (u4GetFeatures(AUDIO_FEATURE_SUBTITLES) || (gVR.bActive && gVR.bSubtitles))
 		{
 			ProcessSubtitle(psamVoiceOver);
 		}

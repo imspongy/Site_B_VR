@@ -649,6 +649,34 @@ public:
 					f_damage = 0.0f;
 				}
 			}
+			else if (gVR.bActive && this != gpPlayer && pins_other &&
+			         ((const void*)pins_other == gVR.apvHeldFirm[0] || (const void*)pins_other == gVR.apvHeldFirm[1]))
+			{
+				// VR melee: something swung in Anne's hand.  The game judged this by the weapon's
+				// mass alone, which left a bat or a pipe almost harmless; the swing's speed counts
+				// too, so a solid hit hurts (still well short of a gun).
+				int h = (const void*)pins_other == gVR.apvHeldFirm[0] ? 0 : 1;
+				const float* af_v = gVR.aafHandVel[h];
+				float f_speed = sqrtf(af_v[0] * af_v[0] + af_v[1] * af_v[1] + af_v[2] * af_v[2]);
+				if (f_speed < 2.5f)
+					f_damage = 0.0f;		// Not a swing: a nudge.
+				else
+				{
+					float f_mass = pins_other->pphiGetPhysicsInfo() ? pins_other->pphiGetPhysicsInfo()->fMass(pins_other) : 1.0f;
+					f_damage = f_damage * gVR.fMeleeScale + (f_speed - 2.0f) * (3.0f + Min(f_mass, 8.0f)) * gVR.fMeleeScale * 0.75f;
+					f_damage = Min(f_damage, 35.0f);
+					// Not again from the same swing for a moment.
+					static TSec s_last = -100;
+					static const CInstance* pins_last = 0;
+					if (pins_last == this && CMessageStep::sStaticTotal - s_last < 0.35)
+						f_damage = 0.0f;
+					else if (f_damage > 0)
+					{
+						s_last = CMessageStep::sStaticTotal;
+						pins_last = this;
+					}
+				}
+			}
 			else
 			{
 				// VR: Anne's body is steered to follow the headset, which knocks her feet and body
@@ -701,6 +729,11 @@ public:
 //				dout << "\tBuffered: " << f_damage << "\n";
 			}
 		}
+
+		// VR: the first seconds of a level are safe for Anne (her body is being placed and the
+		// physics settles; she could be hurt before you can even see).
+		if (gVR.bActive && this == gpPlayer && gVR.bDamageGrace)
+			f_damage = 0.0f;
 
 		// Are we already dead?
 		if (fHitPoints > fReallyDead)

@@ -93,6 +93,10 @@ void VRB_HideOverlay();
 void VRB_ShowLoading(const char* str_title, const char* str_sub);
 void VRB_HideLoading();
 
+// Text panels: 0 = level title card (title = small line, body = big line), 1 = messages, 2 = subtitles.
+bool VRB_TextPanelSet(int i_panel, const char* str_title, const char* str_body);
+void VRB_TextPanelShow(int i_panel, float f_alpha, float f_width, float f_dist, float f_down, bool b_follow, bool b_reanchor);
+
 // The Direct3D 11 device and context used for the headset (for the GPU renderer).
 void VRB_GetD3D11(void** ppv_device, void** ppv_context);
 

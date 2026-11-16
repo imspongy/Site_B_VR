@@ -433,7 +433,7 @@ public:
 	//*****************************************************************************************
 	// VR renderer: every live particle as a streak from v3_a to v3_b (world space), f_size
 	// metres wide, in the colour of ptex.  Marks them as drawn (one-frame particles retire).
-	typedef void (*TPFNVRParticle)(void* pv, const CVector3<>& v3_a, const CVector3<>& v3_b, float f_size, const CTexture* ptex);
+	typedef void (*TPFNVRParticle)(void* pv, const CVector3<>& v3_a, const CVector3<>& v3_b, float f_size, const CTexture* ptex, int i_kind);	// i_kind: 0 drop (fluid), 1 chip/dust (solid).
 	void ForEachVR(TPFNVRParticle pfn, void* pv);
 
 private:

@@ -1535,20 +1535,33 @@ public:
 	//*****************************************************************************************
 	void CParticles::ForEachVR(TPFNVRParticle pfn, void* pv)
 	{
+		// As the game builds them (CParticleFluid::bAdd, CParticleSolid::bAdd): drops are a
+		// streak from where they were 'stick time' ago to where they are now; chips and dust
+		// are triangles that shrink away.  Sizes are half-extents in metres, before the
+		// game's on-screen clamp (done by the caller).
 		if (!pfn)
 			return;
 		CParticleList::iterator it = pprtParticleList->begin();
 		for (; it != pprtParticleList->end(); ++it)
 		{
 			CParticleBase& prt = *it;
+			if (prt.sAge > prt.sLifespan && prt.sLifespan > 0.0f)
+				continue;
 			prt.bRendered = true;
 			CVector3<> v3_b = prt.v3Position(prt.sAge);
-			TSec s_back = prt.bOneFrame ? 0.0f : Min(prt.sAge, 0.03f);
-			CVector3<> v3_a = prt.v3Position(prt.sAge - s_back);
-			float f_size = prt.fSize;
-			if (prt.sLifespan > 0.0f)
-				f_size *= MinMax(1.0f - 0.5f * prt.sAge / prt.sLifespan, 0.3f, 1.0f);
-			(*pfn)(pv, v3_a, v3_b, f_size, prt.ptexTexture);
+			const CParticleFluid* pprf = dynamic_cast<const CParticleFluid*>(&prt);
+			if (pprf)
+			{
+				CVector3<> v3_a = prt.bOneFrame ? v3_b : prt.v3Position(prt.sAge - prt.sStickTime);
+				(*pfn)(pv, v3_a, v3_b, prt.fSize, prt.ptexTexture, 0);
+			}
+			else
+			{
+				float f_size = prt.fSize;
+				if (prt.sLifespan > 0.0f)
+					f_size *= Max(0.0f, (prt.sLifespan - prt.sAge) / prt.sLifespan);
+				(*pfn)(pv, v3_b, v3_b, f_size, prt.ptexTexture, 1);
+			}
 		}
 	}
 
