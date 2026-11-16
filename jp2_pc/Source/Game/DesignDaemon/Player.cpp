@@ -5522,10 +5522,39 @@ private:
 			{
 				// Cup under the gun hand: a little lower and further back than before, fingers
 				// only half closed so they wrap the other hand instead of going through the grip.
-				CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
+				// The supporting hand cups the bottom of the grip: palm up under the gun hand,
+				// fingers pointing along the barrel, curled up around the other hand.
+				CVector3<> v3_gun_up  = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
+				CVector3<> v3_gun_fwd = CVector3<>(0, 1, 0) * avrh[i_gun].pinsHeld->r3Rot();
 				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.085f;
-				ap3_target[i_support].r3Rot = ap3_target[i_gun].r3Rot;
+				CRotate3<> r3_fwd(d3YAxis, CDir3<>(v3_gun_fwd));
+				CVector3<> v3_palm_now = CVector3<>(0, 0, -1) * r3_fwd;
+				CVector3<> v3_up_perp = v3_gun_up - v3_gun_fwd * (v3_gun_up * v3_gun_fwd);
+				if (v3_up_perp.tLen() > 1e-3f && v3_palm_now.tLen() > 1e-3f)
+					ap3_target[i_support].r3Rot = r3_fwd * CRotate3<>(CDir3<>(v3_palm_now), CDir3<>(v3_up_perp));
+				else
+					ap3_target[i_support].r3Rot = r3_fwd;
 				af_curl[i_support] = 1.0f;
+			}
+			else if (avrh[i_gun].pinsHeld)
+			{
+				// The shotgun's forend sits higher than where the hand is drawn: lift the
+				// supporting hand up to it (that gun only).
+				const CGun* pgun = ptCast<CGun>(avrh[i_gun].pinsHeld);
+				bool b_shotgun = pgun && gVR.afHeldLength[i_gun] >= 0.55f && !pgun->bAutoFire && pgun->sTimeBetweenShots >= 0.6f;
+				static const void* pv_logged = nullptr;
+				if (pgun && pv_logged != (const void*)pgun && gVR.pfnLog)
+				{
+					pv_logged = (const void*)pgun;
+					gVR.pfnLog("Two-handed gun %s: length %.2f, auto %d, %.2f s between shots, ammo %d, damage %.0f -> %s.",
+						pgun->strGetInstanceName(), gVR.afHeldLength[i_gun], (int)pgun->bAutoFire, (float)pgun->sTimeBetweenShots,
+						pgun->iMaxAmmo, pgun->gdGunData.fDamage, b_shotgun ? "shotgun" : "other");
+				}
+				if (b_shotgun)
+				{
+					CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
+					ap3_target[i_support].v3Pos += v3_gun_up * gVR.fShotgunSupportUp;
+				}
 			}
 		}
 

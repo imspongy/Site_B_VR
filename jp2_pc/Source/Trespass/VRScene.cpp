@@ -85,7 +85,11 @@ namespace
 		std::vector<SSubset>  asub;
 		std::vector<uint32_t> au4Indices;		// All indices, by subset.
 		std::vector<int>      aiTriPoly;		// Polygon of each triangle (skinned only).
+		float                 afUV0[2] = { 0, 0 };	// First vertex's texture coordinates when cached (scrolling).
 	};
+
+	// Animated textures (surf, waterfalls, flickering): advanced once a frame.
+	std::unordered_set<const CMesh*> setAnimatedThisFrame;
 
 	std::unordered_map<const CMesh*, SMeshEntry> mapMesh;
 	std::unordered_map<const void*, int>         mapTex;		// Raster (or texture) -> handle.
@@ -316,6 +320,11 @@ namespace
 		me.u4Points = pmsh->pav3Points.uLen;
 		me.u4Polys = pmsh->pampPolygons.uLen;
 		me.bSkinned = b_skinned;
+		if (pmsh->pamvVertices.uLen > 0)
+		{
+			me.afUV0[0] = pmsh->pamvVertices[0].tcTex.tX;
+			me.afUV0[1] = pmsh->pamvVertices[0].tcTex.tY;
+		}
 
 		const CMesh::SVertex* pmv0 = pmsh->pamvVertices.atArray;
 		int i_verts = (int)pmsh->pamvVertices.uLen;
@@ -408,7 +417,8 @@ namespace
 	}
 
 	// Queues draws of every subset of a mesh.
-	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0, int i_tex_force = -1)
+	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0, int i_tex_force = -1,
+	                const float* pf_uv = nullptr)
 	{
 		for (const SSubset& sub : me.asub)
 		{
@@ -429,6 +439,11 @@ namespace
 				drw.u4Flags = u4_force;
 			if (i_tex_force >= 0)
 				drw.iTexture = i_tex_force;
+			if (pf_uv)
+			{
+				drw.afUVOffset[0] = pf_uv[0];
+				drw.afUVOffset[1] = pf_uv[1];
+			}
 			if (b_decal)
 				VRR_TerrainAddDecal(drw);
 			else
@@ -883,7 +898,20 @@ namespace
 				iObjects++;
 				return;
 			}
-			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false);
+			float af_uv[2] = { 0, 0 };
+			if (pmsh->bIsAnimated())
+			{
+				// The game animates these as it draws them: swap texture frames, scroll.
+				const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
+				if (setAnimatedThisFrame.insert(pmsh.ptGet()).second)
+					pma->Animate();
+				if (pma->bScrolls() && pmsh->pamvVertices.uLen > 0)
+				{
+					af_uv[0] = pmsh->pamvVertices[0].tcTex.tX - pme->afUV0[0];
+					af_uv[1] = pmsh->pamvVertices[0].tcTex.tY - pme->afUV0[1];
+				}
+			}
+			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false, 0, -1, af_uv);
 			iObjects++;
 		}
 	}

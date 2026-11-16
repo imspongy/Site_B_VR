@@ -106,6 +106,7 @@ struct SVRShared
 	float afHeldLength[2] = { 0, 0 };
 	bool  bDamageGrace = false;		// Just after a level loads: Anne can't be hurt yet.
 	bool  bSubtitles = true;			// Voice-over subtitles in the headset.
+	float fShotgunSupportUp = 0.03f;	// The supporting hand on the shotgun is drawn this much higher (m).
 	float aafHandVelPeak[2][3] = {};	// Fastest hand velocity over the last ~0.1 s (throwing).
 	float fThrowScale = 1.3f;			// Throws go this much faster than the hand.
 	// What each hand holds firmly, and where it sits relative to the controller (position,

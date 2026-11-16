@@ -3739,6 +3739,15 @@ uint uCreateWrap(CVector3<>* av3, uint u_num_pts)
 														// (for trivial acceptance).
 	) const
 	{
+		Animate();
+
+		// Now do the normal thing.
+		CMesh::Render(pins, renc, rsp, tf3_shape_camera, papoc, esf_view);
+	}
+
+	//*****************************************************************************************
+	void CMeshAnimating::Animate() const
+	{
 		// Evilly cast away const.
 		CMeshAnimating* pma = (CMeshAnimating*)this;		// Need a non_const version of "this".
 
@@ -3850,9 +3859,6 @@ uint uCreateWrap(CVector3<>* av3, uint u_num_pts)
 				}
 			}
 		}
-				
-		// Now do the normal thing.
-		CMesh::Render(pins, renc, rsp, tf3_shape_camera, papoc, esf_view);
 	}
 
 	//*****************************************************************************************

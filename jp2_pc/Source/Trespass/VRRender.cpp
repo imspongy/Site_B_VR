@@ -91,6 +91,7 @@ struct VSObjIn
 	float4 r1    : TEXCOORD2;
 	float4 r2    : TEXCOORD3;
 	uint   flags : TEXCOORD4;
+	float2 uvoff : TEXCOORD5;		// Scrolling textures (surf, waterfalls).
 };
 
 struct PSObjIn
@@ -194,7 +195,7 @@ PSObjIn VSObject(VSObjIn i)
 	PSObjIn o;
 	o.wp = WorldPos(i);
 	o.wn = WorldNormal(i);
-	o.uv = i.uv;
+	o.uv = i.uv + i.uvoff;
 	o.flags = i.flags;
 	o.pos = ClipPos(o.wp);
 	return o;
@@ -542,6 +543,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	{
 		float    afRow[12];
 		uint32_t u4Flags;
+		float    afUV[2];
 	};
 
 	struct STexture
@@ -1023,6 +1025,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				{ "TEXCOORD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 				{ "TEXCOORD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 				{ "TEXCOORD", 4, DXGI_FORMAT_R32_UINT,           1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "TEXCOORD", 5, DXGI_FORMAT_R32G32_FLOAT,       1, 52, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 			};
 			D3D11_INPUT_ELEMENT_DESC aied_ter[] =
 			{
@@ -1030,7 +1033,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				{ "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 				{ "COLOR",    0, DXGI_FORMAT_R8G8B8A8_UNORM,  0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			};
-			b_ok = SUCCEEDED(pDev->CreateInputLayout(aied_obj, 7, pblob_obj->GetBufferPointer(), pblob_obj->GetBufferSize(), &pilObject)) &&
+			b_ok = SUCCEEDED(pDev->CreateInputLayout(aied_obj, 8, pblob_obj->GetBufferPointer(), pblob_obj->GetBufferSize(), &pilObject)) &&
 			       SUCCEEDED(pDev->CreateInputLayout(aied_ter, 3, pblob_ter->GetBufferPointer(), pblob_ter->GetBufferSize(), &pilTerrain));
 			if (!b_ok)
 				str_err = "could not create the vertex layouts";
@@ -1918,6 +1921,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			const SVRRDraw& d = adrw[aiOrder[i]];
 			std::memcpy(ainst[i].afRow, d.afWorld, sizeof(ainst[i].afRow));
 			ainst[i].u4Flags = d.u4Flags;
+			ainst[i].afUV[0] = d.afUVOffset[0];
+			ainst[i].afUV[1] = d.afUVOffset[1];
 		}
 		if (pvbInst)
 			bUpload(pvbInst, ainst.data(), sizeof(SInstance) * ainst.size());

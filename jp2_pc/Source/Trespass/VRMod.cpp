@@ -89,7 +89,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 9;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 10;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -432,6 +432,8 @@ namespace
 			"GunScale=0.85\n"
 			"; Thrown things go this much faster than your hand.\n"
 			"ThrowScale=1.3\n"
+			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
+			"ShotgunHandUp=0.03\n"
 			"; Voice-over subtitles floating below your view: 1 on, 0 off.\n"
 			"Subtitles=1\n"
 			"; Tutorial and hint messages (with VR controls) in front of you: 1 on, 0 off.\n"
@@ -497,6 +499,7 @@ namespace
 		s.fBrightness     = fIni(str_file, "Brightness", 1.0f);
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
 		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.1f);
+		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
