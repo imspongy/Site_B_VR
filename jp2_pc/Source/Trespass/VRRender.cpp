@@ -136,7 +136,14 @@ float FogAt(float3 wp)
 	float b = gFogTable[i1 >> 2][i1 & 3];
 	float f = lerp(a, b, d - i0);
 	float h = max(wp.z - gEyePos.z, 0.0);
-	return f * lerp(1.0, 0.6, saturate(h / 300.0));
+	f *= lerp(1.0, 0.75, saturate(h / 300.0));
+
+	// Low mist: thicker in hollows and over the sea, thinning with height, so the land seems
+	// to sit in the haze rather than behind a flat curtain.
+	float dist = distance(wp, gEyePos.xyz);
+	float low = exp(-max(wp.z - gEyePos.z + 25.0, 0.0) / 70.0);
+	float mist = 1.0 - exp(-dist / 900.0 * low);
+	return 1.0 - (1.0 - f) * (1.0 - mist * 0.55);
 }
 
 // The haze colour looking along dir: the game's fog colour tinted toward the sky, bluer when

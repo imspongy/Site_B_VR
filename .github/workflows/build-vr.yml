@@ -45,6 +45,7 @@ jobs:
             -replace '^WindowMode=.*','WindowMode=2' |
             Set-Content $out/OpenTrespasser.ini
           Copy-Item ../VR-README.md $out/VR-README.md
+          Copy-Item ../VR/JurassicPark.ttf $out/JurassicPark.ttf
 
       - uses: actions/upload-artifact@v4
         with:

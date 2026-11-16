@@ -4475,6 +4475,23 @@ private:
 			apinsStowed[i_slot] = pins;
 			NMagnetSystem::AddMagnetPair(this, pins, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
 			ap3StowedObj[i_slot] = pins->p3GetPlacement() / p3GetPlacement();
+			if (i_slot == 1 && gVR.afHeldLength[i_hand] >= 0.55f)
+			{
+				// A long gun on the back: muzzle up over the shoulder, nearly upright, behind her
+				// (not hanging into view).  Its length runs along its longest axis.
+				const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
+				CVector3<> v3_long = d3YAxis;
+				if (pbvb)
+				{
+					float f_x = (*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], f_y = (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y], f_z = (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z];
+					v3_long = (f_x >= f_y && f_x >= f_z) ? CVector3<>(1, 0, 0) : (f_y >= f_z ? CVector3<>(0, 1, 0) : CVector3<>(0, 0, 1));
+				}
+				CVector3<> v3_up_back = CVector3<>(0.15f, -0.2f, 1.0f);	// Body space: up, a little back and out.
+				CPlacement3<> p3_stow;
+				p3_stow.r3Rot = CRotate3<>(CDir3<>(v3_long), CDir3<>(v3_up_back));
+				p3_stow.v3Pos = PlayerSettings.aap3Stow[1][2].v3Pos + CVector3<>(0, -0.18f, -0.15f);
+				ap3StowedObj[i_slot] = p3_stow;
+			}
 			CMessagePickUp(pins, epuSTOW).Dispatch();
 			return true;
 		}
@@ -5245,6 +5262,18 @@ private:
 		TReal r_upper = (v3_e - v3_s).tLen(), r_fore = (v3_w - v3_e).tLen();
 		if (r_upper < 0.01f || r_fore < 0.01f)
 			return;
+		// The bones' real lengths: the physics arm the pose starts from can be pulled long (when
+		// running), which drew rubbery arms.  The shortest seen is the true length.
+		{
+			static TReal ar_upper[2] = { 0, 0 }, ar_fore[2] = { 0, 0 };
+			int i = b_mirror ? 1 : 0;
+			if (ar_upper[i] <= 0 || r_upper < ar_upper[i])
+				ar_upper[i] = r_upper;
+			if (ar_fore[i] <= 0 || r_fore < ar_fore[i])
+				ar_fore[i] = r_fore;
+			r_upper = ar_upper[i];
+			r_fore = ar_fore[i];
+		}
 
 		// The reference hand frame (the physics hand box).
 		// (Measured from where the physics body really is, not where the body is drawn.)

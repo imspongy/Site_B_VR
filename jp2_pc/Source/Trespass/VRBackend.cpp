@@ -1507,3 +1507,279 @@ void VRB_HideLoading()
 	if (pvrSystem)
 		vr::VRCompositor()->SuspendRendering(false);
 }
+
+
+//**********************************************************************************************
+// Text panels (level title card, tutorial and hint messages), drawn into SteamVR overlays.
+namespace
+{
+	struct STextPanel
+	{
+		vr::VROverlayHandle_t h = vr::k_ulOverlayHandleInvalid;
+		ID3D11Texture2D*      ptex = nullptr;
+		std::string           strKey;
+		int                   iH = 256;
+	};
+	STextPanel atpPanel[3];
+	int iTitleFontState = 0;		// 0 not tried, 1 loaded, -1 missing.
+
+	// The Jurassic Park typeface shipped next to the game (JurassicPark.ttf), for this program only.
+	void LoadTitleFont()
+	{
+		static bool b_done = false;
+		if (b_done)
+			return;
+		b_done = true;
+		char sz_path[MAX_PATH] = {};
+		GetModuleFileNameA(nullptr, sz_path, MAX_PATH);
+		std::string str = sz_path;
+		size_t i_slash = str.find_last_of("\\/");
+		str = (i_slash != std::string::npos ? str.substr(0, i_slash + 1) : std::string()) + "JurassicPark.ttf";
+		iTitleFontState = AddFontResourceExA(str.c_str(), FR_PRIVATE, 0) > 0 ? 1 : -1;
+	}
+
+	// The first of these typefaces that is installed.
+	HFONT hfPick(HDC hdc, int i_height, int i_weight, const char* const* apsz, int i_n)
+	{
+		for (int i = 0; i < i_n; i++)
+		{
+			HFONT hf = CreateFontA(i_height, 0, 0, 0, i_weight, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS,
+			                       CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, apsz[i]);
+			HGDIOBJ h_old = SelectObject(hdc, hf);
+			char sz[64] = {};
+			GetTextFaceA(hdc, sizeof(sz), sz);
+			SelectObject(hdc, h_old);
+			if (_stricmp(sz, apsz[i]) == 0 || i == i_n - 1)
+				return hf;
+			DeleteObject(hf);
+		}
+		return nullptr;
+	}
+}
+
+bool VRB_TextPanelSet(int i_panel, const char* str_title, const char* str_body)
+{
+	vr::IVROverlay* pov = vr::VROverlay();
+	if (!pvrSystem || !pd3dDevice || !pov || i_panel < 0 || i_panel > 2)
+		return false;
+	STextPanel& tp = atpPanel[i_panel];
+	if (tp.h == vr::k_ulOverlayHandleInvalid)
+	{
+		const char* psz_key = i_panel == 0 ? "opentrespasser.vr.title" : (i_panel == 1 ? "opentrespasser.vr.message" : "opentrespasser.vr.subtitle");
+		if (pov->CreateOverlay(psz_key, psz_key, &tp.h) != vr::VROverlayError_None)
+		{
+			tp.h = vr::k_ulOverlayHandleInvalid;
+			return false;
+		}
+		pov->SetOverlaySortOrder(tp.h, 10 + i_panel);
+	}
+	std::string str_key = std::string(str_title ? str_title : "") + "\x1f" + (str_body ? str_body : "");
+	if (str_key == tp.strKey && tp.ptex)
+		return true;
+	tp.strKey = str_key;
+
+	LoadTitleFont();
+	const int i_w = i_panel == 0 ? 1536 : 1024;		// (The title card is 1.5 times as wide.)
+	const int i_h = i_panel == 2 ? 200 : 320;
+	BITMAPINFO bmi = {};
+	bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+	bmi.bmiHeader.biWidth = i_w;
+	bmi.bmiHeader.biHeight = -i_h;
+	bmi.bmiHeader.biPlanes = 1;
+	bmi.bmiHeader.biBitCount = 32;
+	bmi.bmiHeader.biCompression = BI_RGB;
+	void* pv_bits = nullptr;
+	HDC hdc = CreateCompatibleDC(nullptr);
+	HBITMAP hbm = hdc ? CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pv_bits, nullptr, 0) : nullptr;
+	if (!hdc || !hbm || !pv_bits)
+	{
+		if (hbm) DeleteObject(hbm);
+		if (hdc) DeleteDC(hdc);
+		return false;
+	}
+	HGDIOBJ h_old = SelectObject(hdc, hbm);
+	std::memset(pv_bits, 0, (size_t)i_w * i_h * 4);
+	SetBkMode(hdc, TRANSPARENT);
+
+	static const char* const apszTitle[] = { "Jurassic Park", "JurassicPark", "Jurassic Park Regular", "Trajan Pro", "Trajan", "Copperplate Gothic Bold", "Georgia" };
+	static const char* const apszBody[]  = { "Arial" };
+	std::vector<HFONT> ahf;
+	if (i_panel == 0)
+	{
+		// Title card: "Level 1" small above, "The Beach" large (smaller if it would not fit).
+		HFONT hf_small = hfPick(hdc, 54, FW_NORMAL, apszTitle, 7);
+		HFONT hf_big = nullptr;
+		for (int i_size = 130; i_size >= 50; i_size -= 10)
+		{
+			hf_big = hfPick(hdc, i_size, FW_BOLD, apszTitle, 7);
+			HGDIOBJ h_prev = SelectObject(hdc, hf_big);
+			SIZE sz = {};
+			const char* psz = str_body ? str_body : "";
+			GetTextExtentPoint32A(hdc, psz, (int)strlen(psz), &sz);
+			SelectObject(hdc, h_prev);
+			if (sz.cx <= i_w - 120 || i_size <= 50)
+				break;
+			DeleteObject(hf_big);
+		}
+		ahf.push_back(hf_small); ahf.push_back(hf_big);
+		RECT rc_small = { 0, 20, i_w, 95 }, rc_big = { 0, 100, i_w, 290 };
+		SetTextColor(hdc, RGB(215, 205, 175));
+		SelectObject(hdc, hf_small);
+		DrawTextA(hdc, str_title ? str_title : "", -1, &rc_small, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+		SetTextColor(hdc, RGB(255, 245, 215));
+		SelectObject(hdc, hf_big);
+		DrawTextA(hdc, str_body ? str_body : "", -1, &rc_big, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+	}
+	else
+	{
+		// Message: wrapped text (the game's menu face).
+		HFONT hf = hfPick(hdc, i_panel == 2 ? 42 : 46, FW_SEMIBOLD, apszBody, 1);
+		ahf.push_back(hf);
+		SelectObject(hdc, hf);
+		SetTextColor(hdc, RGB(255, 255, 255));
+		RECT rc = { 40, 20, i_w - 40, i_h - 20 };
+		RECT rc_calc = rc;
+		DrawTextA(hdc, str_body ? str_body : "", -1, &rc_calc, DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
+		int i_text_h = rc_calc.bottom - rc_calc.top;
+		rc.top = (std::max)(20, (i_h - i_text_h) / 2);
+		DrawTextA(hdc, str_body ? str_body : "", -1, &rc, DT_CENTER | DT_WORDBREAK);
+	}
+	GdiFlush();
+
+	std::vector<uint32_t> au4((size_t)i_w * i_h);
+	const uint32_t* pu4_src = (const uint32_t*)pv_bits;
+
+	// Messages: the dark box fits snugly around the text (rounded corners).
+	int i_bx0 = i_w, i_by0 = i_h, i_bx1 = -1, i_by1 = -1;
+	for (int i = 0; i < i_w * i_h; i++)
+		if (pu4_src[i] & 0x00FFFFFF)
+		{
+			int x = i % i_w, y = i / i_w;
+			i_bx0 = (std::min)(i_bx0, x); i_bx1 = (std::max)(i_bx1, x);
+			i_by0 = (std::min)(i_by0, y); i_by1 = (std::max)(i_by1, y);
+		}
+	const int iPAD = 22, iCORNER = 18;
+	i_bx0 -= iPAD; i_by0 -= iPAD; i_bx1 += iPAD; i_by1 += iPAD;
+	auto b_in_box = [&](int x, int y)
+	{
+		if (x < i_bx0 || x > i_bx1 || y < i_by0 || y > i_by1)
+			return false;
+		int dx = x < i_bx0 + iCORNER ? i_bx0 + iCORNER - x : (x > i_bx1 - iCORNER ? x - (i_bx1 - iCORNER) : 0);
+		int dy = y < i_by0 + iCORNER ? i_by0 + iCORNER - y : (y > i_by1 - iCORNER ? y - (i_by1 - iCORNER) : 0);
+		return dx * dx + dy * dy <= iCORNER * iCORNER;
+	};
+
+	for (int i = 0; i < i_w * i_h; i++)
+	{
+		uint32_t u = pu4_src[i];
+		int b = u & 255, g = (u >> 8) & 255, r = (u >> 16) & 255;
+		int a = (std::max)(r, (std::max)(g, b));
+		int x = i % i_w, y = i / i_w;
+		int a_bg;
+		if (i_panel == 0)
+		{
+			// A soft dark band behind the title, fading at the ends.
+			float f_x = std::fabs((x - i_w * 0.5f) / (i_w * 0.5f));
+			float f_y = std::fabs((y - i_h * 0.55f) / (i_h * 0.5f));
+			float f = (1.0f - f_x * f_x) * (1.0f - f_y * f_y);
+			a_bg = (int)(120 * (std::max)(0.0f, f));
+		}
+		else
+			a_bg = b_in_box(x, y) ? 140 : 0;
+		int a_out = (std::max)(a, a_bg);
+		// Premultiply-free: text colour where text is, black panel elsewhere.
+		if (a < a_bg)
+		{
+			float f_t = a_bg > 0 ? (float)a / a_bg : 0;
+			r = (int)(r * f_t); g = (int)(g * f_t); b = (int)(b * f_t);
+		}
+		au4[i] = (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16) | ((uint32_t)a_out << 24);
+	}
+	SelectObject(hdc, h_old);
+	for (HFONT hf : ahf)
+		if (hf) DeleteObject(hf);
+	DeleteObject(hbm);
+	DeleteDC(hdc);
+
+	if (tp.ptex)
+	{
+		tp.ptex->Release();
+		tp.ptex = nullptr;
+	}
+	D3D11_TEXTURE2D_DESC td = {};
+	td.Width = i_w;
+	td.Height = i_h;
+	td.MipLevels = 1;
+	td.ArraySize = 1;
+	td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	td.SampleDesc.Count = 1;
+	td.Usage = D3D11_USAGE_DEFAULT;
+	td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	D3D11_SUBRESOURCE_DATA srd = { au4.data(), (UINT)(i_w * 4), 0 };
+	if (FAILED(pd3dDevice->CreateTexture2D(&td, &srd, &tp.ptex)))
+		return false;
+	vr::Texture_t tex = { (void*)tp.ptex, vr::TextureType_DirectX, vr::ColorSpace_Gamma };
+	pov->SetOverlayTexture(tp.h, &tex);
+	return true;
+}
+
+// Places a text panel: f_dist ahead of the view, f_down below eye level, f_width wide.
+// b_follow: stays in view as the head turns (messages); otherwise fixed where you were looking.
+void VRB_TextPanelShow(int i_panel, float f_alpha, float f_width, float f_dist, float f_down, bool b_follow, bool b_reanchor)
+{
+	vr::IVROverlay* pov = vr::VROverlay();
+	if (!pov || !pvrSystem || i_panel < 0 || i_panel > 2)
+		return;
+	STextPanel& tp = atpPanel[i_panel];
+	if (tp.h == vr::k_ulOverlayHandleInvalid || !tp.ptex)
+		return;
+	if (f_alpha <= 0.002f)
+	{
+		pov->HideOverlay(tp.h);
+		return;
+	}
+	pov->SetOverlayAlpha(tp.h, (std::min)(1.0f, f_alpha));
+	pov->SetOverlayWidthInMeters(tp.h, f_width);
+	if (b_follow)
+	{
+		// Head-locked, low in the view and tilted up to face you.
+		vr::HmdMatrix34_t mt = {};
+		float f_tilt = std::atan2(f_down, f_dist);
+		float c = std::cos(f_tilt), sn = std::sin(f_tilt);
+		mt.m[0][0] = 1;
+		mt.m[1][1] = c;  mt.m[1][2] = sn;
+		mt.m[2][1] = -sn; mt.m[2][2] = c;
+		mt.m[0][3] = 0; mt.m[1][3] = -f_down; mt.m[2][3] = -f_dist;
+		pov->SetOverlayTransformTrackedDeviceRelative(tp.h, vr::k_unTrackedDeviceIndex_Hmd, &mt);
+	}
+	else
+	{
+		static vr::HmdMatrix34_t amtAnchor[3];
+		static bool abAnchored[3] = { false, false, false };
+		if (b_reanchor || !abAnchored[i_panel])
+		{
+			vr::TrackedDevicePose_t pose;
+			pvrSystem->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
+			const vr::HmdMatrix34_t& m = pose.mDeviceToAbsoluteTracking;
+			float f_fx = -m.m[0][2], f_fz = -m.m[2][2];
+			float f_len = std::sqrt(f_fx * f_fx + f_fz * f_fz);
+			if (f_len < 1e-3f) { f_fx = 0; f_fz = -1; f_len = 1; }
+			f_fx /= f_len; f_fz /= f_len;
+			vr::HmdMatrix34_t& mt = amtAnchor[i_panel];
+			mt = {};
+			float f_zx = -f_fx, f_zz = -f_fz;
+			mt.m[0][0] = f_zz;  mt.m[0][1] = 0; mt.m[0][2] = f_zx; mt.m[0][3] = m.m[0][3] + f_fx * f_dist;
+			mt.m[1][0] = 0;     mt.m[1][1] = 1; mt.m[1][2] = 0;    mt.m[1][3] = m.m[1][3] - f_down;
+			mt.m[2][0] = -f_zx; mt.m[2][1] = 0; mt.m[2][2] = f_zz; mt.m[2][3] = m.m[2][3] + f_fz * f_dist;
+			abAnchored[i_panel] = true;
+		}
+		vr::HmdMatrix34_t mt = amtAnchor[i_panel];
+		pov->SetOverlayTransformAbsolute(tp.h, vr::TrackingUniverseStanding, &mt);
+	}
+	pov->ShowOverlay(tp.h);
+}
+
+int VRB_TitleFontState()
+{
+	return iTitleFontState;
+}
