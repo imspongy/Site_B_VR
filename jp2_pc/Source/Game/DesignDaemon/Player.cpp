@@ -5054,25 +5054,7 @@ private:
 		};
 
 		CVector3<> v3_normal;
-		pinsVRBlocker = nullptr;
 		CVector3<> v3_step = v3_sweep(v3_d, v3_normal);
-
-		// Running into something movable (a gate, a crate) shoves it, as hard as she is moving:
-		// enough to knock down the beach gate at a sprint, not enough to push a wall of crates
-		// at a walk.
-		if (pinsVRBlocker && f_dt > 0)
-		{
-			const CPhysicsInfo* pphi_b = pinsVRBlocker->pphiGetPhysicsInfo();
-			float f_speed = v3_d.tLen() / f_dt;
-			if (pphi_b && pphi_b->bIsMovable() && f_speed > 1.0f && CMessageStep::sStaticTotal - sVRLastShove > 0.25)
-			{
-				sVRLastShove = CMessageStep::sStaticTotal;
-				CVector3<> v3_dir = v3_d / v3_d.tLen();
-				// Her weight times her speed, more when sprinting (a shoulder charge).
-				float f_impulse = 60.0f * f_speed * (f_speed > 3.5f ? 2.0f : 0.6f);
-				pphi_b->ApplyImpulse(pinsVRBlocker, 0, v3VRBlockAt, v3_dir * f_impulse);
-			}
-		}
 		v3VRFeet += v3_step;
 		CVector3<> v3_rest = v3_d - v3_step;
 		if (v3_rest.tLen() > 0.001f && v3_normal.tLen() > 0.1f)
@@ -5138,7 +5120,10 @@ private:
 		}
 
 		float f_floor;
-		if (bVRGrounded)
+		if (bVRSwimming)
+		{
+		}
+		else if (bVRGrounded)
 		{
 			if (b_floor(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fSTEP, fSTEP + 0.45f, f_floor))
 				v3VRFeet.tZ = f_floor;
