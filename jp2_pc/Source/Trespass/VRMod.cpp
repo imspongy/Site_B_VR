@@ -44,6 +44,7 @@
 #include "Game/AI/AIMain.hpp"
 
 static void HideLoadingIfDone();
+static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for the capture log.
 
 #include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/Camera.hpp"
@@ -919,6 +920,8 @@ namespace
 		std::string str_dir = strExeDir() + "\\VRCapture";
 		Log("Capture %d: saving %d frames (the last %.0f seconds) to VRCapture.", i_session, i_n, i_n * 0.2);
 		VRScene_LogPhysics();
+		gVR.bLogBodyRequest = true;
+		Log("View now: eye %.2f, room floor %.2f, your head %.2f above it.", v3Origin.tZ + v3LastHeadTrack.tZ, v3Origin.tZ, v3LastHeadTrack.tZ);
 		std::thread([au4_copy, i_n, i_session, str_dir]()
 		{
 			CreateDirectoryA(str_dir.c_str(), nullptr);
@@ -1649,6 +1652,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	bLastCamHead    = b_camera_on_head;
 
 	const CVector3<> v3_head_track = v3Game(fr.posHead.afP);
+	v3LastHeadTrack = v3_head_track;
 	const CRotate3<> r3_head_track = r3Game(fr.posHead.afQ);
 
 	// Recenter: turn-stick click.  Sprint: walk-stick click.
@@ -1767,13 +1771,16 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 				f_real_eye = (std::max)(f_real_eye, v3_head_track.tZ);
 			float f_anne_eye = setVR.fAnneEyeHeight;
 			// Crouching for real: her body goes down with you.
-			gVR.fRealCrouch = (b_real && f_real_eye > 0 && fr.posHead.bValid) ? (std::max)(0.0f, f_real_eye - 0.08f - v3_head_track.tZ) : 0.0f;
-			float f_scale = 1.0f;
-			if (b_real && f_real_eye > 0 && f_anne_eye > 0)
-				f_scale = (std::min)(1.3f, (std::max)(0.85f, (f_real_eye + setVR.fExtraHeight) / f_anne_eye));
-			if (std::fabs(f_scale - gVR.fBodyScale) > 0.01f)
-				Log("Height: you %.2f m eye height, Anne %.2f m: her body drawn %.2f times.", f_real_eye, f_anne_eye, f_scale);
-			gVR.fBodyScale = f_scale;
+			gVR.fRealCrouch = 0.0f;		// (Her body crouching with you: taken out with the above.)
+			// (Drawing her body bigger to match your height went wrong: taken out.  Her body is
+			// drawn at her own size, feet on the ground.)
+			static float f_logged_eye = 0;
+			if (std::fabs(f_real_eye - f_logged_eye) > 0.01f)
+			{
+				f_logged_eye = f_real_eye;
+				Log("Height: you %.2f m eye height, Anne %.2f m.", f_real_eye, f_anne_eye);
+			}
+			gVR.fBodyScale = 1.0f;
 		}
 		if (!bBaseZInit || std::fabs(f_target_z - fBaseZ) > 1.5f)
 			fBaseZ = f_target_z;

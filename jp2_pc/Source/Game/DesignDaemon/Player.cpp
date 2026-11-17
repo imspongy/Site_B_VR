@@ -5129,6 +5129,25 @@ private:
 				v3VRFeet.tZ = f_new_z;
 		}
 
+		// (Capture log: her body's heights, and everything the floor test finds under her.)
+		if (gVR.bLogBodyRequest && gVR.pfnLog)
+		{
+			gVR.bLogBodyRequest = false;
+			gVR.pfnLog("Body now: feet %.2f, physics origin %.2f (%.2f above feet), drawn origin %.2f, crouch %.2f, %s, on %s.",
+				v3VRFeet.tZ, v3Pos().tZ, fVRBodyAboveFeet, pr3GetPresence().v3Pos.tZ, fVRCrouch,
+				bVRGrounded ? "grounded" : "in the air", pins_floor ? pins_floor->strGetInstanceName() : "nothing");
+			CPlacement3<> p3_cast(CRotate3<>(d3YAxis, CDir3<>(0, 0, -1)), CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + 1.0f));
+			CRayCast rc(p3_cast, 0.12f, 3.0f);
+			SObjectLoc* pobl;
+			while ((pobl = rc.poblNextIntersection()))
+			{
+				const CPhysicsInfo* pphi = pobl->pinsObject ? pobl->pinsObject->pphiGetPhysicsInfo() : nullptr;
+				gVR.pfnLog("  Under her: %s at %.2f, %s%s%s, counts as floor: %s.", pobl->pinsObject ? pobl->pinsObject->strGetInstanceName() : "?",
+					pobl->v3Location.tZ, pphi && pphi->bIsTangible() ? "solid" : "not solid", pphi && pphi->bIsMovable() ? ", movable" : "",
+					pphi && pphi->bIsMovable() ? "" : "", b_solid(pobl->pinsObject, false) ? "yes" : "no");
+			}
+		}
+
 		// Crouch button: lowers the body (and so the view).  Crouching for real (RealHeight)
 		// lowers the body too, so her head stays with yours; your view already went down.
 		{
