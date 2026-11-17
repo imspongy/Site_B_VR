@@ -89,7 +89,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 12;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 13;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -136,7 +136,7 @@ namespace
 		float fTerrainDetail  = 1.0f;
 		float fExtraHeight    = 0.0f;	// Metres added to your height in the game.
 		bool  bRealHeight     = true;	// Your real floor is the game's floor; Anne is drawn at your height.
-		float fAnneEyeHeight  = 1.60f;	// Anne's own eye height above her feet (m).
+		float fAnneEyeHeight  = 1.55f;	// Anne's own eye height above her feet (m).
 		float fFogScale       = 1.3f;
 		float fRecoil         = 1.0f;
 		bool  bShowPhysics    = false;
@@ -429,7 +429,7 @@ namespace
 			";     real, and Anne's body is drawn at your height.  0 = Anne's own eye height.\n"
 			"RealHeight=1\n"
 			"; Anne's own eye height (m).  If her body sits too low under your view, lower this; too high, raise it.\n"
-			"AnneEyeHeight=1.60\n"
+			"AnneEyeHeight=1.55\n"
 			"; Extra height (metres) added to yours in the game.\n"
 			"ExtraHeight=0.0\n"
 			"\n"
@@ -515,7 +515,7 @@ namespace
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
 		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.0f);
 		s.bRealHeight     = fIni(str_file, "RealHeight", 1) != 0;
-		s.fAnneEyeHeight  = (std::min)(2.0f, (std::max)(1.2f, fIni(str_file, "AnneEyeHeight", 1.60f)));
+		s.fAnneEyeHeight  = (std::min)(2.0f, (std::max)(1.2f, fIni(str_file, "AnneEyeHeight", 1.55f)));
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
@@ -1360,8 +1360,14 @@ namespace
 			{ "To strike with an object, pick up the object and press the space bar.", "To strike with an object, hold it and swing it hard." },
 			{ "You can always press F1 for a hint about what to do next", "You can always press Square (X) on your left controller for a hint about what to do next." },
 		};
+		auto str_trim = [](std::string str)
+		{
+			while (!str.empty() && (str.back() == '.' || str.back() == ' '))
+				str.pop_back();
+			return str;
+		};
 		for (const SPair& pr : apairs)
-			if (_stricmp(str_in.c_str(), strSquash(pr.strFrom).c_str()) == 0)
+			if (_stricmp(str_trim(str_in).c_str(), str_trim(strSquash(pr.strFrom)).c_str()) == 0)
 				return pr.strTo;
 		// Anything else: swap the mouse and keyboard words for the controllers'.
 		static const SPair arepl[] =

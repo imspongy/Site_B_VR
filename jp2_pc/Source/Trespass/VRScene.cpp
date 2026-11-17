@@ -461,6 +461,7 @@ namespace
 	// (tangible) or blue (not), so you can see where things really are to the physics.
 	// A capture also logs them.
 	bool gbShowPhysics = false;
+	std::vector<CInstance*> apinsNear, apinsNearLast;	// Drawn within 8 m (this frame, last frame).
 	int  iPhysTexRed = 0, iPhysTexBlue = 0;
 	CVector3<> v3LastEye;
 
@@ -995,6 +996,10 @@ namespace
 		float f_r = pme->fRadius * std::fabs(pr3.rScale) + 1.0f;
 		CVector3<> v3_to = pr3.v3Pos - wk.v3Eye;
 		float f_dist = v3_to.tLen();
+
+		// (For the capture log: everything near you, physics or not.)
+		if (f_dist - f_r < 8.0f && apinsNear.size() < 200)
+			apinsNear.push_back(pins);
 		if (f_dist - f_r > wk.fFar)
 		{
 			ws.iFar++;
@@ -1694,6 +1699,9 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wk.papinsTerrainObjs = b_new_level ? &apins_trr : nullptr;
 
 	iObjects = iSkinned = iTexturesWaiting = 0;
+	setAnimatedThisFrame.clear();
+	apinsNearLast.swap(apinsNear);
+	apinsNear.clear();
 	SWalkStats ws = {};
 	Visit(pwWorld->ppartPartitionList(), wk, ws);
 	if (b_new_level && pwWorld->ppartTerrainPartitionList())
@@ -1877,4 +1885,27 @@ void VRScene_LogPhysics()
 			bvb[ebeMAX_X] - bvb[ebeMIN_X], bvb[ebeMAX_Y] - bvb[ebeMIN_Y], bvb[ebeMAX_Z] - bvb[ebeMIN_Z],
 			pins->fGetScale(), f_mesh, pins->v3Pos().tX, pins->v3Pos().tY, pins->v3Pos().tZ);
 	});
+
+	// Everything drawn near you, with its physics (or lack of it) and where its mesh really is.
+	gVR.pfnLog("Objects drawn near you:");
+	for (CInstance* pins : apinsNearLast)
+	{
+		rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
+		if (!pmsh || pins == gpPlayer)
+			continue;
+		CVector3<> v3_min(1e9f, 1e9f, 1e9f), v3_max(-1e9f, -1e9f, -1e9f);
+		for (uint u = 0; u < pmsh->pav3Points.uLen; u++)
+		{
+			CVector3<> v3 = pmsh->pav3Points[u] * pins->pr3Presence();
+			v3_min.tX = std::min(v3_min.tX, v3.tX); v3_min.tY = std::min(v3_min.tY, v3.tY); v3_min.tZ = std::min(v3_min.tZ, v3.tZ);
+			v3_max.tX = std::max(v3_max.tX, v3.tX); v3_max.tY = std::max(v3_max.tY, v3.tY); v3_max.tZ = std::max(v3_max.tZ, v3.tZ);
+		}
+		const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+		const char* str_phys = !pphi ? "no physics" : pphi == &phiDEFAULT ? "default (none)" :
+		                       pphi->pphicCast() ? "compound" : pphi->ppibCast() ? "box" : pphi->ppisCast() ? "skeleton" : "other";
+		gVR.pfnLog("  %s: %s%s%s, mesh from (%.2f, %.2f, %.2f) to (%.2f, %.2f, %.2f), origin (%.2f, %.2f, %.2f)%s",
+			pins->strGetInstanceName(), str_phys, pphi && pphi->bIsTangible() ? ", solid" : "", pphi && pphi->bIsMovable() ? ", movable" : "",
+			v3_min.tX, v3_min.tY, v3_min.tZ, v3_max.tX, v3_max.tY, v3_max.tZ, pins->v3Pos().tX, pins->v3Pos().tY, pins->v3Pos().tZ,
+			ptCast<CTerrainObj>(pins) ? ", ground texture" : "");
+	}
 }
