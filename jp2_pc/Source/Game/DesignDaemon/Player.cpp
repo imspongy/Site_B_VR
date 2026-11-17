@@ -5093,6 +5093,8 @@ private:
 			{
 				sVRLastPush = CMessageStep::sStaticTotal;
 				float f_m = Min(Max(pphi_p->fMass(pinsVRPush), 5.0f), 300.0f);
+				if (!pphi_p->bIsActive(pinsVRPush))
+					pphi_p->Activate(pinsVRPush);
 				pphi_p->ApplyImpulse(pinsVRPush, 0, v3VRPushAt, v3VRPushDir * (f_m * Min(f_speed, 4.0f) * 0.6f));
 				if (gVR.pfnLog)
 					gVR.pfnLog("Body: pushed %s (%.0f kg) at %.1f m/s.", pinsVRPush->strGetInstanceName(), pphi_p->fMass(pinsVRPush), f_speed);
@@ -5542,6 +5544,27 @@ private:
 			pr3VRRealPresence = pr3GetPresence();
 			CVector3<> v3_shift(gVR.afBodyTarget[0] - pr3VRRealPresence.v3Pos.tX,
 			                    gVR.afBodyTarget[1] - pr3VRRealPresence.v3Pos.tY, gVR.fBodyZShift);
+			if (gVR.bBodyFromView && gVR.bViewEyeValid)
+			{
+				// Her head (the highest joint of her skeleton) goes at your eyes: placed by the
+				// model itself, whatever its origin is.
+				int i_top = -1;
+				for (int j = 0; j < i_transforms; j++)
+					if (i_top < 0 || atf3_ref[j].v3Pos.tZ > atf3_ref[i_top].v3Pos.tZ)
+						i_top = j;
+				if (i_top >= 0)
+				{
+					float f_head_z = (atf3_ref[i_top].v3Pos * pr3VRRealPresence).tZ;
+					v3_shift.tZ = (gVR.fViewEyeZ - gVR.fHeadBelowEye) - f_head_z;
+					static bool b_logged = false;
+					if (!b_logged && gVR.pfnLog)
+					{
+						b_logged = true;
+						gVR.pfnLog("Body: head joint %d is %.2f m above her origin; drawn %.2f m %s.", i_top,
+							f_head_z - pr3VRRealPresence.v3Pos.tZ, std::fabs(v3_shift.tZ), v3_shift.tZ < 0 ? "lower" : "higher");
+					}
+				}
+			}
 			if (v3_shift.tLen() < 1.5f)
 			{
 				CPresence3<> pr3_shifted = pr3VRRealPresence;

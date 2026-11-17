@@ -90,7 +90,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 14;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 15;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -139,6 +139,7 @@ namespace
 		bool  bRealHeight     = true;	// Your real floor is the game's floor; Anne is drawn at your height.
 		float fAnneEyeHeight  = 1.55f;	// Anne's own eye height above her feet (m).
 		bool  bBodyFromView   = true;	// Her visible body is placed from your view (head at your eyes).
+		float fHeadBelowEye   = 0.05f;	// Her head joint sits this far below your eyes.
 		float fFogScale       = 1.3f;
 		float fRecoil         = 1.0f;
 		bool  bShowPhysics    = false;
@@ -434,6 +435,8 @@ namespace
 			"AnneEyeHeight=1.55\n"
 			"; 1 = Anne's body hangs from your view, so her head is always at yours.  0 = her feet on the ground.\n"
 			"BodyFromView=1\n"
+			"; With BodyFromView: how far below your eyes her head sits (m).  Raise it if her body is too high, lower it if too low.\n"
+			"HeadBelowEye=0.05\n"
 			"; Extra height (metres) added to yours in the game.\n"
 			"ExtraHeight=0.0\n"
 			"\n"
@@ -521,6 +524,7 @@ namespace
 		s.bRealHeight     = fIni(str_file, "RealHeight", 1) != 0;
 		s.fAnneEyeHeight  = (std::min)(2.0f, (std::max)(1.2f, fIni(str_file, "AnneEyeHeight", 1.55f)));
 		s.bBodyFromView   = fIni(str_file, "BodyFromView", 1) != 0;
+		s.fHeadBelowEye   = fIni(str_file, "HeadBelowEye", 0.05f);
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
@@ -1808,14 +1812,12 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		bBaseZInit = true;
 		v3Origin.tZ = b_real ? fBaseZ + setVR.fExtraHeight : fBaseZ - v3Calib.tZ + setVR.fExtraHeight;
 		gVR.fBodyZShift = fBaseZ - f_target_z;
-		if (b_real && setVR.bBodyFromView && gpPlayer && gVR.fBodyAboveFeet > 0.5f && fr.posHead.bValid)
-		{
-			// Her visible body hangs from your view: her eyes at yours, whatever your height
-			// (her feet may then sit a little off the ground).  Her physics body is unchanged.
-			float f_eye_z = v3Origin.tZ + v3_head_track.tZ;
-			float f_origin_want = f_eye_z - (setVR.fAnneEyeHeight - gVR.fBodyAboveFeet);
-			gVR.fBodyZShift = f_origin_want - gpPlayer->v3Pos().tZ;
-		}
+		// Her visible body hangs from your view: her head at your eyes, whatever your height
+		// (Player.cpp places it by her head joint).  Her physics body is unchanged.
+		gVR.bBodyFromView = setVR.bBodyFromView;
+		gVR.bViewEyeValid = fr.posHead.bValid;
+		gVR.fViewEyeZ = v3Origin.tZ + v3_head_track.tZ;
+		gVR.fHeadBelowEye = setVR.fHeadBelowEye;
 
 		//
 		// Body: Anne stands under your head.  If she can't get there (blocked), pull the room

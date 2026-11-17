@@ -107,6 +107,10 @@ struct SVRShared
 	float afHeldLength[2] = { 0, 0 };
 	float fKinFeetZ = 0;			// The character controller's feet (world height).
 	float fBodyAboveFeet = 0;		// Her body origin's height above her feet (m).
+	bool  bBodyFromView = true;		// Her visible body is placed so her head is at your eyes.
+	bool  bViewEyeValid = false;
+	float fViewEyeZ = 0;			// Your eyes (world height).
+	float fHeadBelowEye = 0.05f;	// Her head joint sits this far below your eyes (m).
 	float fKinCrouch = 0;			// How far the crouch button has lowered her (m).
 	bool  bLogBodyRequest = false;	// A capture asks the body for its numbers.
 	float fRealCrouch = 0;			// How far below your standing height your head is now (m).
