@@ -1863,6 +1863,7 @@ void VRScene_AbortFrame()
 
 //**********************************************************************************************
 void VRPhysicsSlotReport();	// (InfoBox.cpp)
+void VRIgnoreReport(void (*pfn_log)(const char*, ...));	// (PhysicsSystem.cpp)
 
 void VRScene_LogPhysics()
 {
@@ -1871,6 +1872,7 @@ void VRScene_LogPhysics()
 	if (!gVR.pfnLog)
 		return;
 	VRPhysicsSlotReport();
+	VRIgnoreReport(gVR.pfnLog);
 	gVR.pfnLog("Physics near you (%.1f, %.1f, %.1f):", v3LastEye.tX, v3LastEye.tY, v3LastEye.tZ);
 	int i_n = 0;
 	ForEachPhysicsBox(v3LastEye, 8.0f, [&](CInstance* pins, const CPhysicsInfo* pphi, int i_sub, const CPlacement3<>& p3, const CBoundVolBox& bvb)

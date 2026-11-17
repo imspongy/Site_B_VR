@@ -160,6 +160,10 @@ public:
 
 	//*****************************************************************************************
 	//
+	// VR log: lists the pass-through pairs.
+	void VRIgnoreReport(void (*pfn_log)(const char*, ...)) const;
+
+	//******************************************************************************************
 	bool bIgnoreCollisions
 	(
 		CInstance* pins_me, CInstance* pins_you		// The instances to test.

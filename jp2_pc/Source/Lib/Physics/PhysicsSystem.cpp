@@ -612,6 +612,21 @@ public:
 	}
 
 	//**********************************************************************************************
+	void CPhysicsSystem::VRIgnoreReport(void (*pfn_log)(const char*, ...)) const
+	{
+		pfn_log("Pass-through pairs: %d.", (int)setinsprIgnore.size());
+		int i_n = 0;
+		for (TSetInstancePair::const_iterator it = setinsprIgnore.begin(); it != setinsprIgnore.end() && i_n < 80; ++it, ++i_n)
+		{
+			const CInstance* pins_a = (*it).first;
+			const CInstance* pins_b = (*it).second;
+			std::string str_a = pins_a ? pins_a->strGetInstanceName() : "nothing";
+			std::string str_b = pins_b ? pins_b->strGetInstanceName() : "nothing";
+			pfn_log("  %s / %s", str_a.c_str(), str_b.c_str());
+		}
+	}
+
+	//**********************************************************************************************
 	bool CPhysicsSystem::bIgnoreCollisions(CInstance* pins_me, CInstance* pins_you) const
 	{
 		CTimeBlock	tmb(&psIgnoramus);
@@ -1216,3 +1231,11 @@ public:
 	}
 #endif
 
+//**********************************************************************************************
+// VR log: every pair of objects the physics has been told to let pass through each other.
+void VRIgnoreReport(void (*pfn_log)(const char*, ...))
+{
+	if (!pfn_log || !pphSystem)
+		return;
+	pphSystem->VRIgnoreReport(pfn_log);
+}

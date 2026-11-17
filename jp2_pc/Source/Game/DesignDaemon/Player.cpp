@@ -4896,19 +4896,20 @@ private:
 				{
 					// Her body (moved straight to where you are) would shove it open with
 					// unstoppable force; only her hands may.
+					// (No longer tells the physics to let her body boxes pass through it: the
+					// game resolves that against the gate's master, and gate 1 ended up passing
+					// everything.)
 					CInstance* pins_gate = pins_master ? pins_master : pins;
-					if (setVRHingedIgnored.insert(pins_gate).second)
-					{
-						for (int i = 0; i < (int)ebbEND; i++)
-							if (apbbBoundaryBoxes[i] && apbbBoundaryBoxes[i] != pinsHand)
-								pphSystem->IgnoreCollisions(apbbBoundaryBoxes[i], pins_gate, true);
-						if (gVR.pfnLog)
-							gVR.pfnLog("Body: %s is hinged: a wall to her body, pushed by her hands.", pins_gate->strGetInstanceName());
-					}
+					if (setVRHingedIgnored.insert(pins_gate).second && gVR.pfnLog)
+						gVR.pfnLog("Body: %s is hinged: a wall to her body.", pins_gate->strGetInstanceName());
 					return true;
 				}
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
+				// (Big things count as floor whatever the game says they weigh: the ramp's
+				// planks are one movable object she couldn't stand on.)
 				float f_mass = pphi->fMass(pins);
+				if (!b_wall && pphi->pbvGetCollideVol() && pphi->pbvGetCollideVol()->fMaxExtent() * pins->fGetScale() > 0.4f)
+					return true;
 				return f_mass >= (b_wall ? 60.0f : 1.5f);
 			}
 			return true;
