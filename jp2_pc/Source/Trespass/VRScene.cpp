@@ -42,6 +42,7 @@
 #include "Lib/Renderer/Fog.hpp"
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Renderer/Particles.hpp"
+#include "Lib/Renderer/Primitives/FastBump.hpp"
 #include "Lib/Renderer/LightBlend.hpp"
 #include "Lib/Renderer/PipeLine.hpp"
 #include "Lib/EntityDBase/Animal.hpp"
@@ -416,9 +417,45 @@ namespace
 		af[8] = ax.tZ; af[9] = ay.tZ; af[10] = az.tZ; af[11] = pr3.v3Pos.tZ;
 	}
 
+	// The normal map (relief) of a bump-mapped texture, made when first asked for; 0 if none.
+	// Only animated surfaces (sea, surf, waterfalls) use these: their movement is in the relief.
+	std::unordered_map<const void*, int> mapNormalTex;
+	int iNormalTexture(const CTexture* ptex)
+	{
+		if (!ptex || ptex->iGetNumMipLevels() <= 0 || !ptex->seterfFeatures[erfBUMP])
+			return 0;
+		rptr<CRaster> pras = ptex->prasGetTexture(0);
+		const CRaster* praw = pras.ptGet();
+		if (!praw || !praw->pSurface || praw->iWidth <= 0 || praw->iHeight <= 0)
+			return 0;
+		auto it = mapNormalTex.find(praw);
+		if (it != mapNormalTex.end())
+			return it->second;
+		int i_bytes = praw->iPixelBits / 8;
+		int i_n = 0;
+		if (i_bytes == 2 || i_bytes == 4)
+		{
+			int i_w = praw->iWidth, i_h = praw->iHeight, i_stride = praw->iLinePixels;
+			std::vector<uint32_t> au4_n((size_t)i_w * i_h);
+			const uint8* pu1_r = (const uint8*)praw->pSurface;
+			for (int y = 0; y < i_h; y++, pu1_r += (size_t)i_stride * i_bytes)
+				for (int x = 0; x < i_w; x++)
+				{
+					CBumpAnglePair bang;
+					bang.br = i_bytes == 2 ? (TBumpRes)((const uint16*)pu1_r)[x] : (TBumpRes)((const uint32*)pu1_r)[x];
+					CDir3<> d3 = bang.dir3MakeNormal();
+					auto enc = [](float f) { return (uint32_t)std::max(0, std::min(255, (int)(f * 127.5f + 127.5f))); };
+					au4_n[(size_t)y * i_w + x] = enc(d3.tX) | (enc(d3.tY) << 8) | (enc(d3.tZ) << 16) | 0xFF000000u;
+				}
+			i_n = VRR_TextureCreate(i_w, i_h, au4_n.data());
+		}
+		mapNormalTex[praw] = i_n;
+		return i_n;
+	}
+
 	// Queues draws of every subset of a mesh.
 	void AddSubsets(const SMeshEntry& me, int i_mesh, const float af_world[12], uint32_t u4_flags, bool b_decal, uint32_t u4_force = 0, int i_tex_force = -1,
-	                const float* pf_uv = nullptr)
+	                const float* pf_uv = nullptr, bool b_bump = false)
 	{
 		for (const SSubset& sub : me.asub)
 		{
@@ -443,6 +480,12 @@ namespace
 			{
 				drw.afUVOffset[0] = pf_uv[0];
 				drw.afUVOffset[1] = pf_uv[1];
+			}
+			if (b_bump && i_tex_force < 0 && !b_decal)
+			{
+				drw.iNormalTex = iNormalTexture(ptex);
+				if (drw.iNormalTex)
+					drw.u4Flags |= evrrBUMP;
 			}
 			if (b_decal)
 				VRR_TerrainAddDecal(drw);
@@ -899,7 +942,8 @@ namespace
 				return;
 			}
 			float af_uv[2] = { 0, 0 };
-			if (pmsh->bIsAnimated())
+			bool b_animated = pmsh->bIsAnimated();
+			if (b_animated)
 			{
 				// The game animates these as it draws them: swap texture frames, scroll.
 				const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
@@ -911,7 +955,7 @@ namespace
 					af_uv[1] = pmsh->pamvVertices[0].tcTex.tY - pme->afUV0[1];
 				}
 			}
-			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false, 0, -1, af_uv);
+			AddSubsets(*pme, pme->iHandle, af_world, u4_flags, false, 0, -1, af_uv, b_animated);
 			iObjects++;
 		}
 	}
@@ -1376,6 +1420,7 @@ void VRScene_Shutdown()
 	mapMesh.clear();
 	mapTex.clear();
 	mapTexAlpha.clear();
+	mapNormalTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
 	setBadInstances.clear();
@@ -1412,6 +1457,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		mapMesh.clear();
 		mapTex.clear();
 		mapTexAlpha.clear();
+		mapNormalTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
 	setBadInstances.clear();

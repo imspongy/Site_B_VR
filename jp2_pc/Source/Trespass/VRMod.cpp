@@ -89,7 +89,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 10;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 11;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -102,6 +102,7 @@ namespace
 		float fPistolMaxMass  = 2.5f;	// Guns lighter than this get the pistol support grip.
 		bool  bFlipSecondCurl = false;	// Debug: fingers bend the wrong way.
 		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
+		float fHipHolsterScale = 1.8f;	// The hip holster's reach is the radius divided by this.
 		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
 		float fHandYawDeg     = 0.0f;
@@ -134,8 +135,10 @@ namespace
 		float fShadowDistance = 60.0f;
 		float fBrightness     = 1.0f;
 		float fTerrainDetail  = 1.0f;
-		float fExtraHeight    = 0.1f;	// Metres added to Anne's eye height.
+		float fExtraHeight    = 0.0f;	// Metres added to your height in the game.
+		bool  bRealHeight     = true;	// Your real floor is the game's floor; Anne is drawn at your height.
 		float fFogScale       = 1.3f;
+		float fRecoil         = 1.0f;
 		bool  bTutorial       = true;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
@@ -364,6 +367,8 @@ namespace
 			"PistolMaxMass=2.5\n"
 			"; How close (metres) your hand must be to a holster (hip / over shoulder).\n"
 			"HolsterRadius=0.25\n"
+			"; The hip holster's reach is HolsterRadius divided by this (bigger = harder to hit by accident).\n"
+			"HipHolsterScale=1.8\n"
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
 			"Haptics=1\n"
 			"; Rotate the in-game hand relative to your controller (degrees).\n"
@@ -421,8 +426,11 @@ namespace
 			"TerrainDetail=1.0\n"
 			"; The game's fog, spread over this many times its normal view distance (1 = original).\n"
 			"FogScale=1.3\n"
-			"; Extra height for Anne (metres): raises your view and hands above hers.\n"
-			"ExtraHeight=0.1\n"
+			"; 1 = your real floor is the game's floor: you stand at your own height and crouch for\n"
+			";     real, and Anne's body is drawn at your height.  0 = Anne's own eye height.\n"
+			"RealHeight=1\n"
+			"; Extra height (metres) added to yours in the game.\n"
+			"ExtraHeight=0.0\n"
 			"\n"
 			"; --- Guns and throwing ---\n"
 			"; How far guns sit back into the palm and across toward its middle (metres), and how big\n"
@@ -430,6 +438,8 @@ namespace
 			"GunBack=0.04\n"
 			"GunSide=-0.02\n"
 			"GunScale=0.85\n"
+			"; How much guns kick (0 = none).\n"
+			"Recoil=1.0\n"
 			"; Thrown things go this much faster than your hand.\n"
 			"ThrowScale=1.3\n"
 			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
@@ -480,9 +490,11 @@ namespace
 		gVR.bSubtitles    = fIni(str_file, "Subtitles", 1.0f) > 0.5f;
 		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
 		gVR.fGunSide      = fIni(str_file, "GunSide", -0.02f);
+		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
 		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
+		s.fHipHolsterScale = (std::max)(0.5f, fIni(str_file, "HipHolsterScale", 1.8f));
 		s.fHaptics        = fIni(str_file, "Haptics", 1);
 		s.fHandPitchDeg   = fIni(str_file, "HandPitch", 0);
 		s.fHandYawDeg     = fIni(str_file, "HandYaw", 0);
@@ -498,7 +510,8 @@ namespace
 		s.fShadowDistance = fIni(str_file, "ShadowDistance", 60);
 		s.fBrightness     = fIni(str_file, "Brightness", 1.0f);
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
-		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.1f);
+		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.0f);
+		s.bRealHeight     = fIni(str_file, "RealHeight", 1) != 0;
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
@@ -957,7 +970,7 @@ namespace
 	int  iSceneCrashes = 0;
 
 	//******************************************************************************************
-	// Which holster (0 hip, 1 back) the given hand is at, or -1.
+	// Which holster (0 hip, 1 right shoulder, 2 left shoulder) the given hand is at, or -1.
 	int iHolsterNear(int i_hand)
 	{
 		if (!abHandValid[i_hand])
@@ -981,12 +994,13 @@ namespace
 					v3_local.tX = -v3_local.tX;
 					v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
 				}
-				// The back slot is hard to reach precisely; be more generous there.
-				float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
+				// The back slot is hard to reach precisely; be more generous there.  The hip
+				// is close to where hands hang and hold things, so it needs a smaller target.
+				float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : setVR.fHipHolsterScale);
 				if (f_dist < f_best)
 				{
 					f_best = f_dist;
-					i_best = i;
+					i_best = (i == 1 && m == 1) ? 2 : i;
 				}
 			}
 		}
@@ -1073,12 +1087,25 @@ namespace
 				Haptic(h, 0.02f, 220.0f, 0.3f);
 			}
 
-			// Holster hover tick.
+			// Holster hover tick: only where letting go (holding something, room there) or
+			// gripping (empty hand, something there) would do something, and at most once a
+			// second, so hands resting at your sides don't buzz.
 			int i_holster = iHolsterNear(h);
 			if (i_holster != aiLastHolsterNear[h])
 			{
-				if (i_holster >= 0)
+				bool b_holding = gVR.abHolding[h];
+				bool b_full = false;
+				if (i_holster == 0)
+					b_full = gVR.abHolsterFull[0];
+				else if (i_holster >= 1)
+					b_full = b_holding ? (gVR.abHolsterFull[1] && gVR.abHolsterFull[2]) : (gVR.abHolsterFull[1] || gVR.abHolsterFull[2]);
+				bool b_useful = i_holster >= 0 && (b_holding ? !b_full : b_full);
+				static DWORD au4_last_tick[2] = { 0, 0 };
+				if (b_useful && GetTickCount() - au4_last_tick[h] > 1000)
+				{
 					Haptic(h, 0.03f, 160.0f, 0.35f);
+					au4_last_tick[h] = GetTickCount();
+				}
 				aiLastHolsterNear[h] = i_holster;
 			}
 
@@ -1714,7 +1741,32 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		// Height: Anne's (smoothed) eye height, plus how much higher or lower your real head is
 		// than when you recentred.
 		//
-		float f_target_z = v3_cam_pos.tZ;
+		//
+		// RealHeight: your real floor is the game's floor (the room's floor is put at her
+		// feet), so you stand at your own height and crouch for real; her body is drawn to
+		// your height to match.  Otherwise: her eye height plus your movement since recentring.
+		//
+		bool b_real = setVR.bRealHeight && gVR.pvKinInstance;
+		float f_target_z = b_real ? gVR.fKinFeetZ - gVR.fKinCrouch : v3_cam_pos.tZ;
+		{
+			// Your standing eye height (the highest your headset has been, sensible range),
+			// and hers (her camera above her feet when standing).
+			static float f_real_eye = 0, f_anne_eye = 0;
+			if (fr.posHead.bValid && v3_head_track.tZ > 1.0f && v3_head_track.tZ < 2.2f)
+				f_real_eye = (std::max)(f_real_eye, v3_head_track.tZ);
+			if (gVR.pvKinInstance && gVR.bKinOnFloor && gVR.fKinCrouch < 0.01f)
+			{
+				float f_above = v3_cam_pos.tZ - gVR.fKinFeetZ;
+				if (f_above > 1.2f && f_above < 2.0f)
+					f_anne_eye = (std::max)(f_anne_eye, f_above);
+			}
+			float f_scale = 1.0f;
+			if (b_real && f_real_eye > 0 && f_anne_eye > 0)
+				f_scale = (std::min)(1.3f, (std::max)(0.85f, (f_real_eye + setVR.fExtraHeight) / f_anne_eye));
+			if (std::fabs(f_scale - gVR.fBodyScale) > 0.01f)
+				Log("Height: you %.2f m eye height, Anne %.2f m: her body drawn %.2f times.", f_real_eye, f_anne_eye, f_scale);
+			gVR.fBodyScale = f_scale;
+		}
 		if (!bBaseZInit || std::fabs(f_target_z - fBaseZ) > 1.5f)
 			fBaseZ = f_target_z;
 		else if (gVR.pvKinInstance)
@@ -1735,7 +1787,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		else
 			fBaseZ = f_target_z;
 		bBaseZInit = true;
-		v3Origin.tZ = fBaseZ - v3Calib.tZ + setVR.fExtraHeight;
+		v3Origin.tZ = b_real ? fBaseZ + setVR.fExtraHeight : fBaseZ - v3Calib.tZ + setVR.fExtraHeight;
 		gVR.fBodyZShift = fBaseZ - f_target_z;
 
 		//
@@ -1871,6 +1923,55 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		CVector3<> v3_want = av3HandWorld[s] - av3HandWorld[g];
 		if (fLen(v3_want) > 0.1f && fLen(v3_barrel) > 0.5f)
 			ar3_hand[g] = ar3HandWorld[g] * CRotate3<>(CDir3<>(v3_barrel), CDir3<>(v3_want));
+	}
+
+	//
+	// Recoil: each shot kicks the gun hand's muzzle up and the gun back, easing off over a
+	// fraction of a second.  Harder held in one hand; a supporting hand steadies it.
+	//
+	{
+		static int ai_seen[2] = { 0, 0 };
+		static float af_kick[2] = { 0, 0 };		// 0..1, decaying.
+		static double d_last = 0;
+		double d_now = dNowMs();
+		float f_dt_k = d_last > 0 ? (float)((d_now - d_last) / 1000.0) : 0.0f;
+		d_last = d_now;
+		for (int h = 0; h < 2; h++)
+		{
+			if (gVR.aiShotCount[h] != ai_seen[h])
+			{
+				ai_seen[h] = gVR.aiShotCount[h];
+				if (gVR.abHoldingGun[h])
+					af_kick[h] = 1.0f;
+			}
+			af_kick[h] *= std::exp(-f_dt_k / 0.09f);
+			if (af_kick[h] < 0.01f || !gVR.abHoldingGun[h])
+			{
+				af_kick[h] = 0;
+				continue;
+			}
+			bool b_steadied = gVR.iTwoHand == (h == 0 ? 1 : 2);
+			bool b_long = gVR.afHeldLength[h] >= 0.55f;
+			float f_deg = (b_steadied ? 5.0f : (b_long ? 16.0f : 11.0f)) * setVR.fRecoil;
+			float f_back = (b_steadied ? 0.02f : 0.05f) * setVR.fRecoil;
+			const float* af_g = gVR.afHeldGrab[h];
+			CRotate3<> r3_grab(af_g[3], af_g[4], af_g[5], af_g[6], true);
+			CVector3<> v3_barrel = CVector3<>(0, 1, 0) * r3_grab * (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h];
+			CVector3<> v3_axis = v3_barrel ^ CVector3<>(0, 0, 1);
+			if (fLen(v3_axis) < 0.05f || fLen(v3_barrel) < 0.5f)
+				continue;
+			// Turn the barrel toward up by the kick angle (rotation in world space, after the hand).
+			CVector3<> v3_b = v3_barrel / fLen(v3_barrel);
+			float f_rad = f_deg * af_kick[h] * fDEG;
+			CVector3<> v3_up_dir = CVector3<>(0, 0, 1) - v3_b * v3_b.tZ;
+			if (fLen(v3_up_dir) > 0.05f)
+			{
+				v3_up_dir = v3_up_dir / fLen(v3_up_dir);
+				CVector3<> v3_kicked = v3_b * std::cos(f_rad) + v3_up_dir * std::sin(f_rad);
+				ar3_hand[h] = ar3_hand[h] * CRotate3<>(CDir3<>(v3_b), CDir3<>(v3_kicked));
+			}
+			av3HandWorld[h] = av3HandWorld[h] - v3_b * (f_back * af_kick[h]);
+		}
 	}
 
 	for (int h = 0; h < 2; h++)

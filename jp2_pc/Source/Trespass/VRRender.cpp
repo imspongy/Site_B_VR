@@ -81,6 +81,7 @@ Texture2DArray         gDetail     : register(t3);
 Texture2D<uint>        gIdMap      : register(t4);
 StructuredBuffer<float4> gDecal    : register(t5);
 Texture2D<float2>      gUvMap      : register(t6);
+Texture2D              gNormalTex  : register(t7);
 
 struct VSObjIn
 {
@@ -216,12 +217,29 @@ float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 	// face direction decides, so smooth normals near outlines are left alone).  Fixes dark
 	// patches on models whose normals point inward or that are seen from behind.
 	float3 n = normalize(i.wn);
-	float3 gn = cross(ddx(i.wp), ddy(i.wp));
+	float3 dpx = ddx(i.wp), dpy = ddy(i.wp);
+	float3 gn = cross(dpx, dpy);
 	float3 to_eye = gEyePos.xyz - i.wp;
 	if (dot(gn, to_eye) < 0)
 		gn = -gn;
 	if (dot(n, gn) < 0)
 		n = -n;
+	if (i.flags & 128)
+	{
+		// Bump map: the texel's tilt, in the surface's texture directions (from how the
+		// texture coordinates change across the screen).
+		float3 tn = gNormalTex.Sample(gSamp, i.uv).xyz * 2.0 - 1.0;
+		float2 duvx = ddx(i.uv), duvy = ddy(i.uv);
+		float3 t = dpx * duvy.y - dpy * duvx.y;
+		float3 b = dpy * duvx.x - dpx * duvy.x;
+		float det = duvx.x * duvy.y - duvx.y * duvy.x;
+		if (abs(det) > 1e-12 && dot(t, t) > 1e-20 && dot(b, b) > 1e-20)
+		{
+			t = normalize(t - n * dot(n, t)) * sign(det);
+			b = normalize(b - n * dot(n, b)) * sign(det);
+			n = normalize(t * tn.x + b * tn.y + n * max(tn.z, 0.2));
+		}
+	}
 	float3 col = Shade(c.rgb, n, i.wp, (i.flags & 8) != 0);
 	if (i.flags & 64)
 	{
@@ -1085,7 +1103,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		pCtx->IASetInputLayout(pilObject);
 		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		int i_bound_mesh = -1, i_bound_tex = -1, i_base = 0, i_first = 0;
+		int i_bound_mesh = -1, i_bound_tex = -1, i_bound_ntex = -1, i_base = 0, i_first = 0;
 		int i_state = -1;
 		int i_count = (int)aiOrder.size();
 		for (int k = 0; k < i_count; )
@@ -1100,7 +1118,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				{
 					const SVRRDraw& d2 = adrw[aiOrder[k + i_run]];
 					if (d2.iMesh != drw.iMesh || d2.iFirstIndex != drw.iFirstIndex || d2.iNumIndices != drw.iNumIndices ||
-					    d2.iTexture != drw.iTexture || (d2.u4Flags & u4_run_key) != (drw.u4Flags & u4_run_key))
+					    d2.iTexture != drw.iTexture || d2.iNormalTex != drw.iNormalTex ||
+					    (d2.u4Flags & u4_run_key) != (drw.u4Flags & u4_run_key))
 						break;
 					i_run++;
 				}
@@ -1149,6 +1168,12 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				ID3D11ShaderResourceView* psrv = psrvTex(drw.iTexture);
 				pCtx->PSSetShaderResources(0, 1, &psrv);
 				i_bound_tex = drw.iTexture;
+			}
+			if (!b_shadow && drw.iNormalTex && drw.iNormalTex != i_bound_ntex)
+			{
+				ID3D11ShaderResourceView* psrv_n = psrvTex(drw.iNormalTex);
+				pCtx->PSSetShaderResources(7, 1, &psrv_n);
+				i_bound_ntex = drw.iNormalTex;
 			}
 
 			pCtx->DrawIndexedInstanced(drw.iNumIndices, i_run, i_first + drw.iFirstIndex, i_base, i);
@@ -1902,6 +1927,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			return da.iFirstIndex < db.iFirstIndex;
 		if (da.iTexture != db.iTexture)
 			return da.iTexture < db.iTexture;
+		if (da.iNormalTex != db.iNormalTex)
+			return da.iNormalTex < db.iNormalTex;
 		return (da.u4Flags & evrrNO_SHADOW) < (db.u4Flags & evrrNO_SHADOW);
 	});
 

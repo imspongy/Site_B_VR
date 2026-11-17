@@ -55,6 +55,7 @@ struct SVRShared
 
 	// Holster positions (world space) on Anne's right side, published by the player.
 	float aafHolsterPosWorld[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
+	bool  abHolsterFull[3] = { false, false, false };	// Hip, right shoulder, left shoulder.
 
 	// Force grab per hand: aiming (trigger held, empty hand), pull (flick this frame), ray.
 	bool  abForceAim[2]  = { false, false };
@@ -104,6 +105,10 @@ struct SVRShared
 	bool  abHolding[2] = { false, false };
 	bool  abHoldingGun[2] = { false, false };
 	float afHeldLength[2] = { 0, 0 };
+	float fKinFeetZ = 0;			// The character controller's feet (world height).
+	float fKinCrouch = 0;			// How far the crouch button has lowered her (m).
+	bool  bKinOnFloor = false;
+	float fBodyScale = 1.0f;		// Anne's body is drawn this much bigger, to match your height.
 	bool  bDamageGrace = false;		// Just after a level loads: Anne can't be hurt yet.
 	bool  bSubtitles = true;			// Voice-over subtitles in the headset.
 	float fShotgunSupportUp = 0.03f;	// The supporting hand on the shotgun is drawn this much higher (m).
