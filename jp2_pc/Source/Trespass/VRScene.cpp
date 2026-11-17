@@ -36,6 +36,9 @@
 #include "Lib/GeomDBase/WaveletQuadTreeQuery.hpp"
 #include "Lib/Physics/InfoSkeleton.hpp"
 #include "Lib/Physics/Magnet.hpp"
+#include "Lib/Physics/InfoBox.hpp"
+#include "Lib/Physics/InfoCompound.hpp"
+#include "Lib/EntityDBase/Query/QPhysics.hpp"
 #include "Lib/Renderer/Camera.hpp"
 #include "Lib/Renderer/Light.hpp"
 #include "Lib/Renderer/Texture.hpp"
@@ -451,6 +454,102 @@ namespace
 		}
 		mapNormalTex[praw] = i_n;
 		return i_n;
+	}
+
+	//******************************************************************************************
+	// Physics view (ShowPhysics=1): the game's collision boxes near you, see-through red
+	// (tangible) or blue (not), so you can see where things really are to the physics.
+	// A capture also logs them.
+	bool gbShowPhysics = false;
+	int  iPhysTexRed = 0, iPhysTexBlue = 0;
+	CVector3<> v3LastEye;
+
+	// Each box: world placement and half extents (min/max corners in box space).
+	template<class F> void ForEachPhysicsBox(const CVector3<>& v3_centre, float f_radius, F f)
+	{
+		CBoundVolSphere bvs(f_radius);
+		CPresence3<> pr3_q;
+		pr3_q.v3Pos = v3_centre;
+		for (CWDbQueryPhysics wqph(bvs, pr3_q); wqph.bIsNotEnd(); wqph++)
+		{
+			CInstance* pins = *wqph;
+			const CPhysicsInfo* pphi = pins ? pins->pphiGetPhysicsInfo() : nullptr;
+			if (!pphi || pins == gpPlayer)
+				continue;
+			CPlacement3<> p3_ins = pins->pr3Presence();
+			if (const CPhysicsInfoCompound* pphic = pphi->pphicCast())
+			{
+				for (int i = 0; i < pphic->iNumSubmodels; i++)
+				{
+					const CPhysicsInfo* pphi_s = pphic->apphiSubmodels[i];
+					const CBoundVolBox* pbvb = pphi_s && pphi_s->pbvGetCollideVol() ? pphi_s->pbvGetCollideVol()->pbvbCast() : nullptr;
+					if (pbvb)
+						f(pins, pphi, i, CPlacement3<>(pphic->apr3SubmodelPresences[i]) * p3_ins, *pbvb);
+				}
+			}
+			else
+			{
+				const CBoundVolBox* pbvb = pphi->pbvGetCollideVol() ? pphi->pbvGetCollideVol()->pbvbCast() : nullptr;
+				if (pbvb)
+					f(pins, pphi, -1, p3_ins, *pbvb);
+			}
+		}
+	}
+
+	void DrawPhysicsBoxes(const CVector3<>& v3_eye)
+	{
+		if (!iPhysTexRed)
+		{
+			uint32_t u4_r = u4RGBA(255, 40, 30, 70), u4_b = u4RGBA(40, 90, 255, 55);
+			iPhysTexRed = VRR_TextureCreate(1, 1, &u4_r);
+			iPhysTexBlue = VRR_TextureCreate(1, 1, &u4_b);
+		}
+		std::vector<SVRRVertex> aav[2];
+		ForEachPhysicsBox(v3_eye, 12.0f, [&](CInstance* pins, const CPhysicsInfo* pphi, int, const CPlacement3<>& p3, const CBoundVolBox& bvb)
+		{
+			float ax[2] = { bvb[ebeMIN_X], bvb[ebeMAX_X] }, ay[2] = { bvb[ebeMIN_Y], bvb[ebeMAX_Y] }, az[2] = { bvb[ebeMIN_Z], bvb[ebeMAX_Z] };
+			CVector3<> av3[8];
+			for (int c = 0; c < 8; c++)
+				av3[c] = CVector3<>(ax[c & 1], ay[(c >> 1) & 1], az[(c >> 2) & 1]) * p3;
+			static const int aiFace[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 }, { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
+			std::vector<SVRRVertex>& av = aav[pphi->bIsTangible() ? 0 : 1];
+			for (int fc = 0; fc < 6; fc++)
+				for (int k = 0; k < 4; k++)
+				{
+					SVRRVertex v;
+					const CVector3<>& c = av3[aiFace[fc][k]];
+					v.afPos[0] = c.tX; v.afPos[1] = c.tY; v.afPos[2] = c.tZ;
+					v.afNormal[0] = 0; v.afNormal[1] = 0; v.afNormal[2] = 1;
+					v.afUV[0] = 0.5f; v.afUV[1] = 0.5f;
+					av.push_back(v);
+				}
+		});
+		static const float af_identity[12] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0 };
+		for (int t = 0; t < 2; t++)
+		{
+			std::vector<SVRRVertex>& av = aav[t];
+			int i_quads = (int)av.size() / 4;
+			if (i_quads <= 0)
+				continue;
+			std::vector<uint32_t> au4((size_t)i_quads * 6);
+			for (int q = 0; q < i_quads; q++)
+			{
+				uint32_t b = q * 4;
+				uint32_t* pu = &au4[(size_t)q * 6];
+				pu[0] = b; pu[1] = b + 1; pu[2] = b + 2; pu[3] = b; pu[4] = b + 2; pu[5] = b + 3;
+			}
+			int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
+			if (!i_mesh)
+				continue;
+			SVRRDraw drw;
+			drw.iMesh = i_mesh;
+			drw.iFirstIndex = 0;
+			drw.iNumIndices = (int)au4.size();
+			drw.iTexture = t == 0 ? iPhysTexRed : iPhysTexBlue;
+			std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
+			drw.u4Flags = evrrBLEND | evrrUNLIT | evrrNO_FOG | evrrNO_SHADOW | evrrTWO_SIDED;
+			VRR_AddDraw(drw);
+		}
 	}
 
 	// Queues draws of every subset of a mesh.
@@ -1121,6 +1220,99 @@ namespace
 
 	void ReleaseQueries(CTerrain* ptrr);
 
+	//******************************************************************************************
+	// Animated ground textures (surf washing up the beach, and the like): the game animates
+	// these as it draws them.  Each frame: advance the animation, lay the mesh on the ground
+	// under it (as the game does: ground textures follow the terrain), draw it.
+	std::vector<CInstance*> apinsAnimTerrain;
+
+	void DrawAnimatedTerrain(CTerrain* ptrr, const CVector3<>& v3_eye)
+	{
+		if (!ptrr || apinsAnimTerrain.empty())
+			return;
+		for (CInstance* pins : apinsAnimTerrain)
+		{
+			rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
+			if (!pmsh || !pmsh->bIsAnimated())
+				continue;
+			const CPresence3<>& pr3 = pins->pr3Presence();
+			float f_r = 0;
+			for (uint u = 0; u < pmsh->pav3Points.uLen; u++)
+				f_r = std::max(f_r, (float)pmsh->pav3Points[u].tLen());
+			if ((CVector2<>(pr3.v3Pos) - CVector2<>(v3_eye)).tLen() > 250.0f + f_r * std::fabs(pr3.rScale))
+				continue;
+			const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
+			if (setAnimatedThisFrame.insert(pmsh.ptGet()).second)
+				pma->Animate();
+
+			CTerrainObj* ptobj = ptCast<CTerrainObj>(pins);
+			float f_lift = 0.03f + (ptobj ? ptobj->iHeight : 0) * 0.004f;
+			const CMesh::SVertex* pmv0 = pmsh->pamvVertices.atArray;
+			int i_verts = (int)pmsh->pamvVertices.uLen;
+			std::vector<SVRRVertex> av((size_t)i_verts);
+			for (int i = 0; i < i_verts; i++)
+			{
+				CVector3<> v3 = *pmv0[i].pv3Point * pr3;
+				v3.tZ = (float)ptrr->rHeight(v3.tX, v3.tY) + f_lift;
+				SVRRVertex& v = av[i];
+				v.afPos[0] = v3.tX; v.afPos[1] = v3.tY; v.afPos[2] = v3.tZ;
+				v.afNormal[0] = 0; v.afNormal[1] = 0; v.afNormal[2] = 1;
+				v.afUV[0] = pmv0[i].tcTex.tX; v.afUV[1] = pmv0[i].tcTex.tY;
+			}
+			ReleaseQueries(ptrr);
+
+			// Triangles by surface (texture).
+			std::vector<std::pair<const CMesh::SSurface*, std::vector<uint32_t>>> asurf;
+			for (uint u = 0; u < pmsh->pampPolygons.uLen; u++)
+			{
+				const CMesh::SPolygon& mp = pmsh->pampPolygons[u];
+				int i_n = (int)mp.papmvVertices.uLen;
+				if (i_n < 3)
+					continue;
+				const CMesh::SSurface* psf = (const CMesh::SSurface*)mp.pSurface;
+				if (asurf.empty() || asurf.back().first != psf)
+					asurf.push_back(std::make_pair(psf, std::vector<uint32_t>()));
+				for (int i = 1; i + 1 < i_n; i++)
+				{
+					int a = (int)(mp.papmvVertices[0] - pmv0), b = (int)(mp.papmvVertices[i] - pmv0), c = (int)(mp.papmvVertices[i + 1] - pmv0);
+					if (a < 0 || b < 0 || c < 0 || a >= i_verts || b >= i_verts || c >= i_verts)
+						continue;
+					asurf.back().second.push_back(a);
+					asurf.back().second.push_back(b);
+					asurf.back().second.push_back(c);
+				}
+			}
+			std::vector<uint32_t> au4;
+			std::vector<std::pair<int, int>> arange;
+			for (auto& pr : asurf)
+			{
+				arange.push_back(std::make_pair((int)au4.size(), (int)pr.second.size()));
+				au4.insert(au4.end(), pr.second.begin(), pr.second.end());
+			}
+			if (au4.empty())
+				continue;
+			int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
+			if (!i_mesh)
+				continue;
+			static const float af_identity[12] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0 };
+			for (size_t k = 0; k < asurf.size(); k++)
+			{
+				if (arange[k].second <= 0 || !asurf[k].first)
+					continue;
+				const CTexture* ptex = asurf[k].first->ptexTexture.ptGet();
+				bool b_alpha = false;
+				SVRRDraw drw;
+				drw.iMesh = i_mesh;
+				drw.iFirstIndex = arange[k].first;
+				drw.iNumIndices = arange[k].second;
+				drw.iTexture = iTexture(ptex, b_alpha);
+				std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
+				drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW | (b_alpha ? evrrALPHA_TEST : 0);
+				VRR_AddDraw(drw);
+			}
+		}
+	}
+
 	void UpdatePatches(CTerrain* ptrr, const CVector3<>& v3_at, double d_budget_ms)
 	{
 		if (!VRR_HasTerrain())
@@ -1365,11 +1557,23 @@ namespace
 			return pa->iHeight < pb->iHeight;
 		});
 		int i_decals = 0, i_mapped = 0;
+		apinsAnimTerrain.clear();
 		for (CInstance* pins : apins_trr)
 		{
 			rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
 			if (!pmsh)
 				continue;
+			if (pmsh->bIsAnimated())
+			{
+				// Animated ground textures (surf on the sand and the like) move every frame:
+				// drawn live (DrawAnimatedTerrain), not baked into the ground.
+				const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
+				apinsAnimTerrain.push_back(pins);
+				if (gVR.pfnLog)
+					gVR.pfnLog("Animated ground texture %s at (%.0f, %.0f): %d polygons, %s.", pins->strGetInstanceName(),
+					           pins->v3Pos().tX, pins->v3Pos().tY, (int)pmsh->pampPolygons.uLen, pma->bScrolls() ? "scrolling" : "frames");
+				continue;
+			}
 			SMeshEntry* pme = pmeGet(pmsh.ptGet(), false);
 			if (!pme || !pme->iHandle)
 				continue;
@@ -1463,6 +1667,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	setBadInstances.clear();
 		iSkyTexture = 0;
 		pvSkyTexture = nullptr;
+		iPhysTexRed = iPhysTexBlue = 0;
 		VRR_ClearAll();
 
 		// Load all of the level's textures now (the game normally streams them in a little at
@@ -1496,6 +1701,10 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wsLast = ws;
 
 	DrawParticles(wk.v3Eye);
+	v3LastEye = wk.v3Eye;
+	gbShowPhysics = set.bShowPhysics;
+	if (gbShowPhysics)
+		DrawPhysicsBoxes(wk.v3Eye);
 
 	if (b_new_level && ptrr)
 	{
@@ -1506,6 +1715,8 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	}
 	else if (ptrr && gpPlayer)
 		UpdatePatches(ptrr, gpPlayer->v3Pos(), 2.0);			// Then about 2 ms a frame.
+	if (ptrr)
+		DrawAnimatedTerrain(ptrr, wk.v3Eye);
 
 	//
 	// Frame parameters.
@@ -1640,4 +1851,30 @@ const char* VRScene_Stats()
 void VRScene_AbortFrame()
 {
 	VRR_AbortFrame();
+}
+
+//**********************************************************************************************
+void VRScene_LogPhysics()
+{
+	// Every collision box within 8 m of you: what it belongs to, whether it's solid and
+	// movable, awake in the physics, where it is, its size, and the drawn mesh's size.
+	if (!gVR.pfnLog)
+		return;
+	gVR.pfnLog("Physics near you (%.1f, %.1f, %.1f):", v3LastEye.tX, v3LastEye.tY, v3LastEye.tZ);
+	int i_n = 0;
+	ForEachPhysicsBox(v3LastEye, 8.0f, [&](CInstance* pins, const CPhysicsInfo* pphi, int i_sub, const CPlacement3<>& p3, const CBoundVolBox& bvb)
+	{
+		if (++i_n > 80)
+			return;
+		CVector3<> v3_c = CVector3<>((bvb[ebeMIN_X] + bvb[ebeMAX_X]) * 0.5f, (bvb[ebeMIN_Y] + bvb[ebeMAX_Y]) * 0.5f, (bvb[ebeMIN_Z] + bvb[ebeMAX_Z]) * 0.5f) * p3;
+		float f_mesh = 0;
+		rptr_const<CRenderType> prdt = pins->prdtGetRenderInfo();
+		if (prdt)
+			f_mesh = prdt->bvGet().fMaxExtent() * pins->fGetScale();
+		gVR.pfnLog("  %s sub %d: %s%s%s at (%.2f, %.2f, %.2f) size %.2f x %.2f x %.2f, scale %.2f, mesh %.2f, origin (%.2f, %.2f, %.2f)",
+			pins->strGetInstanceName(), i_sub, pphi->bIsTangible() ? "solid" : "not solid", pphi->bIsMovable() ? ", movable" : "",
+			pphi->bIsActive(pins) ? ", awake" : "", v3_c.tX, v3_c.tY, v3_c.tZ,
+			bvb[ebeMAX_X] - bvb[ebeMIN_X], bvb[ebeMAX_Y] - bvb[ebeMIN_Y], bvb[ebeMAX_Z] - bvb[ebeMIN_Z],
+			pins->fGetScale(), f_mesh, pins->v3Pos().tX, pins->v3Pos().tY, pins->v3Pos().tZ);
+	});
 }

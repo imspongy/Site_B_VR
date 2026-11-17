@@ -89,7 +89,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 11;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 12;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -102,7 +102,6 @@ namespace
 		float fPistolMaxMass  = 2.5f;	// Guns lighter than this get the pistol support grip.
 		bool  bFlipSecondCurl = false;	// Debug: fingers bend the wrong way.
 		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
-		float fHipHolsterScale = 1.8f;	// The hip holster's reach is the radius divided by this.
 		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
 		float fHandYawDeg     = 0.0f;
@@ -137,8 +136,10 @@ namespace
 		float fTerrainDetail  = 1.0f;
 		float fExtraHeight    = 0.0f;	// Metres added to your height in the game.
 		bool  bRealHeight     = true;	// Your real floor is the game's floor; Anne is drawn at your height.
+		float fAnneEyeHeight  = 1.60f;	// Anne's own eye height above her feet (m).
 		float fFogScale       = 1.3f;
 		float fRecoil         = 1.0f;
+		bool  bShowPhysics    = false;
 		bool  bTutorial       = true;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
@@ -367,8 +368,6 @@ namespace
 			"PistolMaxMass=2.5\n"
 			"; How close (metres) your hand must be to a holster (hip / over shoulder).\n"
 			"HolsterRadius=0.25\n"
-			"; The hip holster's reach is HolsterRadius divided by this (bigger = harder to hit by accident).\n"
-			"HipHolsterScale=1.8\n"
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
 			"Haptics=1\n"
 			"; Rotate the in-game hand relative to your controller (degrees).\n"
@@ -429,6 +428,8 @@ namespace
 			"; 1 = your real floor is the game's floor: you stand at your own height and crouch for\n"
 			";     real, and Anne's body is drawn at your height.  0 = Anne's own eye height.\n"
 			"RealHeight=1\n"
+			"; Anne's own eye height (m).  If her body sits too low under your view, lower this; too high, raise it.\n"
+			"AnneEyeHeight=1.60\n"
 			"; Extra height (metres) added to yours in the game.\n"
 			"ExtraHeight=0.0\n"
 			"\n"
@@ -440,6 +441,8 @@ namespace
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
+			"; Debugging: 1 draws the game's collision boxes near you (red = solid, blue = not).\n"
+			"ShowPhysics=0\n"
 			"; Thrown things go this much faster than your hand.\n"
 			"ThrowScale=1.3\n"
 			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
@@ -491,10 +494,10 @@ namespace
 		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
 		gVR.fGunSide      = fIni(str_file, "GunSide", -0.02f);
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
+		s.bShowPhysics    = fIni(str_file, "ShowPhysics", 0) != 0;
 		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
-		s.fHipHolsterScale = (std::max)(0.5f, fIni(str_file, "HipHolsterScale", 1.8f));
 		s.fHaptics        = fIni(str_file, "Haptics", 1);
 		s.fHandPitchDeg   = fIni(str_file, "HandPitch", 0);
 		s.fHandYawDeg     = fIni(str_file, "HandYaw", 0);
@@ -512,6 +515,7 @@ namespace
 		s.fTerrainDetail  = fIni(str_file, "TerrainDetail", 1.0f);
 		s.fExtraHeight    = fIni(str_file, "ExtraHeight", 0.0f);
 		s.bRealHeight     = fIni(str_file, "RealHeight", 1) != 0;
+		s.fAnneEyeHeight  = (std::min)(2.0f, (std::max)(1.2f, fIni(str_file, "AnneEyeHeight", 1.60f)));
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
@@ -914,6 +918,7 @@ namespace
 		}
 		std::string str_dir = strExeDir() + "\\VRCapture";
 		Log("Capture %d: saving %d frames (the last %.0f seconds) to VRCapture.", i_session, i_n, i_n * 0.2);
+		VRScene_LogPhysics();
 		std::thread([au4_copy, i_n, i_session, str_dir]()
 		{
 			CreateDirectoryA(str_dir.c_str(), nullptr);
@@ -970,7 +975,7 @@ namespace
 	int  iSceneCrashes = 0;
 
 	//******************************************************************************************
-	// Which holster (0 hip, 1 right shoulder, 2 left shoulder) the given hand is at, or -1.
+	// Which holster (0 hip, 1 back) the given hand is at, or -1.
 	int iHolsterNear(int i_hand)
 	{
 		if (!abHandValid[i_hand])
@@ -994,13 +999,12 @@ namespace
 					v3_local.tX = -v3_local.tX;
 					v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
 				}
-				// The back slot is hard to reach precisely; be more generous there.  The hip
-				// is close to where hands hang and hold things, so it needs a smaller target.
-				float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : setVR.fHipHolsterScale);
+				// The back slot is hard to reach precisely; be more generous there.
+				float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
 				if (f_dist < f_best)
 				{
 					f_best = f_dist;
-					i_best = (i == 1 && m == 1) ? 2 : i;
+					i_best = i;
 				}
 			}
 		}
@@ -1097,8 +1101,8 @@ namespace
 				bool b_full = false;
 				if (i_holster == 0)
 					b_full = gVR.abHolsterFull[0];
-				else if (i_holster >= 1)
-					b_full = b_holding ? (gVR.abHolsterFull[1] && gVR.abHolsterFull[2]) : (gVR.abHolsterFull[1] || gVR.abHolsterFull[2]);
+				else if (i_holster == 1)
+					b_full = gVR.abHolsterFull[1];
 				bool b_useful = i_holster >= 0 && (b_holding ? !b_full : b_full);
 				static DWORD au4_last_tick[2] = { 0, 0 };
 				if (b_useful && GetTickCount() - au4_last_tick[h] > 1000)
@@ -1750,16 +1754,12 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		float f_target_z = b_real ? gVR.fKinFeetZ - gVR.fKinCrouch : v3_cam_pos.tZ;
 		{
 			// Your standing eye height (the highest your headset has been, sensible range),
-			// and hers (her camera above her feet when standing).
-			static float f_real_eye = 0, f_anne_eye = 0;
+			// and hers: a fixed figure (her model's eye height).  (Measuring it from the game's
+			// camera doesn't work: in VR the camera follows your headset.)
+			static float f_real_eye = 0;
 			if (fr.posHead.bValid && v3_head_track.tZ > 1.0f && v3_head_track.tZ < 2.2f)
 				f_real_eye = (std::max)(f_real_eye, v3_head_track.tZ);
-			if (gVR.pvKinInstance && gVR.bKinOnFloor && gVR.fKinCrouch < 0.01f)
-			{
-				float f_above = v3_cam_pos.tZ - gVR.fKinFeetZ;
-				if (f_above > 1.2f && f_above < 2.0f)
-					f_anne_eye = (std::max)(f_anne_eye, f_above);
-			}
+			float f_anne_eye = setVR.fAnneEyeHeight;
 			float f_scale = 1.0f;
 			if (b_real && f_real_eye > 0 && f_anne_eye > 0)
 				f_scale = (std::min)(1.3f, (std::max)(0.85f, (f_real_eye + setVR.fExtraHeight) / f_anne_eye));
@@ -2058,6 +2058,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fBrightness = setVR.fBrightness;
 		set.fTerrainDetail = setVR.fTerrainDetail;
 		set.fFogScale = setVR.fFogScale;
+		set.bShowPhysics = setVR.bShowPhysics;
 
 		double d_t0 = dNowMs();
 		SSceneCall sc = { &eyes, &set, false };

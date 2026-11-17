@@ -55,7 +55,7 @@ struct SVRShared
 
 	// Holster positions (world space) on Anne's right side, published by the player.
 	float aafHolsterPosWorld[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
-	bool  abHolsterFull[3] = { false, false, false };	// Hip, right shoulder, left shoulder.
+	bool  abHolsterFull[2] = { false, false };	// Hip, back.
 
 	// Force grab per hand: aiming (trigger held, empty hand), pull (flick this frame), ray.
 	bool  abForceAim[2]  = { false, false };

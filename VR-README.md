@@ -64,9 +64,9 @@ the new defaults (the old one is kept as `TrespasserVR.ini.old`). Highlights:
   this many times its view distance) and `ExtraHeight` (metres added to Anne's height).
 - `Subtitles=1` shows voice-over subtitles below your view; `Tutorial=1` shows the tutorial and game
   messages above your view, reworded for VR. Each chapter's name fades in after it loads (JurassicPark.ttf).
-- Square / X on the left controller opens the game's hint screen. Either hand can use either holster;
-  a second long gun can go over the other shoulder. `HipHolsterScale` makes the hip holster harder to hit.
-- `RealHeight=1`: your real floor is the game's floor and Anne is drawn at your height. `Recoil` sets gun kick.
+- Square / X on the left controller opens the game's hint screen. Either hand can use either holster.
+- `RealHeight=1`: your real floor is the game's floor and Anne is drawn at your height (`AnneEyeHeight` tunes
+  where her body sits). `Recoil` sets gun kick. `ShowPhysics=1` (debugging) draws the collision boxes near you.
 - `SkyMode` (0 solid, 1 gradient, 2 clouds) and `Haptics` (vibration strength).
 - `HandScale` for the size of the drawn hands.
 - `DrawDistance` for how far away objects are drawn (1 = original game).

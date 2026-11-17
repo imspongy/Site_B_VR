@@ -18,7 +18,8 @@ struct SVRSceneEyes
 
 struct SVRSceneSettings
 {
-	float fFogScale = 1.3f;		// The game's fog, spread over this many times its view distance.
+	float fFogScale = 1.3f;
+	bool  bShowPhysics = false;	// Debug: draw the game's collision boxes near you.		// The game's fog, spread over this many times its view distance.
 	float fDrawDistance = 1.0f;		// Multiplier on the game's view distance.
 	float fShadowDistance = 60.0f;	// Metres of real-time shadows around the player (0 = off).
 	float fBrightness = 1.0f;
@@ -38,3 +39,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 // After an error part-way through a frame: drop whatever was queued for it.
 void VRScene_AbortFrame();
 const char* VRScene_Stats();
+
+// Writes the collision boxes near the last view to the log (debugging).
+void VRScene_LogPhysics();
