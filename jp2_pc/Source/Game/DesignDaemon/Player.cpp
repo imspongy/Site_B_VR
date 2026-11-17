@@ -1333,6 +1333,9 @@ private:
 	CVector3<>     v3VRFeet;
 	float          fVRVz = 0;
 	float          fVRCrouch = 0;
+	CInstance*     pinsVRPush = nullptr;		// Movable thing she walked into this step.
+	CVector3<>     v3VRPushAt, v3VRPushDir;
+	TSec           sVRLastPush = -100;
 	float          fVRBodyAboveFeet = 0.95f;
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
@@ -4905,10 +4908,14 @@ private:
 					return true;
 				}
 				// Light things are pushed aside, not walked into; small ones aren't stood on.
-				// (Big things count as floor whatever the game says they weigh: the ramp's
-				// planks are one movable object she couldn't stand on.)
+				// Big things count as floor and walls whatever the game says they weigh (the
+				// ramp's planks, gate 1's panel): she stands on them, and walking into one
+				// pushes it (below), as the original's knock-over gates expect.
 				float f_mass = pphi->fMass(pins);
-				if (!b_wall && pphi->pbvGetCollideVol() && pphi->pbvGetCollideVol()->fMaxExtent() * pins->fGetScale() > 0.4f)
+				float f_size = pphi->pbvGetCollideVol() ? pphi->pbvGetCollideVol()->fMaxExtent() * pins->fGetScale() : 0.0f;
+				if (!b_wall && f_size > 0.4f)
+					return true;
+				if (b_wall && f_size > 0.8f)
 					return true;
 				return f_mass >= (b_wall ? 60.0f : 1.5f);
 			}
@@ -5057,6 +5064,13 @@ private:
 						}
 						f_allowed = f_room;
 						v3_normal = CVector3<>(pobl->d3Face.tX, pobl->d3Face.tY, 0);
+						const CPhysicsInfo* pphi_hit = pobl->pinsObject->pphiGetPhysicsInfo();
+						if (pphi_hit && pphi_hit->bIsMovable())
+						{
+							pinsVRPush = pobl->pinsObject;
+							v3VRPushAt = pobl->v3Location;
+							v3VRPushDir = v3_dir;
+						}
 					}
 					break;
 				}
@@ -5067,7 +5081,23 @@ private:
 		};
 
 		CVector3<> v3_normal;
+		pinsVRPush = nullptr;
 		CVector3<> v3_step = v3_sweep(v3_d, v3_normal);
+		// Walking into something movable that stopped her: push it, as her body would (that is
+		// how gate 1 is knocked over).  Harder the faster she was going.
+		if (pinsVRPush && f_dt > 0)
+		{
+			float f_speed = v3_d.tLen() / f_dt;
+			const CPhysicsInfo* pphi_p = pinsVRPush->pphiGetPhysicsInfo();
+			if (f_speed > 0.5f && pphi_p && CMessageStep::sStaticTotal - sVRLastPush > 0.2)
+			{
+				sVRLastPush = CMessageStep::sStaticTotal;
+				float f_m = Min(Max(pphi_p->fMass(pinsVRPush), 5.0f), 300.0f);
+				pphi_p->ApplyImpulse(pinsVRPush, 0, v3VRPushAt, v3VRPushDir * (f_m * Min(f_speed, 4.0f) * 0.6f));
+				if (gVR.pfnLog)
+					gVR.pfnLog("Body: pushed %s (%.0f kg) at %.1f m/s.", pinsVRPush->strGetInstanceName(), pphi_p->fMass(pinsVRPush), f_speed);
+			}
+		}
 		v3VRFeet += v3_step;
 		CVector3<> v3_rest = v3_d - v3_step;
 		if (v3_rest.tLen() > 0.001f && v3_normal.tLen() > 0.1f)
@@ -5165,6 +5195,7 @@ private:
 		gVR.afKinPos[1] = v3VRFeet.tY;
 		gVR.afKinPos[2] = v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch;
 		gVR.fKinFeetZ = v3VRFeet.tZ;
+		gVR.fBodyAboveFeet = fVRBodyAboveFeet;
 		gVR.fKinCrouch = Max(0.0f, fVRCrouch - Min(gVR.fRealCrouch, 0.9f));	// (The button's part: the view follows it.)
 		gVR.bKinOnFloor = bVRGrounded;
 		CVector3<> v3_vel = (v3VRFeet - v3_start) / f_dt;
@@ -5511,7 +5542,7 @@ private:
 			pr3VRRealPresence = pr3GetPresence();
 			CVector3<> v3_shift(gVR.afBodyTarget[0] - pr3VRRealPresence.v3Pos.tX,
 			                    gVR.afBodyTarget[1] - pr3VRRealPresence.v3Pos.tY, gVR.fBodyZShift);
-			if (v3_shift.tLen() < 1.0f)
+			if (v3_shift.tLen() < 1.5f)
 			{
 				CPresence3<> pr3_shifted = pr3VRRealPresence;
 				pr3_shifted.v3Pos += v3_shift;

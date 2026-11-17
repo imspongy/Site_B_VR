@@ -106,6 +106,7 @@ struct SVRShared
 	bool  abHoldingGun[2] = { false, false };
 	float afHeldLength[2] = { 0, 0 };
 	float fKinFeetZ = 0;			// The character controller's feet (world height).
+	float fBodyAboveFeet = 0;		// Her body origin's height above her feet (m).
 	float fKinCrouch = 0;			// How far the crouch button has lowered her (m).
 	bool  bLogBodyRequest = false;	// A capture asks the body for its numbers.
 	float fRealCrouch = 0;			// How far below your standing height your head is now (m).
