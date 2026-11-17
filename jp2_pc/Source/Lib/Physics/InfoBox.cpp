@@ -131,6 +131,9 @@
 #include "Lib/Sys/ConIO.hpp"
 #include "Lib/Sys/DebugConsole.hpp"
 #include "Lib/Transform/TransformIO.hpp"
+#include "Lib/Control/VRShared.hpp"
+#include <ctime>
+#include <string>
 
 extern int iPhysFrame;
 
@@ -1499,6 +1502,13 @@ inline CJoeXob& JoeXob(int i_index)
 				{
 					dout <<"Too many boxes! Cannot wake up " <<pins->strGetInstanceName() << std::endl;
 					bFailed = true;
+				}
+				// (VR log: this object can't collide until a slot frees up.)
+				static uint32 u4_last_ms = 0;
+				if (gVR.pfnLog && (uint32)clock() - u4_last_ms > 2000)
+				{
+					u4_last_ms = (uint32)clock();
+					gVR.pfnLog("Physics: all %d slots in use, could not wake %s (it won't collide).", iMAX_PHYSICS_OBJECTS, pins->strGetInstanceName());
 				}
 				return;
 			}
@@ -3033,3 +3043,24 @@ inline CJoeXob& JoeXob(int i_index)
 		if (pplay)
 			pplay->CheckForDrop();
 	}
+
+//**********************************************************************************************
+// VR log: which objects hold the physics system's slots now.
+void VRPhysicsSlotReport()
+{
+	if (!gVR.pfnLog)
+		return;
+	int i_used = 0;
+	std::string str;
+	for (int i = 0; i < iMAX_PHYSICS_OBJECTS; i++)
+		if (Xob[i].Instances[0])
+		{
+			i_used++;
+			if (str.size() < 900)
+			{
+				str += Xob[i].Instances[0]->strGetInstanceName();
+				str += ' ';
+			}
+		}
+	gVR.pfnLog("Physics slots: %d of %d in use: %s", i_used, iMAX_PHYSICS_OBJECTS, str.c_str());
+}

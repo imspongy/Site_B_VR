@@ -1862,12 +1862,15 @@ void VRScene_AbortFrame()
 }
 
 //**********************************************************************************************
+void VRPhysicsSlotReport();	// (InfoBox.cpp)
+
 void VRScene_LogPhysics()
 {
 	// Every collision box within 8 m of you: what it belongs to, whether it's solid and
 	// movable, awake in the physics, where it is, its size, and the drawn mesh's size.
 	if (!gVR.pfnLog)
 		return;
+	VRPhysicsSlotReport();
 	gVR.pfnLog("Physics near you (%.1f, %.1f, %.1f):", v3LastEye.tX, v3LastEye.tY, v3LastEye.tZ);
 	int i_n = 0;
 	ForEachPhysicsBox(v3LastEye, 8.0f, [&](CInstance* pins, const CPhysicsInfo* pphi, int i_sub, const CPlacement3<>& p3, const CBoundVolBox& bvb)

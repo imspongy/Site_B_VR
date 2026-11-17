@@ -1766,6 +1766,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			if (fr.posHead.bValid && v3_head_track.tZ > 1.0f && v3_head_track.tZ < 2.2f)
 				f_real_eye = (std::max)(f_real_eye, v3_head_track.tZ);
 			float f_anne_eye = setVR.fAnneEyeHeight;
+			// Crouching for real: her body goes down with you.
+			gVR.fRealCrouch = (b_real && f_real_eye > 0 && fr.posHead.bValid) ? (std::max)(0.0f, f_real_eye - 0.08f - v3_head_track.tZ) : 0.0f;
 			float f_scale = 1.0f;
 			if (b_real && f_real_eye > 0 && f_anne_eye > 0)
 				f_scale = (std::min)(1.3f, (std::max)(0.85f, (f_real_eye + setVR.fExtraHeight) / f_anne_eye));

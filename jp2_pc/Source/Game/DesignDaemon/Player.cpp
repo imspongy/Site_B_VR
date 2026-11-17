@@ -5129,9 +5129,10 @@ private:
 				v3VRFeet.tZ = f_new_z;
 		}
 
-		// Crouch button: lowers the body (and so the view).
+		// Crouch button: lowers the body (and so the view).  Crouching for real (RealHeight)
+		// lowers the body too, so her head stays with yours; your view already went down.
 		{
-			float f_want = gVR.bCrouch ? 0.5f : 0.0f;
+			float f_want = Max(gVR.bCrouch ? 0.5f : 0.0f, Min(gVR.fRealCrouch, 0.9f));
 			float f_rate = 2.5f * f_dt;
 			if (fVRCrouch < f_want)
 				fVRCrouch = Min(f_want, fVRCrouch + f_rate);
@@ -5144,7 +5145,7 @@ private:
 		gVR.afKinPos[1] = v3VRFeet.tY;
 		gVR.afKinPos[2] = v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch;
 		gVR.fKinFeetZ = v3VRFeet.tZ;
-		gVR.fKinCrouch = fVRCrouch;
+		gVR.fKinCrouch = Max(0.0f, fVRCrouch - Min(gVR.fRealCrouch, 0.9f));	// (The button's part: the view follows it.)
 		gVR.bKinOnFloor = bVRGrounded;
 		CVector3<> v3_vel = (v3VRFeet - v3_start) / f_dt;
 		gVR.afKinVel[0] = v3_vel.tX;
