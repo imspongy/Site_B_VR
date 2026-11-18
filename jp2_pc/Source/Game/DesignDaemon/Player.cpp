@@ -2607,6 +2607,10 @@ private:
 			gVR.abHolsterFull[1] = apinsStowed[1] != nullptr;
 			gVR.abHolsterFull[2] = apinsVRStowedLeft[0] != nullptr;
 			gVR.abHolsterFull[3] = apinsVRStowedLeft[1] != nullptr;
+			gVR.apvHolstered[0] = apinsStowed[0];
+			gVR.apvHolstered[1] = apinsStowed[1];
+			gVR.apvHolstered[2] = apinsVRStowedLeft[0];
+			gVR.apvHolstered[3] = apinsVRStowedLeft[1];
 			// Holster locations, for the VR mod's proximity test.
 			for (int i = 0; i < 2; i++)
 			{
@@ -4397,7 +4401,7 @@ private:
 			if (v3_peak.tLen() > v3_vel.tLen())
 				v3_vel = v3_peak;
 			float f_mass = pins->pphiGetPhysicsInfo()->fMass(pins);
-			float f_max = 20.0f / (1.0f + f_mass / 30.0f);
+			float f_max = 30.0f / (1.0f + f_mass / 40.0f);
 			if (v3_vel.tLen() > f_max)
 				v3_vel *= f_max / v3_vel.tLen();
 			v3_throw = v3_vel * gVR.fThrowScale;
@@ -4458,7 +4462,12 @@ private:
 			if (i_hand == 1)
 				p3_adj.r3Rot = CRotate3<>(d3YAxis, CAngle(dPI));
 			// Back into the palm, and across toward the palm's middle (mirrored for the left hand).
-			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? gVR.fGunSide : -gVR.fGunSide, -gVR.fGunBack, 0);
+			// (The rifle sits right with GunSide; the other guns come out on the other side of
+			// it, so they have their own setting.)
+			const CGun* pgun_grab = ptCast<CGun>(pins);
+			bool b_rifle = pgun_grab && !pgun_grab->bAutoFire && pgun_grab->sTimeBetweenShots >= 1.0f;
+			float f_side = b_rifle ? gVR.fGunSide : gVR.fGunSideOther;
+			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? f_side : -f_side, -gVR.fGunBack, 0);
 			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
 		}
 		else
@@ -4522,6 +4531,15 @@ private:
 				p3_stow.v3Pos = PlayerSettings.aap3Stow[1][2].v3Pos + CVector3<>(0, -0.18f, -0.15f);
 				p3_stow.v3Pos.tX *= f_side;
 				rp3_slot = p3_stow;
+			}
+			{
+				// The thing's own knock as it goes into the holster (as if set against her).
+				static const TSoundMaterial smatHOLSTER = matHashIdentifier("Anne-Foot");
+				CMessageCollision msg(pins, apbbBoundaryBoxes[ebbFOOT] ? (CInstance*)apbbBoundaryBoxes[ebbFOOT] : (CInstance*)this,
+				                      0, smatHOLSTER, 6.0f, 6.0f, 0.0f, pins->v3Pos(), 0.0f, 0.0f);
+				gVR.bHolsterSound = true;
+				msg.Dispatch();
+				gVR.bHolsterSound = false;
 			}
 			CMessagePickUp(pins, epuSTOW).Dispatch();
 			return true;
@@ -5409,7 +5427,11 @@ private:
 		CVector3<> v3_w_new = v3_t + ((v3_w - v3_hand_r) / r3_hand_r) * r_hs * r3_t;
 		CVector3<> v3_f_new = v3_t + ((v3_f - v3_hand_r) / r3_hand_r) * r_hs * r3_t;
 
-		// Two-bone IK for the elbow.
+		// Two-bone IK for the elbow.  Her arms are drawn shorter and slimmer (ini: ArmScale),
+		// in proportion with the smaller hands, so they straighten when you reach out.
+		TReal r_as = gVR.fArmScale;
+		r_upper *= r_as;
+		r_fore *= r_as;
 		CVector3<> v3_d = v3_w_new - v3_s;
 		TReal r_d = v3_d.tLen();
 		TReal r_max = (r_upper + r_fore) * 0.995f;
@@ -5460,8 +5482,12 @@ private:
 				sri.patf3JointTransforms[j] = tf3_hidden;
 		}
 
-		sri.patf3JointTransforms[10] = CTransform3<>(atf3[10].mx3Mat * mx3_upper, v3_s);
-		sri.patf3JointTransforms[11] = CTransform3<>(atf3[11].mx3Mat * mx3_fore,  v3_e_new);
+		CMatrix3<> mx3_ascale;
+		mx3_ascale.v3X = CVector3<>(r_as, 0, 0);
+		mx3_ascale.v3Y = CVector3<>(0, r_as, 0);
+		mx3_ascale.v3Z = CVector3<>(0, 0, r_as);
+		sri.patf3JointTransforms[10] = CTransform3<>(mx3_ascale * atf3[10].mx3Mat * mx3_upper, v3_s);
+		sri.patf3JointTransforms[11] = CTransform3<>(mx3_ascale * atf3[11].mx3Mat * mx3_fore,  v3_e_new);
 		CMatrix3<> mx3_hscale;
 		mx3_hscale.v3X = CVector3<>(r_hs, 0, 0);
 		mx3_hscale.v3Y = CVector3<>(0, r_hs, 0);

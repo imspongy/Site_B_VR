@@ -44,6 +44,7 @@
 #include "Game/AI/AIMain.hpp"
 
 static void HideLoadingIfDone();
+
 static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for the capture log.
 
 #include "Lib/Control/VRShared.hpp"
@@ -77,6 +78,54 @@ static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for t
 #include <thread>
 #include <vector>
 
+//**********************************************************************************************
+// Crash recorder: if the game crashes, the log gets where (as an offset into the program, which
+// the build's map file turns into a function), plus likely callers found on the stack.
+static LPTOP_LEVEL_EXCEPTION_FILTER pfnPrevCrashFilter = nullptr;
+static LONG WINAPI VRCrashFilter(EXCEPTION_POINTERS* pep)
+{
+	static bool b_in = false;
+	if (!b_in && pep && pep->ExceptionRecord && pep->ContextRecord)
+	{
+		b_in = true;
+		HMODULE hmod = GetModuleHandleA(nullptr);
+		uintptr_t u_base = (uintptr_t)hmod;
+		MEMORY_BASIC_INFORMATION mbi = {};
+		uintptr_t u_end = u_base;
+		if (VirtualQuery((void*)(u_base + 0x1000), &mbi, sizeof(mbi)))
+		{
+			const IMAGE_DOS_HEADER* pdos = (const IMAGE_DOS_HEADER*)hmod;
+			const IMAGE_NT_HEADERS* pnt = (const IMAGE_NT_HEADERS*)((const char*)hmod + pdos->e_lfanew);
+			u_end = u_base + pnt->OptionalHeader.SizeOfImage;
+		}
+		uintptr_t u_at = (uintptr_t)pep->ExceptionRecord->ExceptionAddress;
+		if (gVR.pfnLog)
+		{
+			gVR.pfnLog("CRASH: exception 0x%08X at 0x%08X (program offset 0x%08X), data address 0x%08X.",
+			           (unsigned)pep->ExceptionRecord->ExceptionCode, (unsigned)u_at, (unsigned)(u_at - u_base),
+			           pep->ExceptionRecord->NumberParameters > 1 ? (unsigned)pep->ExceptionRecord->ExceptionInformation[1] : 0u);
+#if defined(_M_IX86)
+			const uintptr_t* pu_sp = (const uintptr_t*)pep->ContextRecord->Esp;
+			char sz[512] = {};
+			int i_len = 0, i_found = 0;
+			for (int i = 0; i < 4096 && i_found < 24; i++)
+			{
+				if (IsBadReadPtr(pu_sp + i, sizeof(uintptr_t)))
+					break;
+				uintptr_t u = pu_sp[i];
+				if (u > u_base + 0x1000 && u < u_end)
+				{
+					i_len += snprintf(sz + i_len, sizeof(sz) - i_len, " %08X", (unsigned)(u - u_base));
+					i_found++;
+				}
+			}
+			gVR.pfnLog("Likely callers (program offsets):%s", sz);
+#endif
+		}
+	}
+	return pfnPrevCrashFilter ? pfnPrevCrashFilter(pep) : EXCEPTION_CONTINUE_SEARCH;
+}
+
 extern HWND g_hwnd;
 extern float fPerspectivePixelError;
 extern float fAltPerspectivePixelError;
@@ -90,7 +139,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 16;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 17;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -104,6 +153,8 @@ namespace
 		bool  bFlipSecondCurl = false;	// Debug: fingers bend the wrong way.
 		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
 		float fHipFrontScale  = 3.0f;	// The hip holsters reach this many times less far in front of her.
+		float fHipBack        = 0.15f;	// Hip holsters moved back toward her hips (m)...
+		float fHipDown        = 0.06f;	// ... and down.
 		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
 		float fHandYawDeg     = 0.0f;
@@ -374,6 +425,9 @@ namespace
 			"HolsterRadius=0.25\n"
 			"; The hip holsters reach this many times less far out in front of you (bigger = less).\n"
 			"HipFrontScale=3\n"
+			"; How far back toward your hips (metres), and how far down, the hip holsters sit.\n"
+			"HipBack=0.15\n"
+			"HipDown=0.06\n"
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
 			"Haptics=1\n"
 			"; Rotate the in-game hand relative to your controller (degrees).\n"
@@ -383,6 +437,8 @@ namespace
 			"HandRoll=0\n"
 			"; Size of the drawn hands (1 = Anne's original, rather large, hands).\n"
 			"HandScale=0.75\n"
+			"; Size of Anne's arms (1 = the game's; smaller lets them straighten when you reach out).\n"
+			"ArmScale=0.85\n"
 			"\n"
 			"; --- View ---\n"
 			"; Sky: 0 = solid colour, 1 = smooth gradient, 2 = clouds.\n"
@@ -448,13 +504,15 @@ namespace
 			"; held guns are drawn (1 = the game's size).\n"
 			"GunBack=0.04\n"
 			"GunSide=-0.05\n"
+			"; The same sideways setting for every gun except the rifle.\n"
+			"GunSideOther=0.01\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
 			"; Debugging: 1 draws the game's collision boxes near you (red = solid, blue = not).\n"
 			"ShowPhysics=0\n"
 			"; Thrown things go this much faster than your hand.\n"
-			"ThrowScale=1.3\n"
+			"ThrowScale=2.0\n"
 			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
 			"ShotgunHandUp=0.03\n"
 			"; How much lower (metres) your supporting hand is drawn on the rifle.\n"
@@ -501,16 +559,20 @@ namespace
 		s.bSecondHand     = fIni(str_file, "SecondHand", 1) != 0;
 		s.fPistolMaxMass  = fIni(str_file, "PistolMaxMass", 2.5f);
 		gVR.fGunBack      = fIni(str_file, "GunBack", 0.04f);
-		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 1.3f);
+		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 2.0f);
 		gVR.bSubtitles    = fIni(str_file, "Subtitles", 1.0f) > 0.5f;
 		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
 		gVR.fGunSide      = fIni(str_file, "GunSide", -0.05f);
+		gVR.fGunSideOther = fIni(str_file, "GunSideOther", 0.01f);
+		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
 		s.bShowPhysics    = fIni(str_file, "ShowPhysics", 0) != 0;
 		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
 		s.fHipFrontScale  = (std::max)(1.0f, fIni(str_file, "HipFrontScale", 3.0f));
+		s.fHipBack        = fIni(str_file, "HipBack", 0.15f);
+		s.fHipDown        = fIni(str_file, "HipDown", 0.06f);
 		s.fHaptics        = fIni(str_file, "Haptics", 1);
 		s.fHandPitchDeg   = fIni(str_file, "HandPitch", 0);
 		s.fHandYawDeg     = fIni(str_file, "HandYaw", 0);
@@ -1011,12 +1073,17 @@ namespace
 				if (!gpPlayer)
 					continue;
 				CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
+				CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
 				if (m == 1)
-				{
-					CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
 					v3_local.tX = -v3_local.tX;
-					v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
+				if (i == 0)
+				{
+					// The hip holsters: back to her hips and a little lower (the game's point is
+					// out in front, where her desktop hand hung).
+					v3_local.tY -= setVR.fHipBack;
+					v3_local.tZ -= setVR.fHipDown;
 				}
+				v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
 				float f_dist;
 				if (i == 0)
 				{
@@ -1298,6 +1365,14 @@ void VRMod_Startup()
 	}
 
 	Log("SteamVR started. Recommended eye size %dx%d.", i_w, i_h);
+	{
+		static bool b_filter = false;
+		if (!b_filter)
+		{
+			b_filter = true;
+			pfnPrevCrashFilter = SetUnhandledExceptionFilter(VRCrashFilter);
+		}
+	}
 
 	if (setVR.bNewRenderer)
 	{

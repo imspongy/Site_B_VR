@@ -56,6 +56,8 @@ struct SVRShared
 	// Holster positions (world space) on Anne's right side, published by the player.
 	float aafHolsterPosWorld[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
 	bool  abHolsterFull[4] = { false, false, false, false };	// Right hip, right shoulder, left hip, left shoulder.
+	const void* apvHolstered[4] = { nullptr, nullptr, nullptr, nullptr };	// What's in them (no knocking about while carried).
+	bool  bHolsterSound = false;		// The holster knock is being sent (let it through).
 
 	// Force grab per hand: aiming (trigger held, empty hand), pull (flick this frame), ray.
 	bool  abForceAim[2]  = { false, false };
@@ -69,6 +71,8 @@ struct SVRShared
 	bool  bTwoHandPistol = false;	// Support hand cups the bottom of the grip.
 	float fGunBack = 0.04f;			// Guns sit this far back from the controller's grip point (m).
 	float fGunSide = -0.05f;			// ... and this far across toward the middle of the palm (m).
+	float fGunSideOther = 0.01f;		// The same for every gun but the rifle.
+	float fArmScale = 0.85f;			// Her arms are drawn this size (shorter and slimmer).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
 	// Where Anne's body should be (under the headset), world space.
@@ -121,7 +125,7 @@ struct SVRShared
 	float fShotgunSupportUp = 0.03f;	// The supporting hand on the shotgun is drawn this much higher (m).
 	float fRifleSupportDown = 0.03f;	// ...and on the rifle this much lower.
 	float aafHandVelPeak[2][3] = {};	// Fastest hand velocity over the last ~0.1 s (throwing).
-	float fThrowScale = 1.3f;			// Throws go this much faster than the hand.
+	float fThrowScale = 2.0f;			// Throws go this much faster than the hand.
 	// What each hand holds firmly, and where it sits relative to the controller (position,
 	// then rotation as a quaternion c, x, y, z).  The renderer draws it at the controller's
 	// latest pose, so it doesn't judder between physics steps.

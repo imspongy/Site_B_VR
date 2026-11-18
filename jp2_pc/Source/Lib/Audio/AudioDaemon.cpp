@@ -1910,6 +1910,15 @@ void CAudioDaemon::Process(const CMessageCollision& msg)
 #endif
 
 
+	// VR: things in Anne's holsters ride along with her; their knocks as she walks are noise.
+	// (Not the knock of putting them in: that one is let through.)
+	if (gVR.bActive && !gVR.bHolsterSound)
+	{
+		for (int i = 0; i < 4; i++)
+			if (gVR.apvHolstered[i] && (msg.pins1 == gVR.apvHolstered[i] || msg.pins2 == gVR.apvHolstered[i]))
+				return;
+	}
+
 	//  HACK HACK HACK
 	//   Brutal evil hack to avoid sounds on Anne's body unless she's dead.
 	//   This is all so that we can make a thump sound when she dies and falls over.  Great, huh?
