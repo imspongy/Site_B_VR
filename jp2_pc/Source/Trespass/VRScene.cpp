@@ -56,6 +56,8 @@
 #include "Lib/Loader/TextureManager.hpp"
 #include "Lib/Sys/VirtualMem.hpp"
 #include "Game/DesignDaemon/Player.hpp"
+#include "Game/DesignDaemon/Gun.hpp"
+#include "Lib/Trigger/Trigger.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -769,6 +771,144 @@ namespace
 		}
 	}
 
+	//******************************************************************************************
+	// Glints: guns and the things the story sends you for (key cards and the like: whatever a
+	// pickup trigger waits for) sparkle now and then until you first pick them up.
+	struct SGlint
+	{
+		CVector3<> v3Pos;
+		float      fPhase;		// 0..1, so they don't all flash at once.
+	};
+	std::vector<SGlint>          aglGlints;
+	std::unordered_set<uint32>   setGlintHandles;	// Pickup-trigger objects.
+	std::unordered_set<const void*> setPickedUp;		// Picked up once: no more glint.
+	DWORD u4GlintHandlesTick = 0;
+	int   iGlintTex = 0;
+	bool  gbGlints = true;
+
+	void UpdateGlintHandles(bool b_new_level)
+	{
+		if (b_new_level)
+			setPickedUp.clear();
+		for (int h = 0; h < 2; h++)
+			if (gVR.apvHeldFirm[h])
+				setPickedUp.insert(gVR.apvHeldFirm[h]);
+		DWORD u4_now = GetTickCount();
+		if (!b_new_level && u4_now - u4GlintHandlesTick < 2000)
+			return;
+		u4GlintHandlesTick = u4_now;
+		std::vector<uint32> au4;
+		CObjectTrigger::VRGetPickupObjects(au4);
+		setGlintHandles.clear();
+		setGlintHandles.insert(au4.begin(), au4.end());
+	}
+
+	void ConsiderGlint(CInstance* pins, const CPresence3<>& pr3, float f_radius, const CVector3<>& v3_eye)
+	{
+		if (!gbGlints || setPickedUp.count(pins))
+			return;
+		CVector3<> v3_to = pr3.v3Pos - v3_eye;
+		float f_dist = v3_to.tLen();
+		if (f_dist > 30.0f || f_dist < 0.3f)
+			return;
+		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()))
+			return;
+		if (pins == (CInstance*)gVR.apvHeldFirm[0] || pins == (CInstance*)gVR.apvHeldFirm[1])
+			return;
+		// Just in front of the object (toward you), so it isn't hidden inside it.
+		float f_out = std::min(f_radius, 0.3f);
+		SGlint gl;
+		gl.v3Pos = pr3.v3Pos - v3_to * (f_out / f_dist);
+		gl.fPhase = (float)(pins->u4GetUniqueHandle() % 997) / 997.0f;
+		aglGlints.push_back(gl);
+	}
+
+	void DrawGlints(const CVector3<>& v3_eye)
+	{
+		if (aglGlints.empty())
+			return;
+		if (!iGlintTex)
+		{
+			// A four-pointed star with a soft core.
+			const int iN = 64;
+			std::vector<uint32_t> au4((size_t)iN * iN);
+			for (int y = 0; y < iN; y++)
+				for (int x = 0; x < iN; x++)
+				{
+					float fx = (x + 0.5f) / iN * 2 - 1, fy = (y + 0.5f) / iN * 2 - 1;
+					float r = std::sqrt(fx * fx + fy * fy);
+					float core = std::exp(-r * r * 18.0f);
+					float rays = std::exp(-std::fabs(fx) * 40.0f) * std::max(0.0f, 1 - std::fabs(fy)) +
+					             std::exp(-std::fabs(fy) * 40.0f) * std::max(0.0f, 1 - std::fabs(fx));
+					float a = std::min(1.0f, core + rays * 0.9f + std::exp(-r * r * 4.0f) * 0.25f);
+					au4[(size_t)y * iN + x] = u4RGBA(255, 250, 225, (int)(a * 255));
+				}
+			iGlintTex = VRR_TextureCreate(iN, iN, au4.data());
+		}
+		const float fCYCLE = 2.6f, fFLASH = 0.55f;
+		float f_t = (float)(GetTickCount() % 2600000) / 1000.0f;
+		std::vector<SVRRVertex> av;
+		for (const SGlint& gl : aglGlints)
+		{
+			float u = std::fmod(f_t + gl.fPhase * fCYCLE, fCYCLE);
+			if (u > fFLASH)
+				continue;
+			float f_a = std::sin(3.14159f * u / fFLASH);
+			CVector3<> v3_view = v3_eye - gl.v3Pos;
+			float f_dist = v3_view.tLen();
+			if (f_dist < 1e-3f)
+				continue;
+			v3_view /= f_dist;
+			CVector3<> v3_right = CVector3<>(0, 0, 1) ^ v3_view;
+			if (v3_right.tLen() < 1e-3f)
+				v3_right = CVector3<>(1, 0, 0);
+			v3_right.Normalise();
+			CVector3<> v3_up = v3_view ^ v3_right;
+			// Turns a little as it flashes.
+			float f_ang = u / fFLASH * 0.6f;
+			CVector3<> v3_r = v3_right * std::cos(f_ang) + v3_up * std::sin(f_ang);
+			CVector3<> v3_u = v3_up * std::cos(f_ang) - v3_right * std::sin(f_ang);
+			float f_size = std::max(0.09f, f_dist * 0.011f) * (0.25f + 0.75f * f_a);
+			const CVector3<> av3[4] =
+			{
+				gl.v3Pos - v3_r * f_size - v3_u * f_size, gl.v3Pos + v3_r * f_size - v3_u * f_size,
+				gl.v3Pos + v3_r * f_size + v3_u * f_size, gl.v3Pos - v3_r * f_size + v3_u * f_size,
+			};
+			const float af_uv[4][2] = { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } };
+			for (int i = 0; i < 4; i++)
+			{
+				SVRRVertex v;
+				v.afPos[0] = av3[i].tX; v.afPos[1] = av3[i].tY; v.afPos[2] = av3[i].tZ;
+				v.afNormal[0] = v3_view.tX; v.afNormal[1] = v3_view.tY; v.afNormal[2] = v3_view.tZ;
+				v.afUV[0] = af_uv[i][0]; v.afUV[1] = af_uv[i][1];
+				av.push_back(v);
+			}
+		}
+		aglGlints.clear();
+		int i_quads = (int)av.size() / 4;
+		if (i_quads <= 0)
+			return;
+		std::vector<uint32_t> au4((size_t)i_quads * 6);
+		for (int q = 0; q < i_quads; q++)
+		{
+			uint32_t b = q * 4;
+			uint32_t* pu = &au4[(size_t)q * 6];
+			pu[0] = b; pu[1] = b + 1; pu[2] = b + 2; pu[3] = b; pu[4] = b + 2; pu[5] = b + 3;
+		}
+		int i_mesh = VRR_MeshDynamic(av.data(), (int)av.size(), au4.data(), (int)au4.size());
+		if (!i_mesh)
+			return;
+		static const float af_identity[12] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0 };
+		SVRRDraw drw;
+		drw.iMesh = i_mesh;
+		drw.iFirstIndex = 0;
+		drw.iNumIndices = (int)au4.size();
+		drw.iTexture = iGlintTex;
+		std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
+		drw.u4Flags = evrrBLEND | evrrUNLIT | evrrNO_FOG | evrrNO_SHADOW | evrrTWO_SIDED;
+		VRR_AddDraw(drw);
+	}
+
 	void DrawParticles(const CVector3<>& v3_eye)
 	{
 		SParticleBuild pb;
@@ -971,11 +1111,26 @@ namespace
 			CPlacement3<> p3_render = p3_grab * p3_ctrl;
 			CPlacement3<> p3_inst = pins->p3GetPlacement() * ~pins_held->p3GetPlacement() * p3_render;
 			// Guns are drawn a little smaller, shrunk about the hand, to suit her hands.
-			float f_k = gVR.abHoldingGun[h] ? std::max(0.5f, std::min(gVR.fGunScale, 1.5f)) : 1.0f;
+			float f_k = gVR.abHoldingGun[h] ? std::max(0.5f, std::min(gVR.fGunScale, 1.5f))
+			          : gVR.abHoldingMelee[h] ? gVR.fMeleeDrawScale : 1.0f;
 			CVector3<> v3_pos = p3_ctrl.v3Pos + (p3_inst.v3Pos - p3_ctrl.v3Pos) * f_k;
 			rpr3 = CPresence3<>(p3_inst.r3Rot, rpr3.rScale * f_k, v3_pos);
 			return true;
 		}
+		// Holstered things: drawn on her body exactly where her body is drawn this frame.
+		if (gVR.bBodyDrawnPosValid)
+			for (int i = 0; i < 4; i++)
+			{
+				if (!gVR.apvHolstered[i] || pins != (CInstance*)gVR.apvHolstered[i])
+					continue;
+				const float* af = gVR.aafStowRel[i];
+				const float* af_b = gVR.afBodyDrawnPlace;
+				CPlacement3<> p3_rel(CRotate3<>(af[3], af[4], af[5], af[6], true), CVector3<>(af[0], af[1], af[2]));
+				CPlacement3<> p3_body(CRotate3<>(af_b[3], af_b[4], af_b[5], af_b[6], true), CVector3<>(af_b[0], af_b[1], af_b[2]));
+				CPlacement3<> p3 = p3_rel * p3_body;
+				rpr3 = CPresence3<>(p3.r3Rot, rpr3.rScale, p3.v3Pos);
+				return true;
+			}
 		return false;
 	}
 
@@ -1009,6 +1164,7 @@ namespace
 			ws.iEmpty++;
 			return;
 		}
+		ConsiderGlint(pins, pr3, pme->fRadius * std::fabs(pr3.rScale), wk.v3Eye);
 
 		// Out of sight: too far, or behind you (unless it can cast a shadow you see).
 		float f_r = pme->fRadius * std::fabs(pr3.rScale) + 1.0f;
@@ -1034,7 +1190,7 @@ namespace
 
 		float af_world[12];
 		CPresence3<> pr3_draw = pr3;
-		if (!pbm.ptGet() && (gVR.apvHeldFirm[0] || gVR.apvHeldFirm[1]))
+		if (!pbm.ptGet() && (gVR.apvHeldFirm[0] || gVR.apvHeldFirm[1] || gVR.apvHolstered[0] || gVR.apvHolstered[1] || gVR.apvHolstered[2] || gVR.apvHolstered[3]))
 			bHeldPresence(pins, pr3_draw);
 		WorldRows(pr3_draw, af_world);
 		if (pbm.ptGet() && ptCast<CAnimal>(pins))
@@ -1676,6 +1832,7 @@ void VRScene_ReleaseLevel()
 	iSkyTexture = 0;
 	pvSkyTexture = nullptr;
 	iPhysTexRed = iPhysTexBlue = 0;
+	iGlintTex = 0;
 	ptrrLevel = nullptr;
 	pvLevelPlayer = nullptr;
 	VRR_ClearAll();
@@ -1713,6 +1870,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		iSkyTexture = 0;
 		pvSkyTexture = nullptr;
 		iPhysTexRed = iPhysTexBlue = 0;
+		iGlintTex = 0;
 		VRR_ClearAll();
 
 		// Load all of the level's textures now (the game normally streams them in a little at
@@ -1740,6 +1898,9 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 
 	iObjects = iSkinned = iTexturesWaiting = 0;
 	setAnimatedThisFrame.clear();
+	UpdateGlintHandles(b_new_level);
+	gbGlints = set.bGlints;
+	aglGlints.clear();
 	apinsNearLast.swap(apinsNear);
 	apinsNear.clear();
 	SWalkStats ws = {};
@@ -1749,6 +1910,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wsLast = ws;
 
 	DrawParticles(wk.v3Eye);
+	DrawGlints(wk.v3Eye);
 	v3LastEye = wk.v3Eye;
 	gbShowPhysics = set.bShowPhysics;
 	if (gbShowPhysics)

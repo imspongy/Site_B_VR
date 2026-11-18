@@ -77,6 +77,16 @@ struct SVRShared
 	float fShotgunUp = -0.01f;			// ... and how far up it sits along its own up (m).
 	float fShotgun2Side = 0.01f;		// The level 2 shotgun (7 shells) ...
 	float fShotgun2Up = 0.09f;			// ... and its height.
+	// Per kind of gun (0 pistol, 1 shotgun, 2 shotgun 2, 3 rifle, 4 other long gun) and per hand
+	// (0 right, 1 left): across toward the body's middle, and up (m).
+	float aafGunAcross[5][2] = { { 0.01f, 0.01f }, { 0.04f, 0.04f }, { 0.01f, 0.01f }, { -0.05f, -0.05f }, { 0.01f, 0.01f } };
+	float aafGunUp[5][2] = {};
+	int   aiHeldGunKind[2] = { -1, -1 };
+	float aafGunAdjPending[2][2] = {};		// Stick adjustments not yet applied to the held gun.
+	bool  abHoldingMelee[2] = { false, false };
+	float fMeleeTiltDeg = 45.0f;		// Bats and pipes tipped up in the hand.
+	float fMeleeScale = 1.0f;			// Melee hits (things swung in the hand) hurt this much more.
+	float fMeleeDrawScale = 0.85f;		// Bats and pipes drawn this size in the hand.
 	float fArmScale = 0.85f;			// Her arms are drawn this size (shorter and slimmer).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
@@ -120,6 +130,8 @@ struct SVRShared
 	float afBodyDrawShift[3] = { 0, 0, 0 };	// Her visible body relative to her physics body.
 	float afBodyDrawnPos[3] = { 0, 0, 0 };	// Where her visible body is (world).
 	bool  bBodyDrawnPosValid = false;
+	float afBodyDrawnPlace[7] = { 0, 0, 0, 1, 0, 0, 0 };	// Her visible body: position, rotation (c x y z).
+	float aafStowRel[4][7] = {};		// Each holstered thing relative to her body.
 	bool  bViewEyeValid = false;
 	float fViewEyeZ = 0;			// Your eyes (world height).
 	float fHeadBelowEye = 0.07f;	// Her head joint sits this far below your eyes (m).

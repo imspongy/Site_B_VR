@@ -1309,6 +1309,8 @@ private:
 		CInstance*    pinsThrown = nullptr;		// Just thrown: its velocity is applied again for a few steps.
 		CVector3<>    v3Throw;
 		int           iThrowSteps = 0;
+		int           iGunKind = -1;			// 0 pistol, 1 shotgun, 2 shotgun 2, 3 rifle, 4 other long gun.
+		bool          bMelee = false;			// A bat, pipe or similar swung in the hand.
 	};
 	SVRHand avrh[2];
 
@@ -1347,14 +1349,30 @@ private:
 		return p3;
 	}
 
+	static void VRExportDrawnBody(const CPlacement3<>& p3_body)
+	{
+		gVR.afBodyDrawnPos[0] = gVR.afBodyDrawnPlace[0] = p3_body.v3Pos.tX;
+		gVR.afBodyDrawnPos[1] = gVR.afBodyDrawnPlace[1] = p3_body.v3Pos.tY;
+		gVR.afBodyDrawnPos[2] = gVR.afBodyDrawnPlace[2] = p3_body.v3Pos.tZ;
+		gVR.afBodyDrawnPlace[3] = p3_body.r3Rot.tC;
+		gVR.afBodyDrawnPlace[4] = p3_body.r3Rot.v3S.tX;
+		gVR.afBodyDrawnPlace[5] = p3_body.r3Rot.v3S.tY;
+		gVR.afBodyDrawnPlace[6] = p3_body.r3Rot.v3S.tZ;
+		gVR.bBodyDrawnPosValid = true;
+	}
+
 	// Holstered things go with her visible body: drawn under your head, crouching with you.
 	void VRMoveStowed()
 	{
 		CPlacement3<> p3_body = p3VRDrawnBody();
-		gVR.afBodyDrawnPos[0] = p3_body.v3Pos.tX;
-		gVR.afBodyDrawnPos[1] = p3_body.v3Pos.tY;
-		gVR.afBodyDrawnPos[2] = p3_body.v3Pos.tZ;
-		gVR.bBodyDrawnPosValid = true;
+		VRExportDrawnBody(p3_body);
+		for (int i = 0; i < 4; i++)
+		{
+			const CPlacement3<>& p3 = i < 2 ? ap3StowedObj[i] : ap3VRStowedLeft[i - 2];
+			float* af = gVR.aafStowRel[i];
+			af[0] = p3.v3Pos.tX; af[1] = p3.v3Pos.tY; af[2] = p3.v3Pos.tZ;
+			af[3] = p3.r3Rot.tC; af[4] = p3.r3Rot.v3S.tX; af[5] = p3.r3Rot.v3S.tY; af[6] = p3.r3Rot.v3S.tZ;
+		}
 		if (apinsStowed[0])
 			MoveWithMagnets(apinsStowed[0], ap3StowedObj[0] * p3_body, this);
 		if (apinsStowed[1])
@@ -2630,6 +2648,15 @@ private:
 			gVR.abHoldingGun[i] = pins && ptCast<CGun>(pins) != 0;
 			gVR.afHeldMass[i]   = pins ? pins->pphiGetPhysicsInfo()->fMass(pins) : 0.0f;
 			gVR.afHeldLength[i] = fVRLength(pins);
+			gVR.aiHeldGunKind[i] = pins ? avrh[i].iGunKind : -1;
+			gVR.abHoldingMelee[i] = pins && avrh[i].bMelee;
+			// Gun adjusting in the headset: move the gun in the hand by what the stick did.
+			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0))
+			{
+				avrh[i].p3Grab.v3Pos.tX += i == 0 ? gVR.aafGunAdjPending[i][0] : -gVR.aafGunAdjPending[i][0];
+				avrh[i].p3Grab.v3Pos += CVector3<>(0, 0, gVR.aafGunAdjPending[i][1]) * avrh[i].p3Grab.r3Rot;
+			}
+			gVR.aafGunAdjPending[i][0] = gVR.aafGunAdjPending[i][1] = 0;
 			if (pins && gVR.afHeldMass[i] <= 150.0f && !NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE)))
 			{
 				gVR.apvHeldFirm[i] = (const void*)pins;
@@ -4518,26 +4545,73 @@ private:
 			bool b_rifle = b_bolt && pgun_grab->sTimeBetweenShots >= 1.0f;
 			bool b_shot8 = b_bolt && !b_rifle && pgun_grab->iMaxAmmo == 8;
 			bool b_shot7 = b_bolt && !b_rifle && pgun_grab->iMaxAmmo < 8;
-			float f_side = b_rifle ? gVR.fGunSide
-			             : b_shot8 ? gVR.fShotgunSide
-			             : b_shot7 ? gVR.fShotgun2Side
-			             : (pgun_grab && !b_long) ? gVR.fPistolSide
-			             : gVR.fGunSideOther;
-			float f_up   = b_shot8 ? gVR.fShotgunUp : b_shot7 ? gVR.fShotgun2Up : 0.0f;
+			int i_kind = !pgun_grab ? -1 : !b_long ? 0 : b_shot8 ? 1 : b_shot7 ? 2 : b_rifle ? 3 : 4;
+			vh.iGunKind = i_kind;
+			// Across and up, per kind of gun and per hand (ini, or set in the headset with
+			// GunAdjust=1).
+			float f_side = i_kind >= 0 ? gVR.aafGunAcross[i_kind][i_hand] : gVR.fGunSideOther;
+			float f_up   = i_kind >= 0 ? gVR.aafGunUp[i_kind][i_hand] : 0.0f;
 			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? f_side : -f_side, -gVR.fGunBack, 0);
 			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
 			// Up or down along the gun's own up direction (the same for both hands).
 			if (f_up != 0.0f)
 				vh.p3Grab.v3Pos += CVector3<>(0, 0, f_up) * vh.p3Grab.r3Rot;
+			static const char* const astrKIND[5] = { "pistol", "shotgun", "shotgun 2", "rifle", "other long gun" };
 			if (gVR.pfnLog && pgun_grab)
 				gVR.pfnLog("Gun %s in the %s hand: %s (length %.2f, %.0f kg, %.2f s between shots, ammo %d, damage %.0f), across %.3f, up %.3f.",
-					pins->strGetInstanceName(), i_hand ? "left" : "right",
-					b_rifle ? "rifle" : b_shot8 ? "shotgun" : b_shot7 ? "shotgun 2" : !b_long ? "pistol" : "other long gun",
+					pins->strGetInstanceName(), i_hand ? "left" : "right", astrKIND[i_kind],
 					fVRLength(pins), pins->pphiGetPhysicsInfo()->fMass(pins), (float)pgun_grab->sTimeBetweenShots,
 					pgun_grab->iMaxAmmo, pgun_grab->gdGunData.fDamage, f_side, f_up);
+
+			// Bats, pipes and the like: tipped up (held like a bat, not pointed like a gun).
+			vh.bMelee = false;
+			if (!pgun_grab)
+			{
+				const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
+				float f_mass = pins->pphiGetPhysicsInfo()->fMass(pins);
+				if (pbvb)
+				{
+					float af_d[3] = { (*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y], (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z] };
+					int i_long = (af_d[0] >= af_d[1] && af_d[0] >= af_d[2]) ? 0 : (af_d[1] >= af_d[2] ? 1 : 2);
+					float f_len = af_d[i_long] * fabsf(pins->fGetScale());
+					float f_thick = 0;
+					for (int k = 0; k < 3; k++)
+						if (k != i_long)
+							f_thick = Max(f_thick, af_d[k] * fabsf(pins->fGetScale()));
+					if (f_len >= 0.45f && f_len <= 1.8f && f_thick <= f_len * 0.35f && f_mass <= 20.0f)
+					{
+						vh.bMelee = true;
+						CVector3<> v3_axis_obj(i_long == 0 ? 1.0f : 0.0f, i_long == 1 ? 1.0f : 0.0f, i_long == 2 ? 1.0f : 0.0f);
+						// Its long axis in the hand, pointing away from the grip.
+						CVector3<> v3_a = v3_axis_obj * vh.p3Grab.r3Rot;
+						CVector3<> v3_centre = ((CVector3<>(((*pbvb)[ebeMAX_X] + (*pbvb)[ebeMIN_X]) * 0.5f, ((*pbvb)[ebeMAX_Y] + (*pbvb)[ebeMIN_Y]) * 0.5f,
+						                                    ((*pbvb)[ebeMAX_Z] + (*pbvb)[ebeMIN_Z]) * 0.5f) * fabsf(pins->fGetScale())) * vh.p3Grab.r3Rot) + vh.p3Grab.v3Pos;
+						if (v3_a * v3_centre < 0)
+							v3_a = -v3_a;
+						// Up in the hand (the hand frame of the left hand is turned over).
+						CVector3<> v3_up(0, 0, i_hand == 0 ? 1.0f : -1.0f);
+						v3_up = v3_up - v3_a * (v3_up * v3_a);
+						if (v3_up.tLen() > 0.1f && gVR.fMeleeTiltDeg != 0.0f)
+						{
+							v3_up.Normalise();
+							float f_t = gVR.fMeleeTiltDeg * 3.14159265f / 180.0f;
+							CVector3<> v3_to = v3_a * cosf(f_t) + v3_up * sinf(f_t);
+							CPlacement3<> p3_tilt(CRotate3<>(CDir3<>(v3_a), CDir3<>(v3_to)), CVector3<>(0, 0, 0));
+							vh.p3Grab = vh.p3Grab * p3_tilt;
+						}
+						if (gVR.pfnLog)
+							gVR.pfnLog("Melee %s in the %s hand: length %.2f, %.1f kg, tipped up %.0f degrees.",
+								pins->strGetInstanceName(), i_hand ? "left" : "right", f_len, f_mass, gVR.fMeleeTiltDeg);
+					}
+				}
+			}
 		}
 		else
+		{
 			vh.p3Grab = pins->p3GetPlacement() * ~p3_hand;
+			vh.iGunKind = -1;
+			vh.bMelee = false;
+		}
 
 		vh.pinsHeld = pins;
 		IgnoreVR(i_hand, pins, true);
@@ -5729,6 +5803,8 @@ private:
 				SetPresence(pr3_shifted);
 				bVRShiftMoving = false;
 				bVRBodyShifted = true;
+				// (The view about to be drawn shows her here: holstered things are drawn here too.)
+				VRExportDrawnBody(CPlacement3<>(pr3_shifted.r3Rot, pr3_shifted.v3Pos));
 			}
 		}
 

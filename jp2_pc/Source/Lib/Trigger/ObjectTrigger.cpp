@@ -132,12 +132,36 @@ CObjectTrigger::CObjectTrigger
 	// Register this entity with the message types it needs to receive.
 	CMessagePickUp::RegisterRecipient(this);
 	   CMessageUse::RegisterRecipient(this);
+	setVRObjectTriggers().insert(this);
+}
+
+//*********************************************************************************************
+std::set<const CObjectTrigger*>& CObjectTrigger::setVRObjectTriggers()
+{
+	static std::set<const CObjectTrigger*> set_triggers;
+	return set_triggers;
+}
+
+//*********************************************************************************************
+void CObjectTrigger::VRGetPickupObjects(std::vector<uint32>& rau4_handles)
+{
+	// The things whose picking up moves the story on (key cards, the items you are sent for).
+	rau4_handles.clear();
+	for (const CObjectTrigger* ptr : setVRObjectTriggers())
+	{
+		if (!(ptr->tcoTriggerConditions & TRIGGER_COND_OBJECT_PICKUP))
+			continue;
+		for (uint32 u4 = 0; u4 < u4TRIGGER_MAX_OBJECTS; u4++)
+			if (ptr->au4Objects[u4])
+				rau4_handles.push_back(ptr->au4Objects[u4]);
+	}
 }
 
 
 //*********************************************************************************************
 CObjectTrigger::~CObjectTrigger()
 {
+	setVRObjectTriggers().erase(this);
 	   CMessageUse::UnregisterRecipient(this);
 	CMessagePickUp::UnregisterRecipient(this);
 }

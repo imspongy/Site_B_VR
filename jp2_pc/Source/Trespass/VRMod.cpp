@@ -170,7 +170,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 19;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 20;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -227,6 +227,8 @@ namespace
 		float fRecoil         = 1.0f;
 		bool  bShowPhysics    = false;
 		bool  bTutorial       = true;
+		bool  bGunAdjust      = false;
+		bool  bGlints         = true;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
 		float fLeanRadius     = 0.6f;	// Cutscenes: how far you can lean from the camera.
@@ -541,17 +543,40 @@ namespace
 			"; How far guns sit back into the palm and across toward its middle (metres), and how big\n"
 			"; held guns are drawn (1 = the game's size).\n"
 			"GunBack=0.04\n"
-			"GunSide=-0.05\n"
-			"; The same sideways setting for pistols, the two shotguns and any other gun.\n"
-			"; (Bigger = further in toward the middle of your body.)\n"
-			"PistolSide=0.01\n"
-			"ShotgunSide=0.04\n"
-			"Shotgun2Side=0.01\n"
-			"GunSideOther=0.01\n"
-			"; How far up the shotguns sit in your hand (Shotgun = the first one, 8 shells;\n"
-			"; Shotgun2 = the one in level 2, 7 shells).  Negative = down.\n"
-			"ShotgunUp=-0.01\n"
-			"Shotgun2Up=0.09\n"
+			"; Where each kind of gun sits in each hand (metres).  Side: bigger = further in toward the\n"
+			"; middle of your body.  Up: negative = down.  Shotgun = the first one (8 shells), Shotgun2 =\n"
+			"; the one from level 2 (7 shells), Rifle = hunting rifle and sniper, OtherGun = the\n"
+			"; submachine gun.  With GunAdjust=1, the stick on the hand holding a gun moves it in your\n"
+			"; hand instead of walking or turning (left/right and up/down), and the result is saved here.\n"
+			"GunAdjust=0\n"
+			"PistolSideRight=0.01\n"
+			"PistolSideLeft=0.01\n"
+			"PistolUpRight=0.0\n"
+			"PistolUpLeft=0.0\n"
+			"ShotgunSideRight=0.04\n"
+			"ShotgunSideLeft=0.04\n"
+			"ShotgunUpRight=-0.01\n"
+			"ShotgunUpLeft=-0.01\n"
+			"Shotgun2SideRight=-0.01\n"
+			"Shotgun2SideLeft=0.01\n"
+			"Shotgun2UpRight=0.09\n"
+			"Shotgun2UpLeft=0.07\n"
+			"RifleSideRight=-0.05\n"
+			"RifleSideLeft=-0.05\n"
+			"RifleUpRight=0.0\n"
+			"RifleUpLeft=0.0\n"
+			"OtherGunSideRight=0.01\n"
+			"OtherGunSideLeft=0.01\n"
+			"OtherGunUpRight=0.0\n"
+			"OtherGunUpLeft=0.0\n"
+			"; Bats, pipes and the like: tipped up this many degrees in the hand (negative tips them\n"
+			"; down), and drawn this size (1 = the game's size).\n"
+			"MeleeTilt=45\n"
+			"MeleeScale=0.85\n"
+			"; Melee damage (bats, pipes, sticks swung in the hand): 1 = useful as a last resort.\n"
+			"MeleeDamage=1.0\n"
+			"; Guns and the things the story sends you for sparkle until you first pick them up.\n"
+			"Glints=1\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
@@ -615,13 +640,24 @@ namespace
 			int i_pics = (int)fIni(str_file, "ButtonPictures", 0);
 			VRB_SetControllerKind(i_pics == 1 ? 1 : i_pics == 2 ? 0 : i_pics == 3 ? 2 : i_pics == 4 ? 3 : -1);
 		}
-		gVR.fGunSide      = fIni(str_file, "GunSide", -0.05f);
-		gVR.fGunSideOther = fIni(str_file, "GunSideOther", 0.01f);
-		gVR.fPistolSide   = fIni(str_file, "PistolSide", 0.01f);
-		gVR.fShotgunSide  = fIni(str_file, "ShotgunSide", 0.04f);
-		gVR.fShotgun2Side = fIni(str_file, "Shotgun2Side", 0.01f);
-		gVR.fShotgunUp    = fIni(str_file, "ShotgunUp", -0.01f);
-		gVR.fShotgun2Up   = fIni(str_file, "Shotgun2Up", 0.09f);
+		{
+			static const char* const astrKIND[5] = { "Pistol", "Shotgun", "Shotgun2", "Rifle", "OtherGun" };
+			static const float afSIDE[5][2] = { { 0.01f, 0.01f }, { 0.04f, 0.04f }, { -0.01f, 0.01f }, { -0.05f, -0.05f }, { 0.01f, 0.01f } };
+			static const float afUP[5][2]   = { { 0.0f, 0.0f }, { -0.01f, -0.01f }, { 0.09f, 0.07f }, { 0.0f, 0.0f }, { 0.0f, 0.0f } };
+			for (int k = 0; k < 5; k++)
+				for (int h = 0; h < 2; h++)
+				{
+					std::string str_side = std::string(astrKIND[k]) + "Side" + (h == 0 ? "Right" : "Left");
+					std::string str_up   = std::string(astrKIND[k]) + "Up" + (h == 0 ? "Right" : "Left");
+					gVR.aafGunAcross[k][h] = fIni(str_file, str_side.c_str(), afSIDE[k][h]);
+					gVR.aafGunUp[k][h]     = fIni(str_file, str_up.c_str(), afUP[k][h]);
+				}
+		}
+		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
+		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
+		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.85f)));
+		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 1.0f);
+		s.bGlints         = fIni(str_file, "Glints", 1.0f) > 0.5f;
 		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
 		s.bShowPhysics    = fIni(str_file, "ShowPhysics", 0) != 0;
@@ -725,6 +761,101 @@ namespace
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if (GetFileAttributesExA(str_file.c_str(), GetFileExInfoStandard, &fad))
 			ftIni = fad.ftLastWriteTime;
+	}
+
+	//******************************************************************************************
+	// Sets one key in TrespasserVR.ini (replacing its line, or adding it at the end).
+	void SetIniValue(const char* str_key, float f_value)
+	{
+		std::string str_path = strIniPath();
+		std::vector<std::string> astr;
+		if (FILE* pf = fopen(str_path.c_str(), "r"))
+		{
+			char str_line[1024];
+			while (fgets(str_line, sizeof(str_line), pf))
+			{
+				std::string str = str_line;
+				while (!str.empty() && (str.back() == '\n' || str.back() == '\r'))
+					str.pop_back();
+				astr.push_back(str);
+			}
+			fclose(pf);
+		}
+		char str_new[128];
+		snprintf(str_new, sizeof(str_new), "%s=%.3f", str_key, f_value);
+		std::string str_prefix = std::string(str_key) + "=";
+		bool b_found = false;
+		for (std::string& str : astr)
+			if (_strnicmp(str.c_str(), str_prefix.c_str(), str_prefix.size()) == 0)
+			{
+				str = str_new;
+				b_found = true;
+			}
+		if (!b_found)
+			astr.push_back(str_new);
+		if (FILE* pf = fopen(str_path.c_str(), "w"))
+		{
+			for (const std::string& str : astr)
+				fprintf(pf, "%s\n", str.c_str());
+			fclose(pf);
+		}
+		// (Not a change to reload from: it's what is already in use.)
+		WIN32_FILE_ATTRIBUTE_DATA fad;
+		if (GetFileAttributesExA(str_path.c_str(), GetFileExInfoStandard, &fad))
+			ftIni = fad.ftLastWriteTime;
+	}
+
+	//******************************************************************************************
+	// GunAdjust=1: the stick of a hand holding a gun moves the gun in that hand (instead of
+	// walking or turning); when the stick is let go the new place is saved for that kind of gun
+	// and that hand.
+	void GunAdjust(const SVRFrame& fr, SVRHandInput& rhi_off, SVRHandInput& rhi_main, float f_dt)
+	{
+		static bool ab_dirty[2] = { false, false };
+		static int ai_kind[2] = { -1, -1 };
+		static const char* const astrKIND[5] = { "Pistol", "Shotgun", "Shotgun2", "Rifle", "OtherGun" };
+		for (int h = 0; h < 2; h++)
+		{
+			int k = gVR.aiHeldGunKind[h];
+			bool b_active = setVR.bGunAdjust && gVR.abHoldingGun[h] && k >= 0 && k < 5;
+			int c = iCtl(h);
+			float f_x = 0, f_y = 0;
+			if (b_active)
+			{
+				const SVRHandInput& hi = fr.ctl.ahand[c];
+				f_x = std::fabs(hi.fStickX) > 0.3f ? hi.fStickX : 0.0f;
+				f_y = std::fabs(hi.fStickY) > 0.3f ? hi.fStickY : 0.0f;
+				// The stick is used for this, not for walking or turning.
+				SVRHandInput& rhi = c == iOffCtl() ? rhi_off : rhi_main;
+				rhi.fStickX = rhi.fStickY = 0;
+				rhi.bStickClick = false;
+			}
+			if (f_x != 0 || f_y != 0)
+			{
+				const float fRATE = 0.03f;		// Metres a second at full stick.
+				// Stick right moves the gun to your right: in for the left hand, out for the right.
+				float f_across = (h == 0 ? -f_x : f_x) * fRATE * f_dt;
+				float f_up = f_y * fRATE * f_dt;
+				gVR.aafGunAcross[k][h] += f_across;
+				gVR.aafGunUp[k][h] += f_up;
+				gVR.aafGunAdjPending[h][0] += f_across;
+				gVR.aafGunAdjPending[h][1] += f_up;
+				ab_dirty[h] = true;
+				ai_kind[h] = k;
+			}
+			else if (ab_dirty[h] && ai_kind[h] >= 0)
+			{
+				// Let go of the stick: save.
+				int kk = ai_kind[h];
+				std::string str_side = std::string(astrKIND[kk]) + "Side" + (h == 0 ? "Right" : "Left");
+				std::string str_up   = std::string(astrKIND[kk]) + "Up" + (h == 0 ? "Right" : "Left");
+				SetIniValue(str_side.c_str(), gVR.aafGunAcross[kk][h]);
+				SetIniValue(str_up.c_str(), gVR.aafGunUp[kk][h]);
+				Log("Gun adjust: %s=%.3f %s=%.3f.", str_side.c_str(), gVR.aafGunAcross[kk][h], str_up.c_str(), gVR.aafGunUp[kk][h]);
+				Haptic(h, 0.03f, 150.0f, 0.3f);
+				ab_dirty[h] = false;
+			}
+		}
 	}
 
 	//******************************************************************************************
@@ -1828,8 +1959,9 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	const CRotate3<> r3_head_track = r3Game(fr.posHead.afQ);
 
 	// Recenter: turn-stick click.  Sprint: walk-stick click.
-	const SVRHandInput& hi_off  = fr.ctl.ahand[iOffCtl()];
-	const SVRHandInput& hi_main = fr.ctl.ahand[iMainCtl()];
+	SVRHandInput hi_off  = fr.ctl.ahand[iOffCtl()];
+	SVRHandInput hi_main = fr.ctl.ahand[iMainCtl()];
+	GunAdjust(fr, hi_off, hi_main, f_dt);
 	bool b_recenter = hi_main.bStickClick && !ctlPrevFrame.ahand[iMainCtl()].bStickClick;
 	if (hi_off.bStickClick && !ctlPrevFrame.ahand[iOffCtl()].bStickClick)
 		bRunToggle = !bRunToggle;
@@ -2269,6 +2401,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fTerrainDetail = setVR.fTerrainDetail;
 		set.fFogScale = setVR.fFogScale;
 		set.bShowPhysics = setVR.bShowPhysics;
+		set.bGlints = setVR.bGlints;
 
 		double d_t0 = dNowMs();
 		SSceneCall sc = { &eyes, &set, false };
