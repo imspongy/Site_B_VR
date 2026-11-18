@@ -806,59 +806,6 @@ namespace
 	}
 
 	//******************************************************************************************
-	// GunAdjust=1: the stick of a hand holding a gun moves the gun in that hand (instead of
-	// walking or turning); when the stick is let go the new place is saved for that kind of gun
-	// and that hand.
-	void GunAdjust(const SVRFrame& fr, SVRHandInput& rhi_off, SVRHandInput& rhi_main, float f_dt)
-	{
-		static bool ab_dirty[2] = { false, false };
-		static int ai_kind[2] = { -1, -1 };
-		static const char* const astrKIND[5] = { "Pistol", "Shotgun", "Shotgun2", "Rifle", "OtherGun" };
-		for (int h = 0; h < 2; h++)
-		{
-			int k = gVR.aiHeldGunKind[h];
-			bool b_active = setVR.bGunAdjust && gVR.abHoldingGun[h] && k >= 0 && k < 5;
-			int c = iCtl(h);
-			float f_x = 0, f_y = 0;
-			if (b_active)
-			{
-				const SVRHandInput& hi = fr.ctl.ahand[c];
-				f_x = std::fabs(hi.fStickX) > 0.3f ? hi.fStickX : 0.0f;
-				f_y = std::fabs(hi.fStickY) > 0.3f ? hi.fStickY : 0.0f;
-				// The stick is used for this, not for walking or turning.
-				SVRHandInput& rhi = c == iOffCtl() ? rhi_off : rhi_main;
-				rhi.fStickX = rhi.fStickY = 0;
-				rhi.bStickClick = false;
-			}
-			if (f_x != 0 || f_y != 0)
-			{
-				const float fRATE = 0.03f;		// Metres a second at full stick.
-				// Stick right moves the gun to your right: in for the left hand, out for the right.
-				float f_across = (h == 0 ? -f_x : f_x) * fRATE * f_dt;
-				float f_up = f_y * fRATE * f_dt;
-				gVR.aafGunAcross[k][h] += f_across;
-				gVR.aafGunUp[k][h] += f_up;
-				gVR.aafGunAdjPending[h][0] += f_across;
-				gVR.aafGunAdjPending[h][1] += f_up;
-				ab_dirty[h] = true;
-				ai_kind[h] = k;
-			}
-			else if (ab_dirty[h] && ai_kind[h] >= 0)
-			{
-				// Let go of the stick: save.
-				int kk = ai_kind[h];
-				std::string str_side = std::string(astrKIND[kk]) + "Side" + (h == 0 ? "Right" : "Left");
-				std::string str_up   = std::string(astrKIND[kk]) + "Up" + (h == 0 ? "Right" : "Left");
-				SetIniValue(str_side.c_str(), gVR.aafGunAcross[kk][h]);
-				SetIniValue(str_up.c_str(), gVR.aafGunUp[kk][h]);
-				Log("Gun adjust: %s=%.3f %s=%.3f.", str_side.c_str(), gVR.aafGunAcross[kk][h], str_up.c_str(), gVR.aafGunUp[kk][h]);
-				Haptic(h, 0.03f, 150.0f, 0.3f);
-				ab_dirty[h] = false;
-			}
-		}
-	}
-
-	//******************************************************************************************
 	void CheckIniReload()
 	{
 		DWORD u4_now = GetTickCount();
@@ -991,6 +938,60 @@ namespace
 			}
 		}
 	}
+
+	//******************************************************************************************
+	// GunAdjust=1: the stick of a hand holding a gun moves the gun in that hand (instead of
+	// walking or turning); when the stick is let go the new place is saved for that kind of gun
+	// and that hand.
+	void GunAdjust(const SVRFrame& fr, SVRHandInput& rhi_off, SVRHandInput& rhi_main, float f_dt)
+	{
+		static bool ab_dirty[2] = { false, false };
+		static int ai_kind[2] = { -1, -1 };
+		static const char* const astrKIND[5] = { "Pistol", "Shotgun", "Shotgun2", "Rifle", "OtherGun" };
+		for (int h = 0; h < 2; h++)
+		{
+			int k = gVR.aiHeldGunKind[h];
+			bool b_active = setVR.bGunAdjust && gVR.abHoldingGun[h] && k >= 0 && k < 5;
+			int c = iCtl(h);
+			float f_x = 0, f_y = 0;
+			if (b_active)
+			{
+				const SVRHandInput& hi = fr.ctl.ahand[c];
+				f_x = std::fabs(hi.fStickX) > 0.3f ? hi.fStickX : 0.0f;
+				f_y = std::fabs(hi.fStickY) > 0.3f ? hi.fStickY : 0.0f;
+				// The stick is used for this, not for walking or turning.
+				SVRHandInput& rhi = c == iOffCtl() ? rhi_off : rhi_main;
+				rhi.fStickX = rhi.fStickY = 0;
+				rhi.bStickClick = false;
+			}
+			if (f_x != 0 || f_y != 0)
+			{
+				const float fRATE = 0.03f;		// Metres a second at full stick.
+				// Stick right moves the gun to your right: in for the left hand, out for the right.
+				float f_across = (h == 0 ? -f_x : f_x) * fRATE * f_dt;
+				float f_up = f_y * fRATE * f_dt;
+				gVR.aafGunAcross[k][h] += f_across;
+				gVR.aafGunUp[k][h] += f_up;
+				gVR.aafGunAdjPending[h][0] += f_across;
+				gVR.aafGunAdjPending[h][1] += f_up;
+				ab_dirty[h] = true;
+				ai_kind[h] = k;
+			}
+			else if (ab_dirty[h] && ai_kind[h] >= 0)
+			{
+				// Let go of the stick: save.
+				int kk = ai_kind[h];
+				std::string str_side = std::string(astrKIND[kk]) + "Side" + (h == 0 ? "Right" : "Left");
+				std::string str_up   = std::string(astrKIND[kk]) + "Up" + (h == 0 ? "Right" : "Left");
+				SetIniValue(str_side.c_str(), gVR.aafGunAcross[kk][h]);
+				SetIniValue(str_up.c_str(), gVR.aafGunUp[kk][h]);
+				Log("Gun adjust: %s=%.3f %s=%.3f.", str_side.c_str(), gVR.aafGunAcross[kk][h], str_up.c_str(), gVR.aafGunUp[kk][h]);
+				Haptic(h, 0.03f, 150.0f, 0.3f);
+				ab_dirty[h] = false;
+			}
+		}
+	}
+
 
 	inline CVector3<> v3Flat(const CVector3<>& v3)
 	{
