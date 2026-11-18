@@ -35,6 +35,8 @@
  **********************************************************************************************/
 
 #include "precomp.h"
+#include <csignal>
+#include <exception>
 #pragma hdrstop
 
 #include "VRMod.h"
@@ -126,6 +128,35 @@ static LONG WINAPI VRCrashFilter(EXCEPTION_POINTERS* pep)
 	return pfnPrevCrashFilter ? pfnPrevCrashFilter(pep) : EXCEPTION_CONTINUE_SEARCH;
 }
 
+// The rest of the ways a program can die without an exception reaching the filter above.
+static void VRLogFatal(const char* str)
+{
+	if (gVR.pfnLog)
+		gVR.pfnLog("CRASH: %s", str);
+}
+static void VRTerminateHandler()
+{
+	VRLogFatal("the program was terminated (an error nothing caught, such as running out of memory).");
+	abort();
+}
+static void VRAbortSignal(int)
+{
+	VRLogFatal("the program aborted.");
+}
+static void VRPureCallHandler()
+{
+	VRLogFatal("pure virtual function call.");
+	abort();
+}
+static void VRInvalidParameterHandler(const wchar_t*, const wchar_t*, const wchar_t*, unsigned int, uintptr_t)
+{
+	VRLogFatal("invalid parameter passed to a C library function.");
+}
+
+// How much of the program's address space is in use (a 32-bit program has 2 GB, or 4 GB with
+// the large-address flag on 64-bit Windows).
+static void LogMemory(const char* str_when);
+
 extern HWND g_hwnd;
 extern float fPerspectivePixelError;
 extern float fAltPerspectivePixelError;
@@ -139,7 +170,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 18;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 19;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -337,6 +368,13 @@ namespace
 			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " monitor %.1fms/flip; game step %.1fms x%d/s;",
 				iTimingFlips ? gVR.dFlipMs / iTimingFlips : 0.0,
 				gVR.iSteps ? gVR.dStepMs / gVR.iSteps : 0.0, int(gVR.iSteps / d_secs));
+		{
+			MEMORYSTATUSEX ms = {};
+			ms.dwLength = sizeof(ms);
+			if (GlobalMemoryStatusEx(&ms) && i_len < (int)sizeof(str) - 64)
+				i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " address space %.0f/%.0f MB;",
+					(double)(ms.ullTotalVirtual - ms.ullAvailVirtual) / 1048576.0, (double)ms.ullTotalVirtual / 1048576.0);
+		}
 		if (iTimingFrames > 0 && gVR.iBatchPolys > 0 && i_len < (int)sizeof(str) - 64)
 			i_len += std::snprintf(str + i_len, sizeof(str) - i_len, " %d polygons in %d draw calls a frame;",
 				gVR.iBatchPolys / iTimingFrames, gVR.iBatchFlushes / iTimingFrames);
@@ -506,14 +544,14 @@ namespace
 			"GunSide=-0.05\n"
 			"; The same sideways setting for pistols, the two shotguns and any other gun.\n"
 			"; (Bigger = further in toward the middle of your body.)\n"
-			"PistolSide=0.04\n"
+			"PistolSide=0.01\n"
 			"ShotgunSide=0.04\n"
 			"Shotgun2Side=0.01\n"
 			"GunSideOther=0.01\n"
 			"; How far up the shotguns sit in your hand (Shotgun = the first one, 8 shells;\n"
 			"; Shotgun2 = the one in level 2, 7 shells).  Negative = down.\n"
-			"ShotgunUp=-0.03\n"
-			"Shotgun2Up=0.06\n"
+			"ShotgunUp=-0.01\n"
+			"Shotgun2Up=0.09\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
@@ -529,6 +567,9 @@ namespace
 			"Subtitles=1\n"
 			"; Tutorial and hint messages (with VR controls) in front of you: 1 on, 0 off.\n"
 			"Tutorial=1\n"
+			"; Which controllers the button pictures in messages show: 0 work it out, 1 PlayStation\n"
+			"; VR2 Sense, 2 Touch (A B X Y), 3 Index, 4 Vive.\n"
+			"ButtonPictures=0\n"
 			"\n"
 			"; --- Debug ---\n"
 			"; Set to 1 if the image looks skewed or doubled.\n"
@@ -570,13 +611,17 @@ namespace
 		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 2.0f);
 		gVR.bSubtitles    = fIni(str_file, "Subtitles", 1.0f) > 0.5f;
 		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
+		{
+			int i_pics = (int)fIni(str_file, "ButtonPictures", 0);
+			VRB_SetControllerKind(i_pics == 1 ? 1 : i_pics == 2 ? 0 : i_pics == 3 ? 2 : i_pics == 4 ? 3 : -1);
+		}
 		gVR.fGunSide      = fIni(str_file, "GunSide", -0.05f);
 		gVR.fGunSideOther = fIni(str_file, "GunSideOther", 0.01f);
-		gVR.fPistolSide   = fIni(str_file, "PistolSide", 0.04f);
+		gVR.fPistolSide   = fIni(str_file, "PistolSide", 0.01f);
 		gVR.fShotgunSide  = fIni(str_file, "ShotgunSide", 0.04f);
 		gVR.fShotgun2Side = fIni(str_file, "Shotgun2Side", 0.01f);
-		gVR.fShotgunUp    = fIni(str_file, "ShotgunUp", -0.03f);
-		gVR.fShotgun2Up   = fIni(str_file, "Shotgun2Up", 0.06f);
+		gVR.fShotgunUp    = fIni(str_file, "ShotgunUp", -0.01f);
+		gVR.fShotgun2Up   = fIni(str_file, "Shotgun2Up", 0.09f);
 		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
 		s.bShowPhysics    = fIni(str_file, "ShowPhysics", 0) != 0;
@@ -1086,7 +1131,8 @@ namespace
 				if (!gpPlayer)
 					continue;
 				CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
-				p3_body.v3Pos += CVector3<>(gVR.afBodyDrawShift[0], gVR.afBodyDrawShift[1], gVR.afBodyDrawShift[2]);
+				if (gVR.bBodyDrawnPosValid)
+					p3_body.v3Pos = CVector3<>(gVR.afBodyDrawnPos[0], gVR.afBodyDrawnPos[1], gVR.afBodyDrawnPos[2]);
 				CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
 				if (m == 1)
 					v3_local.tX = -v3_local.tX;
@@ -1385,6 +1431,11 @@ void VRMod_Startup()
 		{
 			b_filter = true;
 			pfnPrevCrashFilter = SetUnhandledExceptionFilter(VRCrashFilter);
+			std::set_terminate(VRTerminateHandler);
+			signal(SIGABRT, VRAbortSignal);
+			_set_purecall_handler(VRPureCallHandler);
+			_set_invalid_parameter_handler(VRInvalidParameterHandler);
+			LogMemory("at start");
 		}
 	}
 
@@ -1638,6 +1689,9 @@ void VRMod_LevelLoading(const char* str_scene)
 			str_level = n.strLevel;
 		}
 	Log("Loading level %s (%s %s).", str_file.c_str(), str_level.c_str(), str_name.c_str());
+	LogMemory("before loading");
+	VRScene_ReleaseLevel();
+	LogMemory("after letting go of the old level's VR copies");
 	VRB_ShowLoading("Loading...", "");
 	bLoadingShown = true;
 	bLevelLoaded = false;
@@ -1880,6 +1934,23 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		//
 		bool b_real = setVR.bRealHeight && gVR.pvKinInstance;
 		float f_target_z = b_real ? gVR.fKinFeetZ - gVR.fKinCrouch : v3_cam_pos.tZ;
+		// While the body controller restarts (for a moment after the game moves her), the view
+		// stays at the floor height it had, instead of switching to the game's own camera height
+		// (that threw the view 20 m up and back when crouching).
+		static float f_last_floor = 0;
+		static bool b_last_floor = false;
+		if (!bBaseZInit)
+			b_last_floor = false;
+		if (b_real)
+		{
+			f_last_floor = f_target_z;
+			b_last_floor = true;
+		}
+		else if (setVR.bRealHeight && b_last_floor)
+		{
+			f_target_z = f_last_floor;
+			b_real = true;
+		}
 		{
 			// Your standing eye height (the highest your headset has been, sensible range),
 			// and hers: a fixed figure (her model's eye height).  (Measuring it from the game's
@@ -2402,4 +2473,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	dLastFrameEnd = dNowMs();
 	adTimingMs[etFRAME] += dLastFrameEnd - d_frame_start;
 	return true;
+}
+
+//**********************************************************************************************
+static void LogMemory(const char* str_when)
+{
+	MEMORYSTATUSEX ms = {};
+	ms.dwLength = sizeof(ms);
+	if (GlobalMemoryStatusEx(&ms))
+		Log("Memory %s: %.0f MB of %.0f MB address space in use.", str_when,
+			(double)(ms.ullTotalVirtual - ms.ullAvailVirtual) / (1024.0 * 1024.0), (double)ms.ullTotalVirtual / (1024.0 * 1024.0));
 }

@@ -29,6 +29,7 @@ struct SVRSceneSettings
 // Starts the renderer (after the VR backend).  Eye images are i_width x i_height.
 bool VRScene_Init(int i_width, int i_height, int i_msaa, int i_shadow_size, char* str_err, int i_err_len);
 void VRScene_Shutdown();
+void VRScene_ReleaseLevel();		// A level is about to load: free the old one's GPU copies.
 bool VRScene_Ready();
 
 // Draws the world for both eyes and submits the images to the headset.

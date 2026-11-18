@@ -72,11 +72,11 @@ struct SVRShared
 	float fGunBack = 0.04f;			// Guns sit this far back from the controller's grip point (m).
 	float fGunSide = -0.05f;			// ... and this far across toward the middle of the palm (m).
 	float fGunSideOther = 0.01f;		// The same for every gun but the rifle.
-	float fPistolSide = 0.04f;			// Pistols.
+	float fPistolSide = 0.01f;			// Pistols.
 	float fShotgunSide = 0.04f;			// The first shotgun (8 shells) ...
-	float fShotgunUp = -0.03f;			// ... and how far up it sits along its own up (m).
+	float fShotgunUp = -0.01f;			// ... and how far up it sits along its own up (m).
 	float fShotgun2Side = 0.01f;		// The level 2 shotgun (7 shells) ...
-	float fShotgun2Up = 0.06f;			// ... and its height.
+	float fShotgun2Up = 0.09f;			// ... and its height.
 	float fArmScale = 0.85f;			// Her arms are drawn this size (shorter and slimmer).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
@@ -118,6 +118,8 @@ struct SVRShared
 	float fBodyAboveFeet = 0;		// Her body origin's height above her feet (m).
 	bool  bBodyFromView = true;		// Her visible body is placed so her head is at your eyes.
 	float afBodyDrawShift[3] = { 0, 0, 0 };	// Her visible body relative to her physics body.
+	float afBodyDrawnPos[3] = { 0, 0, 0 };	// Where her visible body is (world).
+	bool  bBodyDrawnPosValid = false;
 	bool  bViewEyeValid = false;
 	float fViewEyeZ = 0;			// Your eyes (world height).
 	float fHeadBelowEye = 0.07f;	// Her head joint sits this far below your eyes (m).

@@ -203,6 +203,16 @@ namespace
 		int i_w = praw->iWidth, i_h = praw->iHeight, i_stride = praw->iLinePixels;
 		std::vector<uint32_t> au4((size_t)i_w * i_h);
 		bool b_any_clear = false;
+		// Bump-mapped skins (raptors) that aren't see-through still have texels of colour 0, the
+		// blue key colour, in the gaps between the parts of the skin; filtering and mipmaps
+		// pulled that blue into the edges, seen as a blue sheen at an angle.  Those texels take
+		// the nearest skin colour too, but stay solid.
+		bool b_pad_key = false;
+		if (!b_transparent && ptex->seterfFeatures[erfBUMP] && i_pal > 0)
+		{
+			const CColour& clr0 = ppal->aclrPalette[0];
+			b_pad_key = clr0.u1Blue > clr0.u1Red + 60 && clr0.u1Blue > clr0.u1Green + 60;
+		}
 		const uint8* pu1_row = (const uint8*)praw->pSurface;
 		int i_bytes = praw->iPixelBits / 8;
 		for (int y = 0; y < i_h; y++)
@@ -255,7 +265,7 @@ namespace
 				}
 				// See-through texels: colour 0, as the game treats them (bump-mapped textures too:
 				// skipping those left their blue key colour in raptor mouths, stego sails, glass).
-				if (b_transparent && i_index == 0)
+				if ((b_transparent || b_pad_key) && i_index == 0)
 				{
 					u4 &= 0x00FFFFFF;
 					b_any_clear = true;
@@ -302,6 +312,13 @@ namespace
 				}
 				ai_front.swap(ai_next);
 			}
+		}
+
+		if (b_pad_key && b_any_clear)
+		{
+			for (uint32_t& u4 : au4)
+				u4 |= 0xFF000000u;
+			b_any_clear = false;
 		}
 
 		int i_handle = VRR_TextureCreate(i_w, i_h, au4.data());
@@ -1640,6 +1657,28 @@ void VRScene_Shutdown()
 	pvSkyTexture = nullptr;
 	VRR_Shutdown();
 	bReady = false;
+}
+
+//**********************************************************************************************
+// A level is about to load: let go of the old level's textures and meshes first, so the old
+// and new levels aren't both in memory at once.  (Rebuilt when the new level is drawn.)
+void VRScene_ReleaseLevel()
+{
+	if (!bReady)
+		return;
+	mapMesh.clear();
+	mapTex.clear();
+	mapTexAlpha.clear();
+	mapNormalTex.clear();
+	mapWaterTex.clear();
+	mapWaterRaster.clear();
+	setBadInstances.clear();
+	iSkyTexture = 0;
+	pvSkyTexture = nullptr;
+	iPhysTexRed = iPhysTexBlue = 0;
+	ptrrLevel = nullptr;
+	pvLevelPlayer = nullptr;
+	VRR_ClearAll();
 }
 
 //**********************************************************************************************

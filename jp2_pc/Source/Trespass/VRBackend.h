@@ -119,6 +119,7 @@ bool VRB_PollOverlayMouse(SVROverlayMouse& ev);
 
 // SteamVR's name for the connected controllers (for the log), e.g. "oculus_touch".
 const char* VRB_ControllerType();
+void VRB_SetControllerKind(int i_kind);	// From the ini: -1 work it out, else as VRB_ControllerKind.
 int VRB_ControllerKind();		// 0 Touch-style letters, 1 PS VR2 Sense, 2 Index, 3 Vive wands.
 
 // True when SteamVR asked the application to quit.

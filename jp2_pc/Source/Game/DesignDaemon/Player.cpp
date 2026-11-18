@@ -1336,6 +1336,34 @@ private:
 		return f_len;
 	}
 
+	// Her visible body's placement: her physics body moved to where the body is drawn.  (While
+	// the view is being drawn her presence is already moved there, so it isn't added twice.)
+	CPlacement3<> p3VRDrawnBody() const
+	{
+		if (bVRBodyShifted)
+			return p3GetPlacement();
+		CPlacement3<> p3 = p3GetPlacement();
+		p3.v3Pos += v3VRDrawShift();
+		return p3;
+	}
+
+	// Holstered things go with her visible body: drawn under your head, crouching with you.
+	void VRMoveStowed()
+	{
+		CPlacement3<> p3_body = p3VRDrawnBody();
+		gVR.afBodyDrawnPos[0] = p3_body.v3Pos.tX;
+		gVR.afBodyDrawnPos[1] = p3_body.v3Pos.tY;
+		gVR.afBodyDrawnPos[2] = p3_body.v3Pos.tZ;
+		gVR.bBodyDrawnPosValid = true;
+		if (apinsStowed[0])
+			MoveWithMagnets(apinsStowed[0], ap3StowedObj[0] * p3_body, this);
+		if (apinsStowed[1])
+			MoveWithMagnets(apinsStowed[1], ap3StowedObj[1] * p3_body, this);
+		for (int i = 0; i < 2; i++)
+			if (apinsVRStowedLeft[i])
+				MoveWithMagnets(apinsVRStowedLeft[i], ap3VRStowedLeft[i] * p3_body, this);
+	}
+
 	bool bVRHands() const
 	{
 		return gVR.bActive && gVR.bMotionHand;
@@ -1375,6 +1403,7 @@ private:
 	bool           bVRPrevJump = false;
 	TSec           sVRKinStart = 0;
 	bool           bVRBodyShifted = false;
+	bool           bVRShiftMoving = false;		// Moving her to her drawn place for the view, or back.
 	bool           bVRYawInit = false;
 	float          fVRYaw = 0;
 	CPresence3<>   pr3VRRealPresence;
@@ -2627,11 +2656,14 @@ private:
 			for (int i = 0; i < 2; i++)
 			{
 				// (On her visible body, which is drawn under your head, not at her physics body.)
-				CVector3<> v3 = PlayerSettings.aap3Stow[i][2].v3Pos * p3GetPlacement() + v3VRDrawShift();
+				CVector3<> v3 = PlayerSettings.aap3Stow[i][2].v3Pos * p3VRDrawnBody();
 				gVR.aafHolsterPosWorld[i][0] = v3.tX;
 				gVR.aafHolsterPosWorld[i][1] = v3.tY;
 				gVR.aafHolsterPosWorld[i][2] = v3.tZ;
 			}
+			// Every step, not only when she moves: they follow you crouching and leaning.
+			if (gVR.bActive)
+				VRMoveStowed();
 		}
 
 		//
@@ -3542,15 +3574,10 @@ private:
 				// Use stored stow position.
 				// (Holstered things go with her visible body: drawn under your head, crouching
 				// with you.)
-				CPlacement3<> p3_body = p3GetPlacement();
-				p3_body.v3Pos += v3VRDrawShift();
-				if (apinsStowed[0])
-					MoveWithMagnets(apinsStowed[0], ap3StowedObj[0] * p3_body, this);
-				if (apinsStowed[1])
-					MoveWithMagnets(apinsStowed[1], ap3StowedObj[1] * p3_body, this);
-				for (int i = 0; i < 2; i++)
-					if (apinsVRStowedLeft[i])
-						MoveWithMagnets(apinsVRStowedLeft[i], ap3VRStowedLeft[i] * p3_body, this);
+				// (Not when she is only being moved to where her body is drawn and back, for the
+				// view: those moves made hip-holstered guns flick up to her chest.)
+				if (!bVRShiftMoving)
+					VRMoveStowed();
 			}
 		}
 	}
@@ -4486,7 +4513,9 @@ private:
 			const CGun* pgun_grab = ptCast<CGun>(pins);
 			bool b_long  = fVRLength(pins) >= 0.55f;
 			bool b_bolt  = pgun_grab && b_long && !pgun_grab->bAutoFire;
-			bool b_rifle = pgun_grab && !pgun_grab->bAutoFire && pgun_grab->sTimeBetweenShots >= 1.0f;
+			// (Long guns only: the pistols also fire once a second or slower, and were being
+			// placed as rifles.)
+			bool b_rifle = b_bolt && pgun_grab->sTimeBetweenShots >= 1.0f;
 			bool b_shot8 = b_bolt && !b_rifle && pgun_grab->iMaxAmmo == 8;
 			bool b_shot7 = b_bolt && !b_rifle && pgun_grab->iMaxAmmo < 8;
 			float f_side = b_rifle ? gVR.fGunSide
@@ -4500,6 +4529,12 @@ private:
 			// Up or down along the gun's own up direction (the same for both hands).
 			if (f_up != 0.0f)
 				vh.p3Grab.v3Pos += CVector3<>(0, 0, f_up) * vh.p3Grab.r3Rot;
+			if (gVR.pfnLog && pgun_grab)
+				gVR.pfnLog("Gun %s in the %s hand: %s (length %.2f, %.0f kg, %.2f s between shots, ammo %d, damage %.0f), across %.3f, up %.3f.",
+					pins->strGetInstanceName(), i_hand ? "left" : "right",
+					b_rifle ? "rifle" : b_shot8 ? "shotgun" : b_shot7 ? "shotgun 2" : !b_long ? "pistol" : "other long gun",
+					fVRLength(pins), pins->pphiGetPhysicsInfo()->fMass(pins), (float)pgun_grab->sTimeBetweenShots,
+					pgun_grab->iMaxAmmo, pgun_grab->gdGunData.fDamage, f_side, f_up);
 		}
 		else
 			vh.p3Grab = pins->p3GetPlacement() * ~p3_hand;
@@ -4533,7 +4568,7 @@ private:
 		SVRHand& vh = avrh[i_hand];
 		if (vh.pinsHeld)
 		{
-			if (rpins_slot || vh.pinsHeld->pphiGetPhysicsInfo()->fMass(vh.pinsHeld) > PlayerSettings.fMaxMassSwing * 2)
+			if (rpins_slot || (vh.pinsHeld->pphiGetPhysicsInfo()->fMass(vh.pinsHeld) > PlayerSettings.fMaxMassSwing * 2 && !ptCast<CGun>(vh.pinsHeld)))
 				return false;
 
 			CInstance* pins = vh.pinsHeld;
@@ -4543,7 +4578,7 @@ private:
 
 			rpins_slot = pins;
 			NMagnetSystem::AddMagnetPair(this, pins, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
-			rp3_slot = pins->p3GetPlacement() / p3GetPlacement();
+			rp3_slot = pins->p3GetPlacement() / p3VRDrawnBody();
 			if (b_back && b_long)
 			{
 				// A long gun on the back: muzzle up over the shoulder, nearly upright, behind her
@@ -4742,7 +4777,9 @@ private:
 			// still holds them; moving them directly would lift them off it.
 			bool b_hinged = NMagnetSystem::pmpFindMagnet(vh.pinsHeld, Set(emfHINGE)) != nullptr;
 
-			if (f_mass > fTOO_HEAVY || b_hinged)
+			// (Guns are always lifted, however heavy the game says they are: the sniper rifle was
+			// being dragged along the ground.)
+			if ((f_mass > fTOO_HEAVY && !ptCast<CGun>(vh.pinsHeld)) || b_hinged)
 			{
 				CVector3<> v3_delta = p3_target.v3Pos - vh.pinsHeld->v3Pos();
 				if (v3_delta.tLen() > 1.0f)
@@ -5056,7 +5093,9 @@ private:
 			if (!bVRKinInit || b_moved_away)
 			{
 				if (b_moved_away && gVR.pfnLog)
-					gVR.pfnLog("Body: moved by the game, restarting the controller.");
+					gVR.pfnLog("Body: moved by the game (%.2f m from where the controller had her; body %.2f %.2f %.2f, feet %.2f %.2f %.2f, crouch %.2f), restarting the controller.",
+						(v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch)).tLen(),
+						v3_body.tX, v3_body.tY, v3_body.tZ, v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ, fVRCrouch);
 				sVRKinStart = CMessageStep::sStaticTotal;
 				bVRKinInit = true;
 				bVRKinSettled = false;
@@ -5588,7 +5627,9 @@ private:
 		{
 			if (bVRBodyShifted)
 			{
+				bVRShiftMoving = true;
 				SetPresence(pr3VRRealPresence);
+				bVRShiftMoving = false;
 				bVRBodyShifted = false;
 			}
 			if (pvrlaLeftArm && pvrlaLeftArm->bInWorld)
@@ -5669,7 +5710,8 @@ private:
 					}
 				}
 			}
-			gVR.afBodyDrawShift[0] = gVR.afBodyDrawShift[1] = gVR.afBodyDrawShift[2] = 0;
+			// (If it can't be shifted this frame, the last shift stays: holstered things don't
+			// jump between her drawn and physics bodies.)
 			if (v3_shift.tLen() < 1.5f)
 			{
 				gVR.afBodyDrawShift[0] = v3_shift.tX;
@@ -5683,7 +5725,9 @@ private:
 					pr3_shifted.rScale *= gVR.fBodyScale;
 					pr3_shifted.v3Pos.tZ += (gVR.fBodyScale - 1.0f) * fVRBodyAboveFeet;
 				}
+				bVRShiftMoving = true;
 				SetPresence(pr3_shifted);
+				bVRShiftMoving = false;
 				bVRBodyShifted = true;
 			}
 		}

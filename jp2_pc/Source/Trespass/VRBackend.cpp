@@ -58,7 +58,8 @@ namespace
 	bool bInputOK = false;
 	char strControllerType[128] = "unknown";
 	char strControllerInfo[512] = "unknown";
-	int  iControllerKind = 0;		// 0 Touch-style letters, 1 PlayStation VR2 Sense, 2 Index, 3 Vive wands.
+	int  iControllerKind = 0;
+	int  iControllerOverride = -1;	// From the ini (-1: work it out).		// 0 Touch-style letters, 1 PlayStation VR2 Sense, 2 Index, 3 Vive wands.
 
 	//******************************************************************************************
 	template<class T> void SafeRelease(T*& p)
@@ -1139,7 +1140,17 @@ bool VRB_BeginFrame(SVRFrame& frame)
 			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_TrackingSystemName_String, str_tracking, sizeof(str_tracking));
 			snprintf(strControllerInfo, sizeof(strControllerInfo), "%s (maker \"%s\", model \"%s\", drawn as \"%s\", tracked by \"%s\")",
 				strControllerType, str_maker, str_model, str_render, str_tracking);
-			std::string str_all = std::string(strControllerType) + " " + str_maker + " " + str_model + " " + str_render + " " + str_tracking;
+			// The headset too: PS VR2 on PC passes the Sense controllers off as Quest 2 Touch
+			// controllers, but the headset still says what it is.
+			char str_hmd_maker[128] = "", str_hmd_model[128] = "", str_hmd_tracking[128] = "";
+			pvrSystem->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_ManufacturerName_String, str_hmd_maker, sizeof(str_hmd_maker));
+			pvrSystem->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_ModelNumber_String, str_hmd_model, sizeof(str_hmd_model));
+			pvrSystem->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_TrackingSystemName_String, str_hmd_tracking, sizeof(str_hmd_tracking));
+			size_t i_len = strlen(strControllerInfo);
+			snprintf(strControllerInfo + i_len, sizeof(strControllerInfo) - i_len, "; headset maker \"%s\", model \"%s\", tracked by \"%s\"",
+				str_hmd_maker, str_hmd_model, str_hmd_tracking);
+			std::string str_all = std::string(strControllerType) + " " + str_maker + " " + str_model + " " + str_render + " " + str_tracking +
+				" " + str_hmd_maker + " " + str_hmd_model + " " + str_hmd_tracking;
 			for (char& c : str_all) c = (char)tolower((unsigned char)c);
 			auto b_has = [&](const char* psz) { return str_all.find(psz) != std::string::npos; };
 			if (b_has("sense") || b_has("playstation") || b_has("sony") || b_has("psvr") || b_has("ps vr"))
@@ -1150,6 +1161,8 @@ bool VRB_BeginFrame(SVRFrame& frame)
 				iControllerKind = 3;
 			else
 				iControllerKind = 0;
+			if (iControllerOverride >= 0)
+				iControllerKind = iControllerOverride;
 			break;
 		}
 	}
@@ -1203,6 +1216,13 @@ const char* VRB_ControllerType()
 int VRB_ControllerKind()
 {
 	return iControllerKind;
+}
+
+void VRB_SetControllerKind(int i_kind)
+{
+	iControllerOverride = i_kind;
+	if (i_kind >= 0)
+		iControllerKind = i_kind;
 }
 
 //**********************************************************************************************
