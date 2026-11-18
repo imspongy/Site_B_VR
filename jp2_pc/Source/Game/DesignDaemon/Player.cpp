@@ -2653,7 +2653,17 @@ private:
 			// Gun adjusting in the headset: move the gun in the hand by what the stick did.
 			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0))
 			{
-				avrh[i].p3Grab.v3Pos.tX += i == 0 ? gVR.aafGunAdjPending[i][0] : -gVR.aafGunAdjPending[i][0];
+				// Left/right: along the gun's sideways direction, the way that is to your right as
+				// you look (the stick's [0] is metres to your right).
+				CVector3<> v3_gx = CVector3<>(1, 0, 0) * avrh[i].p3Grab.r3Rot;
+				const float* af_hq = gVR.aafHandRot[i];
+				const float* af_vq = gVR.afHeadRotWorld;
+				CVector3<> v3_gx_world = v3_gx * CRotate3<>(af_hq[0], af_hq[1], af_hq[2], af_hq[3], true);
+				CVector3<> v3_right = CVector3<>(1, 0, 0) * CRotate3<>(af_vq[0], af_vq[1], af_vq[2], af_vq[3], true);
+				float f_sign = v3_gx_world * v3_right >= 0 ? 1.0f : -1.0f;
+				float f_d = gVR.aafGunAdjPending[i][0] * f_sign;
+				avrh[i].p3Grab.v3Pos += v3_gx * f_d;
+				gVR.aafGunLateral[avrh[i].iGunKind][i] += i == 0 ? f_d : -f_d;
 				avrh[i].p3Grab.v3Pos += CVector3<>(0, 0, gVR.aafGunAdjPending[i][1]) * avrh[i].p3Grab.r3Rot;
 			}
 			gVR.aafGunAdjPending[i][0] = gVR.aafGunAdjPending[i][1] = 0;
@@ -4556,6 +4566,10 @@ private:
 			// Up or down along the gun's own up direction (the same for both hands).
 			if (f_up != 0.0f)
 				vh.p3Grab.v3Pos += CVector3<>(0, 0, f_up) * vh.p3Grab.r3Rot;
+			// Sideways along the gun's own sideways direction (mirrored for the left hand).
+			float f_lat = i_kind >= 0 ? gVR.aafGunLateral[i_kind][i_hand] : 0.0f;
+			if (f_lat != 0.0f)
+				vh.p3Grab.v3Pos += CVector3<>(i_hand == 0 ? f_lat : -f_lat, 0, 0) * vh.p3Grab.r3Rot;
 			static const char* const astrKIND[5] = { "pistol", "shotgun", "shotgun 2", "rifle", "other long gun" };
 			if (gVR.pfnLog && pgun_grab)
 				gVR.pfnLog("Gun %s in the %s hand: %s (length %.2f, %.0f kg, %.2f s between shots, ammo %d, damage %.0f), across %.3f, up %.3f.",

@@ -651,6 +651,8 @@ namespace
 					std::string str_up   = std::string(astrKIND[k]) + "Up" + (h == 0 ? "Right" : "Left");
 					gVR.aafGunAcross[k][h] = fIni(str_file, str_side.c_str(), afSIDE[k][h]);
 					gVR.aafGunUp[k][h]     = fIni(str_file, str_up.c_str(), afUP[k][h]);
+					std::string str_lat = std::string(astrKIND[k]) + "Lateral" + (h == 0 ? "Right" : "Left");
+					gVR.aafGunLateral[k][h] = fIni(str_file, str_lat.c_str(), 0.0f);
 				}
 		}
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
@@ -967,12 +969,12 @@ namespace
 			if (f_x != 0 || f_y != 0)
 			{
 				const float fRATE = 0.03f;		// Metres a second at full stick.
-				// Stick right moves the gun to your right: in for the left hand, out for the right.
-				float f_across = (h == 0 ? -f_x : f_x) * fRATE * f_dt;
+				// Stick right moves the gun to your right (worked out in the game, along the gun's
+				// own sideways direction); up moves it up.
+				float f_right = f_x * fRATE * f_dt;
 				float f_up = f_y * fRATE * f_dt;
-				gVR.aafGunAcross[k][h] += f_across;
 				gVR.aafGunUp[k][h] += f_up;
-				gVR.aafGunAdjPending[h][0] += f_across;
+				gVR.aafGunAdjPending[h][0] += f_right;
 				gVR.aafGunAdjPending[h][1] += f_up;
 				ab_dirty[h] = true;
 				ai_kind[h] = k;
@@ -983,9 +985,11 @@ namespace
 				int kk = ai_kind[h];
 				std::string str_side = std::string(astrKIND[kk]) + "Side" + (h == 0 ? "Right" : "Left");
 				std::string str_up   = std::string(astrKIND[kk]) + "Up" + (h == 0 ? "Right" : "Left");
-				SetIniValue(str_side.c_str(), gVR.aafGunAcross[kk][h]);
+				std::string str_lat  = std::string(astrKIND[kk]) + "Lateral" + (h == 0 ? "Right" : "Left");
+				SetIniValue(str_lat.c_str(), gVR.aafGunLateral[kk][h]);
 				SetIniValue(str_up.c_str(), gVR.aafGunUp[kk][h]);
-				Log("Gun adjust: %s=%.3f %s=%.3f.", str_side.c_str(), gVR.aafGunAcross[kk][h], str_up.c_str(), gVR.aafGunUp[kk][h]);
+				Log("Gun adjust: %s=%.3f %s=%.3f (%s=%.3f).", str_lat.c_str(), gVR.aafGunLateral[kk][h], str_up.c_str(), gVR.aafGunUp[kk][h],
+					str_side.c_str(), gVR.aafGunAcross[kk][h]);
 				Haptic(h, 0.03f, 150.0f, 0.3f);
 				ab_dirty[h] = false;
 			}
