@@ -90,7 +90,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 15;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 16;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -103,6 +103,7 @@ namespace
 		float fPistolMaxMass  = 2.5f;	// Guns lighter than this get the pistol support grip.
 		bool  bFlipSecondCurl = false;	// Debug: fingers bend the wrong way.
 		float fHolsterRadius  = 0.25f;	// Metres from holster point that counts as "at" it.
+		float fHipFrontScale  = 3.0f;	// The hip holsters reach this many times less far in front of her.
 		float fHaptics        = 1.0f;	// Haptic strength multiplier (0 = off).
 		float fHandPitchDeg   = 0.0f;	// Controller -> in-game hand orientation offset.
 		float fHandYawDeg     = 0.0f;
@@ -139,7 +140,7 @@ namespace
 		bool  bRealHeight     = true;	// Your real floor is the game's floor; Anne is drawn at your height.
 		float fAnneEyeHeight  = 1.55f;	// Anne's own eye height above her feet (m).
 		bool  bBodyFromView   = true;	// Her visible body is placed from your view (head at your eyes).
-		float fHeadBelowEye   = 0.05f;	// Her head joint sits this far below your eyes.
+		float fHeadBelowEye   = 0.07f;	// Her head joint sits this far below your eyes.
 		float fFogScale       = 1.3f;
 		float fRecoil         = 1.0f;
 		bool  bShowPhysics    = false;
@@ -371,6 +372,8 @@ namespace
 			"PistolMaxMass=2.5\n"
 			"; How close (metres) your hand must be to a holster (hip / over shoulder).\n"
 			"HolsterRadius=0.25\n"
+			"; The hip holsters reach this many times less far out in front of you (bigger = less).\n"
+			"HipFrontScale=3\n"
 			"; Vibration strength. 0 = off, 1 = normal, 2 = strong.\n"
 			"Haptics=1\n"
 			"; Rotate the in-game hand relative to your controller (degrees).\n"
@@ -436,7 +439,7 @@ namespace
 			"; 1 = Anne's body hangs from your view, so her head is always at yours.  0 = her feet on the ground.\n"
 			"BodyFromView=1\n"
 			"; With BodyFromView: how far below your eyes her head sits (m).  Raise it if her body is too high, lower it if too low.\n"
-			"HeadBelowEye=0.05\n"
+			"HeadBelowEye=0.07\n"
 			"; Extra height (metres) added to yours in the game.\n"
 			"ExtraHeight=0.0\n"
 			"\n"
@@ -444,7 +447,7 @@ namespace
 			"; How far guns sit back into the palm and across toward its middle (metres), and how big\n"
 			"; held guns are drawn (1 = the game's size).\n"
 			"GunBack=0.04\n"
-			"GunSide=-0.02\n"
+			"GunSide=-0.05\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
@@ -454,6 +457,8 @@ namespace
 			"ThrowScale=1.3\n"
 			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
 			"ShotgunHandUp=0.03\n"
+			"; How much lower (metres) your supporting hand is drawn on the rifle.\n"
+			"RifleHandDown=0.03\n"
 			"; Voice-over subtitles floating below your view: 1 on, 0 off.\n"
 			"Subtitles=1\n"
 			"; Tutorial and hint messages (with VR controls) in front of you: 1 on, 0 off.\n"
@@ -499,12 +504,13 @@ namespace
 		gVR.fThrowScale   = fIni(str_file, "ThrowScale", 1.3f);
 		gVR.bSubtitles    = fIni(str_file, "Subtitles", 1.0f) > 0.5f;
 		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
-		gVR.fGunSide      = fIni(str_file, "GunSide", -0.02f);
+		gVR.fGunSide      = fIni(str_file, "GunSide", -0.05f);
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
 		s.bShowPhysics    = fIni(str_file, "ShowPhysics", 0) != 0;
 		gVR.fGunScale     = fIni(str_file, "GunScale", 0.85f);
 		s.bFlipSecondCurl = fIni(str_file, "FlipSecondHandCurl", 0) != 0;
 		s.fHolsterRadius  = fIni(str_file, "HolsterRadius", 0.25f);
+		s.fHipFrontScale  = (std::max)(1.0f, fIni(str_file, "HipFrontScale", 3.0f));
 		s.fHaptics        = fIni(str_file, "Haptics", 1);
 		s.fHandPitchDeg   = fIni(str_file, "HandPitch", 0);
 		s.fHandYawDeg     = fIni(str_file, "HandYaw", 0);
@@ -524,8 +530,9 @@ namespace
 		s.bRealHeight     = fIni(str_file, "RealHeight", 1) != 0;
 		s.fAnneEyeHeight  = (std::min)(2.0f, (std::max)(1.2f, fIni(str_file, "AnneEyeHeight", 1.55f)));
 		s.bBodyFromView   = fIni(str_file, "BodyFromView", 1) != 0;
-		s.fHeadBelowEye   = fIni(str_file, "HeadBelowEye", 0.05f);
+		s.fHeadBelowEye   = fIni(str_file, "HeadBelowEye", 0.07f);
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
+		gVR.fRifleSupportDown = fIni(str_file, "RifleHandDown", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
 		s.fDrawDistance   = (std::min)((std::max)(fIni(str_file, "DrawDistance", 8), 0.5f), 30.0f);
@@ -986,7 +993,7 @@ namespace
 	int  iSceneCrashes = 0;
 
 	//******************************************************************************************
-	// Which holster (0 hip, 1 back) the given hand is at, or -1.
+	// Which holster (0 right hip, 1 right shoulder, 2 left hip, 3 left shoulder) the given hand is at, or -1.
 	int iHolsterNear(int i_hand)
 	{
 		if (!abHandValid[i_hand])
@@ -996,29 +1003,39 @@ namespace
 		float f_best = setVR.fHolsterRadius;
 		for (int i = 0; i < 2; i++)
 		{
-			// Either hand can reach either holster, on its own side or across: the holster
-			// point (on Anne's right) and its mirror image on her left both count.
+			// Four holsters: the game's two points (right hip, right shoulder) and their mirror
+			// images on her left.  Slot = i + 2 for the left side.
 			for (int m = 0; m < 2; m++)
 			{
 				CVector3<> v3_h(gVR.aafHolsterPosWorld[i][0], gVR.aafHolsterPosWorld[i][1], gVR.aafHolsterPosWorld[i][2]);
+				if (!gpPlayer)
+					continue;
+				CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
 				if (m == 1)
 				{
-					if (!gpPlayer)
-						continue;
-					CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
 					CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
 					v3_local.tX = -v3_local.tX;
 					v3_h = v3_local * p3_body.r3Rot + p3_body.v3Pos;
 				}
-				// The back slot is hard to reach precisely; be more generous there.
-				float f_dist = fLen(v3_hand - v3_h) * (i == 1 ? 0.7f : 1.0f);
+				float f_dist;
+				if (i == 0)
+				{
+					// Hip: hands hang and hold things near it, so it only reaches a little in
+					// front of her (things held out in front don't snap to it).
+					CVector3<> v3_d = (v3_hand - v3_h) / p3_body.r3Rot;
+					float f_fwd = v3_d.tY > 0 ? v3_d.tY * setVR.fHipFrontScale : v3_d.tY;
+					f_dist = std::sqrt(v3_d.tX * v3_d.tX + f_fwd * f_fwd + v3_d.tZ * v3_d.tZ);
+				}
+				else
+					f_dist = fLen(v3_hand - v3_h) * 0.7f;	// The back is hard to reach precisely.
 				if (f_dist < f_best)
 				{
 					f_best = f_dist;
-					i_best = i;
+					i_best = i + 2 * m;
 				}
 			}
 		}
+
 		return i_best;
 	}
 
@@ -1112,8 +1129,8 @@ namespace
 				bool b_full = false;
 				if (i_holster == 0)
 					b_full = gVR.abHolsterFull[0];
-				else if (i_holster == 1)
-					b_full = gVR.abHolsterFull[1];
+				else if (i_holster >= 1 && i_holster <= 3)
+					b_full = gVR.abHolsterFull[i_holster];
 				bool b_useful = i_holster >= 0 && (b_holding ? !b_full : b_full);
 				static DWORD au4_last_tick[2] = { 0, 0 };
 				if (b_useful && GetTickCount() - au4_last_tick[h] > 1000)

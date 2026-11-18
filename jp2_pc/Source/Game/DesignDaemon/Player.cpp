@@ -739,6 +739,8 @@ private:
 	EHandHolding	eHandHolding;
 	CInstance*		pinsHeld;		// Object the player is currently holding, if any.
 	CInstance*		apinsStowed[2];	// Object the player has stowed in each slot, if any.
+	CInstance*		apinsVRStowedLeft[2] = { nullptr, nullptr };	// VR: left hip, left shoulder (slots 2, 3).
+	CPlacement3<>	ap3VRStowedLeft[2];
 	int				iStowSlot;		// Slot the object is stowed in, -1 if none.
 	int				iStowing;		// Stowing stage we are currently in (0 is none).
 	int				iSwinging;		// Swinging stage we are currently in (0 is none).
@@ -2603,6 +2605,8 @@ private:
 			// What's in each holster (hip, back).
 			gVR.abHolsterFull[0] = apinsStowed[0] != nullptr;
 			gVR.abHolsterFull[1] = apinsStowed[1] != nullptr;
+			gVR.abHolsterFull[2] = apinsVRStowedLeft[0] != nullptr;
+			gVR.abHolsterFull[3] = apinsVRStowedLeft[1] != nullptr;
 			// Holster locations, for the VR mod's proximity test.
 			for (int i = 0; i < 2; i++)
 			{
@@ -3523,6 +3527,9 @@ private:
 					MoveWithMagnets(apinsStowed[0], ap3StowedObj[0] * p3GetPlacement(), this);
 				if (apinsStowed[1])
 					MoveWithMagnets(apinsStowed[1], ap3StowedObj[1] * p3GetPlacement(), this);
+				for (int i = 0; i < 2; i++)
+					if (apinsVRStowedLeft[i])
+						MoveWithMagnets(apinsVRStowedLeft[i], ap3VRStowedLeft[i] * p3GetPlacement(), this);
 			}
 		}
 	}
@@ -3626,6 +3633,7 @@ private:
 		if (CSaveFile::iCurrentVersion < 9)
 			// This contained useless hand instance.
 			apinsStowed[0] = apinsStowed[1] = 0;
+		apinsVRStowedLeft[0] = apinsVRStowedLeft[1] = nullptr;
 
 		// Load the held instance handle!
 		pc = pcLoadInstancePointer(pc, &pinsHeld);
@@ -3733,6 +3741,7 @@ private:
 		iSubstitute = 0;
 		iSubstituteRequest = 0;
 		apinsStowed[0] = apinsStowed[1] = 0;
+		apinsVRStowedLeft[0] = apinsVRStowedLeft[1] = nullptr;
 		iStowSlot = iStowing = 0;
 		iSwinging = 0;
 		v2AnglesDraw = CVector2<>(0, 0);
@@ -4120,7 +4129,7 @@ private:
 			// Skip any held or stowed objects.
 			if (eHandHolding == ehhHOLDING && pins == pinsHeld)
 				continue;
-			if (pins == apinsStowed[0] || pins == apinsStowed[1])
+			if (pins == apinsStowed[0] || pins == apinsStowed[1] || pins == apinsVRStowedLeft[0] || pins == apinsVRStowedLeft[1])
 				continue;
 
 			if (b_ignore)
@@ -4424,11 +4433,18 @@ private:
 
 		// Taking it out of a holster?
 		for (int i = 0; i < 2; i++)
+		{
 			if (apinsStowed[i] == pins)
 			{
 				apinsStowed[i] = 0;
 				NMagnetSystem::RemoveMagnetPair(this, pins);
 			}
+			if (apinsVRStowedLeft[i] == pins)
+			{
+				apinsVRStowedLeft[i] = nullptr;
+				NMagnetSystem::RemoveMagnetPair(this, pins);
+			}
+		}
 
 		// Guns (anything with a hold magnet) go into the hand the right way round.
 		const CMagnetPair* pmp_pickup = NMagnetSystem::pmpFindMagnet(pins, Set(emfHAND_HOLD));
@@ -4464,27 +4480,35 @@ private:
 	//*****************************************************************************************
 	bool CPlayerPriv::bVRHolster(int i_hand, int i_slot)
 	{
-		// Holster: stow what the hand holds, or draw what's there.
-		if (i_slot < 0 || i_slot > 1)
+		// Holster: stow what the hand holds, or draw what's there.  Slots: 0 right hip,
+		// 1 right shoulder (the game's own two), 2 left hip, 3 left shoulder (VR only: not in
+		// saved games).
+		if (i_slot < 0 || i_slot > 3)
 			return false;
+		CInstance*&    rpins_slot = i_slot < 2 ? apinsStowed[i_slot] : apinsVRStowedLeft[i_slot - 2];
+		CPlacement3<>& rp3_slot   = i_slot < 2 ? ap3StowedObj[i_slot] : ap3VRStowedLeft[i_slot - 2];
+		bool b_back = (i_slot & 1) != 0;
+		float f_side = i_slot >= 2 ? -1.0f : 1.0f;
 
 		SVRHand& vh = avrh[i_hand];
 		if (vh.pinsHeld)
 		{
-			if (apinsStowed[i_slot] || vh.pinsHeld->pphiGetPhysicsInfo()->fMass(vh.pinsHeld) > PlayerSettings.fMaxMassSwing * 2)
+			if (rpins_slot || vh.pinsHeld->pphiGetPhysicsInfo()->fMass(vh.pinsHeld) > PlayerSettings.fMaxMassSwing * 2)
 				return false;
 
 			CInstance* pins = vh.pinsHeld;
+			bool b_long = gVR.afHeldLength[i_hand] >= 0.55f;
 			ReleaseVR(i_hand, false);
 			vh.pinsReleased = nullptr;	// Stays non-colliding while holstered.
 
-			apinsStowed[i_slot] = pins;
+			rpins_slot = pins;
 			NMagnetSystem::AddMagnetPair(this, pins, CMagnet::pmagFindShared(CMagnet(Set(emfINTANGIBLE))));
-			ap3StowedObj[i_slot] = pins->p3GetPlacement() / p3GetPlacement();
-			if (i_slot == 1 && gVR.afHeldLength[i_hand] >= 0.55f)
+			rp3_slot = pins->p3GetPlacement() / p3GetPlacement();
+			if (b_back && b_long)
 			{
 				// A long gun on the back: muzzle up over the shoulder, nearly upright, behind her
-				// (not hanging into view).  Its length runs along its longest axis.
+				// (not hanging into view).  Its length runs along its longest axis.  The left
+				// shoulder is the mirror image of the right.
 				const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
 				CVector3<> v3_long = d3YAxis;
 				if (pbvb)
@@ -4492,20 +4516,21 @@ private:
 					float f_x = (*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], f_y = (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y], f_z = (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z];
 					v3_long = (f_x >= f_y && f_x >= f_z) ? CVector3<>(1, 0, 0) : (f_y >= f_z ? CVector3<>(0, 1, 0) : CVector3<>(0, 0, 1));
 				}
-				CVector3<> v3_up_back = CVector3<>(0.15f, -0.2f, 1.0f);	// Body space: up, a little back and out.
+				CVector3<> v3_up_back = CVector3<>(0.15f * f_side, -0.2f, 1.0f);	// Body space: up, a little back and out.
 				CPlacement3<> p3_stow;
 				p3_stow.r3Rot = CRotate3<>(CDir3<>(v3_long), CDir3<>(v3_up_back));
 				p3_stow.v3Pos = PlayerSettings.aap3Stow[1][2].v3Pos + CVector3<>(0, -0.18f, -0.15f);
-				ap3StowedObj[i_slot] = p3_stow;
+				p3_stow.v3Pos.tX *= f_side;
+				rp3_slot = p3_stow;
 			}
 			CMessagePickUp(pins, epuSTOW).Dispatch();
 			return true;
 		}
 
-		if (!apinsStowed[i_slot])
+		if (!rpins_slot)
 			return false;
 
-		CInstance* pins = apinsStowed[i_slot];
+		CInstance* pins = rpins_slot;
 		CPlacement3<> p3_hand = p3VRController(i_hand);
 		GrabVR(i_hand, pins, p3_hand);
 		// Put it in the hand right away.
@@ -5668,10 +5693,12 @@ private:
 						pgun->strGetInstanceName(), gVR.afHeldLength[i_gun], (int)pgun->bAutoFire, (float)pgun->sTimeBetweenShots,
 						pgun->iMaxAmmo, pgun->gdGunData.fDamage, b_shotgun ? "shotgun" : "other");
 				}
-				if (b_shotgun)
+				// (The rifle: 10 rounds, a shot every 1.33 s.)
+				bool b_rifle = pgun && gVR.afHeldLength[i_gun] >= 0.55f && !pgun->bAutoFire && pgun->sTimeBetweenShots >= 1.0f;
+				if (b_shotgun || b_rifle)
 				{
 					CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
-					ap3_target[i_support].v3Pos += v3_gun_up * gVR.fShotgunSupportUp;
+					ap3_target[i_support].v3Pos += v3_gun_up * (b_shotgun ? gVR.fShotgunSupportUp : -gVR.fRifleSupportDown);
 				}
 			}
 		}

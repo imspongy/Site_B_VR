@@ -55,7 +55,7 @@ struct SVRShared
 
 	// Holster positions (world space) on Anne's right side, published by the player.
 	float aafHolsterPosWorld[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
-	bool  abHolsterFull[2] = { false, false };	// Hip, back.
+	bool  abHolsterFull[4] = { false, false, false, false };	// Right hip, right shoulder, left hip, left shoulder.
 
 	// Force grab per hand: aiming (trigger held, empty hand), pull (flick this frame), ray.
 	bool  abForceAim[2]  = { false, false };
@@ -68,7 +68,7 @@ struct SVRShared
 	int   iTwoHand = 0;
 	bool  bTwoHandPistol = false;	// Support hand cups the bottom of the grip.
 	float fGunBack = 0.04f;			// Guns sit this far back from the controller's grip point (m).
-	float fGunSide = -0.02f;			// ... and this far across toward the middle of the palm (m).
+	float fGunSide = -0.05f;			// ... and this far across toward the middle of the palm (m).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
 	// Where Anne's body should be (under the headset), world space.
@@ -110,7 +110,7 @@ struct SVRShared
 	bool  bBodyFromView = true;		// Her visible body is placed so her head is at your eyes.
 	bool  bViewEyeValid = false;
 	float fViewEyeZ = 0;			// Your eyes (world height).
-	float fHeadBelowEye = 0.05f;	// Her head joint sits this far below your eyes (m).
+	float fHeadBelowEye = 0.07f;	// Her head joint sits this far below your eyes (m).
 	float fKinCrouch = 0;			// How far the crouch button has lowered her (m).
 	bool  bLogBodyRequest = false;	// A capture asks the body for its numbers.
 	float fRealCrouch = 0;			// How far below your standing height your head is now (m).
@@ -119,6 +119,7 @@ struct SVRShared
 	bool  bDamageGrace = false;		// Just after a level loads: Anne can't be hurt yet.
 	bool  bSubtitles = true;			// Voice-over subtitles in the headset.
 	float fShotgunSupportUp = 0.03f;	// The supporting hand on the shotgun is drawn this much higher (m).
+	float fRifleSupportDown = 0.03f;	// ...and on the rifle this much lower.
 	float aafHandVelPeak[2][3] = {};	// Fastest hand velocity over the last ~0.1 s (throwing).
 	float fThrowScale = 1.3f;			// Throws go this much faster than the hand.
 	// What each hand holds firmly, and where it sits relative to the controller (position,

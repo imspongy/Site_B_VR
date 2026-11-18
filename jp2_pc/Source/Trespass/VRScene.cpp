@@ -253,8 +253,9 @@ namespace
 						u4 = u4RGBA(128, 128, 128);
 						break;
 				}
-				// (Bump-mapped textures have no see-through texels: colour 0 is a real colour.)
-				if (b_transparent && i_index == 0 && !ptex->seterfFeatures[erfBUMP])
+				// See-through texels: colour 0, as the game treats them (bump-mapped textures too:
+				// skipping those left their blue key colour in raptor mouths, stego sails, glass).
+				if (b_transparent && i_index == 0)
 				{
 					u4 &= 0x00FFFFFF;
 					b_any_clear = true;
