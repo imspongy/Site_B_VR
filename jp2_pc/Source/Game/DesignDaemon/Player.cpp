@@ -4602,8 +4602,9 @@ private:
 						                                    ((*pbvb)[ebeMAX_Z] + (*pbvb)[ebeMIN_Z]) * 0.5f) * fabsf(pins->fGetScale())) * vh.p3Grab.r3Rot) + vh.p3Grab.v3Pos;
 						if (v3_a * v3_centre < 0)
 							v3_a = -v3_a;
-						// Up in the hand (the hand frame of the left hand is turned over).
-						CVector3<> v3_up(0, 0, i_hand == 0 ? 1.0f : -1.0f);
+						// Up: the controller's own up, as seen in the hand.
+						const float* af_cu = gVR.aafCtrlUpInHand[i_hand];
+						CVector3<> v3_up(af_cu[0], af_cu[1], af_cu[2]);
 						v3_up = v3_up - v3_a * (v3_up * v3_a);
 						if (v3_up.tLen() > 0.1f && gVR.fMeleeTiltDeg != 0.0f)
 						{
@@ -5915,7 +5916,10 @@ private:
 				if (b_shotgun || b_rifle)
 				{
 					CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
-					ap3_target[i_support].v3Pos += v3_gun_up * (b_shotgun ? gVR.fShotgunSupportUp : -gVR.fRifleSupportDown);
+					// (The first shotgun, 8 shells, has its own height.)
+					float f_sup = !b_shotgun ? -gVR.fRifleSupportDown
+					            : pgun->iMaxAmmo == 8 ? gVR.fShotgun1SupportUp : gVR.fShotgunSupportUp;
+					ap3_target[i_support].v3Pos += v3_gun_up * f_sup;
 				}
 			}
 		}

@@ -574,7 +574,7 @@ namespace
 			"MeleeTilt=45\n"
 			"MeleeScale=0.85\n"
 			"; Melee damage (bats, pipes, sticks swung in the hand): 1 = useful as a last resort.\n"
-			"MeleeDamage=1.0\n"
+			"MeleeDamage=0.6\n"
 			"; Guns and the things the story sends you for sparkle until you first pick them up.\n"
 			"Glints=1\n"
 			"GunScale=0.85\n"
@@ -586,6 +586,8 @@ namespace
 			"ThrowScale=2.0\n"
 			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
 			"ShotgunHandUp=0.03\n"
+			"; The same on the first shotgun (8 shells).\n"
+			"Shotgun1HandUp=0.01\n"
 			"; How much lower (metres) your supporting hand is drawn on the rifle.\n"
 			"RifleHandDown=0.03\n"
 			"; Voice-over subtitles floating below your view: 1 on, 0 off.\n"
@@ -658,7 +660,7 @@ namespace
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.85f)));
-		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 1.0f);
+		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 0.6f);
 		s.bGlints         = fIni(str_file, "Glints", 1.0f) > 0.5f;
 		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
@@ -690,6 +692,7 @@ namespace
 		s.bBodyFromView   = fIni(str_file, "BodyFromView", 1) != 0;
 		s.fHeadBelowEye   = fIni(str_file, "HeadBelowEye", 0.07f);
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
+		gVR.fShotgun1SupportUp = fIni(str_file, "Shotgun1HandUp", 0.01f);
 		gVR.fRifleSupportDown = fIni(str_file, "RifleHandDown", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
 		s.bOcclusion      = fIni(str_file, "Occlusion", 1) != 0;
@@ -2336,6 +2339,13 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		StoreV(gVR.aafHandPos[h], av3HandWorld[h]);
 		StoreQ(gVR.aafHandRot[h], (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h]);
+		{
+			// The controller's own up (its top, where your thumb is), in the game's hand frame.
+			CRotate3<> r3_game_hand = (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h];
+			CVector3<> v3_up_world = CVector3<>(0, 0, 1) * ar3HandWorld[h];
+			CVector3<> v3_up_hand = v3_up_world / r3_game_hand;
+			StoreV(gVR.aafCtrlUpInHand[h], v3_up_hand);
+		}
 		StoreV(gVR.aafHandVel[h], av3HandVelTrack[h] + v3MoveVel);
 		{
 			// Peak speed over the last ~0.1 s, for throws.

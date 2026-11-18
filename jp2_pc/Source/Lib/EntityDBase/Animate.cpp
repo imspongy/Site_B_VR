@@ -664,7 +664,7 @@ public:
 				{
 					float f_mass = pins_other->pphiGetPhysicsInfo() ? pins_other->pphiGetPhysicsInfo()->fMass(pins_other) : 1.0f;
 					f_damage = f_damage * gVR.fMeleeScale + (f_speed - 2.0f) * (3.0f + Min(f_mass, 8.0f)) * gVR.fMeleeScale * 0.75f;
-					f_damage = Min(f_damage, 35.0f);
+					f_damage = Min(f_damage, 35.0f * gVR.fMeleeScale);
 					// Not again from the same swing for a moment.
 					static TSec s_last = -100;
 					static const CInstance* pins_last = 0;
