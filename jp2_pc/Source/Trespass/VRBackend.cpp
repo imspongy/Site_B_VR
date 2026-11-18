@@ -57,6 +57,8 @@ namespace
 	SHandActions ahact[2];
 	bool bInputOK = false;
 	char strControllerType[128] = "unknown";
+	char strControllerInfo[512] = "unknown";
+	int  iControllerKind = 0;		// 0 Touch-style letters, 1 PlayStation VR2 Sense, 2 Index, 3 Vive wands.
 
 	//******************************************************************************************
 	template<class T> void SafeRelease(T*& p)
@@ -1122,12 +1124,32 @@ bool VRB_BeginFrame(SVRFrame& frame)
 		}
 	}
 
-	// Remember what kind of controllers these are, for the log.
+	// Remember what kind of controllers these are (for the log, and for the button pictures in
+	// messages).  The PS VR2 Sense controllers can report themselves as Touch controllers, so the
+	// maker, model and drawn model are checked too.
 	for (vr::TrackedDeviceIndex_t u = 0; u < vr::k_unMaxTrackedDeviceCount; u++)
 	{
 		if (pvrSystem->GetTrackedDeviceClass(u) == vr::TrackedDeviceClass_Controller)
 		{
 			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_ControllerType_String, strControllerType, sizeof(strControllerType));
+			char str_maker[128] = "", str_model[128] = "", str_render[128] = "", str_tracking[128] = "";
+			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_ManufacturerName_String, str_maker, sizeof(str_maker));
+			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_ModelNumber_String, str_model, sizeof(str_model));
+			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_RenderModelName_String, str_render, sizeof(str_render));
+			pvrSystem->GetStringTrackedDeviceProperty(u, vr::Prop_TrackingSystemName_String, str_tracking, sizeof(str_tracking));
+			snprintf(strControllerInfo, sizeof(strControllerInfo), "%s (maker \"%s\", model \"%s\", drawn as \"%s\", tracked by \"%s\")",
+				strControllerType, str_maker, str_model, str_render, str_tracking);
+			std::string str_all = std::string(strControllerType) + " " + str_maker + " " + str_model + " " + str_render + " " + str_tracking;
+			for (char& c : str_all) c = (char)tolower((unsigned char)c);
+			auto b_has = [&](const char* psz) { return str_all.find(psz) != std::string::npos; };
+			if (b_has("sense") || b_has("playstation") || b_has("sony") || b_has("psvr") || b_has("ps vr"))
+				iControllerKind = 1;
+			else if (b_has("knuckles") || b_has("index"))
+				iControllerKind = 2;
+			else if (b_has("vive_controller") || b_has("vive controller"))
+				iControllerKind = 3;
+			else
+				iControllerKind = 0;
 			break;
 		}
 	}
@@ -1175,7 +1197,12 @@ int VRB_Haptic(int i_hand, float f_seconds, float f_frequency, float f_amplitude
 //**********************************************************************************************
 const char* VRB_ControllerType()
 {
-	return strControllerType;
+	return strControllerInfo;
+}
+
+int VRB_ControllerKind()
+{
+	return iControllerKind;
 }
 
 //**********************************************************************************************
@@ -1557,6 +1584,215 @@ namespace
 	}
 }
 
+//**********************************************************************************************
+//
+// Button pictures in messages.  The text names a control as {JUMP}, {CROUCH}, {HINT}, {TRIGGER},
+// {GRIP}, {LSTICK} or {RSTICK}; it is drawn as that control on the controllers in use.
+//
+namespace
+{
+	enum EIconShape { eisPILL, eisLETTER, eisCROSS, eisCIRCLE, eisSQUARE, eisTRIANGLE, eisSTICK };
+	struct SIcon { EIconShape eis; const char* strLabel; };
+
+	bool bIconFor(const std::string& str_token, SIcon& ic)
+	{
+		bool b_ps = iControllerKind == 1;
+		if (str_token == "JUMP")    { ic = b_ps ? SIcon{ eisCROSS, "" }  : SIcon{ eisLETTER, "A" }; return true; }
+		if (str_token == "CROUCH")  { ic = b_ps ? SIcon{ eisCIRCLE, "" } : SIcon{ eisLETTER, "B" }; return true; }
+		if (str_token == "HINT")    { ic = b_ps ? SIcon{ eisSQUARE, "" } : SIcon{ eisLETTER, "X" }; return true; }
+		if (str_token == "TRIGGER") { ic = b_ps ? SIcon{ eisPILL, "L2 / R2" } : SIcon{ eisPILL, "TRIGGER" }; return true; }
+		if (str_token == "GRIP")    { ic = b_ps ? SIcon{ eisPILL, "L1 / R1" } : SIcon{ eisPILL, "GRIP" }; return true; }
+		if (str_token == "LSTICK")  { ic = SIcon{ eisSTICK, "L" }; return true; }
+		if (str_token == "RSTICK")  { ic = SIcon{ eisSTICK, "R" }; return true; }
+		return false;
+	}
+
+	int iIconWidth(HDC hdc, HFONT hf_icon, const SIcon& ic, int i_size)
+	{
+		if (ic.eis != eisPILL)
+			return i_size;
+		HGDIOBJ h_prev = SelectObject(hdc, hf_icon);
+		SIZE sz = {};
+		GetTextExtentPoint32A(hdc, ic.strLabel, (int)strlen(ic.strLabel), &sz);
+		SelectObject(hdc, h_prev);
+		return sz.cx + i_size * 2 / 3;
+	}
+
+	void DrawIcon(HDC hdc, HFONT hf_icon, const SIcon& ic, int x, int y, int i_size)
+	{
+		int w = iIconWidth(hdc, hf_icon, ic, i_size);
+		COLORREF cr_white = RGB(235, 235, 235);
+		HPEN hp_ring = CreatePen(PS_SOLID, 3, cr_white);
+		HGDIOBJ h_old_pen = SelectObject(hdc, hp_ring);
+		HGDIOBJ h_old_brush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+		auto label = [&](const char* psz, COLORREF cr)
+		{
+			HGDIOBJ h_prev = SelectObject(hdc, hf_icon);
+			SetTextColor(hdc, cr);
+			RECT rc = { x, y, x + w, y + i_size };
+			DrawTextA(hdc, psz, -1, &rc, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+			SelectObject(hdc, h_prev);
+		};
+		int i_m = i_size / 4;			// Inset of the symbol inside the ring.
+		switch (ic.eis)
+		{
+		case eisPILL:
+			RoundRect(hdc, x + 1, y + 3, x + w - 1, y + i_size - 3, i_size - 6, i_size - 6);
+			label(ic.strLabel, cr_white);
+			break;
+		case eisLETTER:
+			Ellipse(hdc, x + 1, y + 1, x + i_size - 1, y + i_size - 1);
+			label(ic.strLabel, cr_white);
+			break;
+		case eisSTICK:
+		{
+			// A thumbstick seen from above: an outer ring and a solid cap with the hand's letter.
+			Ellipse(hdc, x + 1, y + 1, x + i_size - 1, y + i_size - 1);
+			HBRUSH hb = CreateSolidBrush(RGB(150, 150, 150));
+			SelectObject(hdc, hb);
+			SelectObject(hdc, GetStockObject(NULL_PEN));
+			Ellipse(hdc, x + i_size / 5, y + i_size / 5, x + i_size - i_size / 5, y + i_size - i_size / 5);
+			SelectObject(hdc, GetStockObject(NULL_BRUSH));
+			DeleteObject(hb);
+			label(ic.strLabel, RGB(255, 255, 255));
+			break;
+		}
+		default:
+		{
+			// Face buttons: a ring with the symbol in its colour.
+			Ellipse(hdc, x + 1, y + 1, x + i_size - 1, y + i_size - 1);
+			COLORREF cr = ic.eis == eisCROSS ? RGB(120, 160, 255) : ic.eis == eisCIRCLE ? RGB(255, 90, 90)
+			            : ic.eis == eisSQUARE ? RGB(240, 130, 220) : RGB(80, 220, 170);
+			HPEN hp_sym = CreatePen(PS_SOLID, 4, cr);
+			SelectObject(hdc, hp_sym);
+			int x0 = x + i_m, y0 = y + i_m, x1 = x + i_size - i_m, y1 = y + i_size - i_m;
+			if (ic.eis == eisCROSS)
+			{
+				MoveToEx(hdc, x0 + 2, y0 + 2, nullptr); LineTo(hdc, x1 - 2, y1 - 2);
+				MoveToEx(hdc, x1 - 2, y0 + 2, nullptr); LineTo(hdc, x0 + 2, y1 - 2);
+			}
+			else if (ic.eis == eisCIRCLE)
+				Ellipse(hdc, x0 + 1, y0 + 1, x1 - 1, y1 - 1);
+			else if (ic.eis == eisSQUARE)
+				Rectangle(hdc, x0 + 2, y0 + 2, x1 - 2, y1 - 2);
+			else
+			{
+				POINT apt[3] = { { (x0 + x1) / 2, y0 }, { x1, y1 - 2 }, { x0, y1 - 2 } };
+				Polygon(hdc, apt, 3);
+			}
+			SelectObject(hdc, hp_ring);
+			DeleteObject(hp_sym);
+			break;
+		}
+		}
+		SelectObject(hdc, h_old_brush);
+		SelectObject(hdc, h_old_pen);
+		DeleteObject(hp_ring);
+	}
+
+	// Word-wrapped, centred text with button pictures, inside [x0, x1] x [y0, y1].
+	void DrawRichText(HDC hdc, HFONT hf, HFONT hf_icon, const std::string& str, int x0, int y0, int x1, int y1)
+	{
+		struct SSeg { std::string str; bool bIcon; SIcon ic; int iW; };
+		struct SWord { std::vector<SSeg> aseg; int iW; };
+		HGDIOBJ h_prev = SelectObject(hdc, hf);
+		TEXTMETRICA tm = {};
+		GetTextMetricsA(hdc, &tm);
+		int i_line_h = tm.tmHeight + 4;
+		int i_icon = tm.tmHeight;
+		SIZE sz_space = {};
+		GetTextExtentPoint32A(hdc, " ", 1, &sz_space);
+
+		// Split into words, and words into text and pictures.
+		std::vector<SWord> aw;
+		size_t i = 0;
+		while (i < str.size())
+		{
+			while (i < str.size() && str[i] == ' ') i++;
+			if (i >= str.size()) break;
+			size_t j = str.find(' ', i);
+			if (j == std::string::npos) j = str.size();
+			std::string str_word = str.substr(i, j - i);
+			i = j;
+			SWord w;
+			w.iW = 0;
+			size_t k = 0;
+			while (k < str_word.size())
+			{
+				size_t b = str_word.find('{', k);
+				size_t e = b == std::string::npos ? std::string::npos : str_word.find('}', b);
+				SIcon ic;
+				if (b != std::string::npos && e != std::string::npos && bIconFor(str_word.substr(b + 1, e - b - 1), ic))
+				{
+					if (b > k)
+						w.aseg.push_back({ str_word.substr(k, b - k), false, ic, 0 });
+					w.aseg.push_back({ "", true, ic, iIconWidth(hdc, hf_icon, ic, i_icon) });
+					k = e + 1;
+				}
+				else
+				{
+					w.aseg.push_back({ str_word.substr(k), false, SIcon{ eisPILL, "" }, 0 });
+					break;
+				}
+			}
+			for (SSeg& sg : w.aseg)
+			{
+				if (!sg.bIcon)
+				{
+					SelectObject(hdc, hf);
+					SIZE sz = {};
+					GetTextExtentPoint32A(hdc, sg.str.c_str(), (int)sg.str.size(), &sz);
+					sg.iW = sz.cx;
+				}
+				w.iW += sg.iW;
+			}
+			aw.push_back(w);
+		}
+
+		// Lines.
+		std::vector<std::vector<int>> aline(1);
+		std::vector<int> ai_line_w(1, 0);
+		for (int n = 0; n < (int)aw.size(); n++)
+		{
+			int i_add = (aline.back().empty() ? 0 : sz_space.cx) + aw[n].iW;
+			if (!aline.back().empty() && ai_line_w.back() + i_add > x1 - x0)
+			{
+				aline.push_back({});
+				ai_line_w.push_back(0);
+				i_add = aw[n].iW;
+			}
+			aline.back().push_back(n);
+			ai_line_w.back() += i_add;
+		}
+
+		int i_total_h = (int)aline.size() * i_line_h;
+		int y = (std::max)(y0, (y0 + y1 - i_total_h) / 2);
+		SetTextColor(hdc, RGB(255, 255, 255));
+		for (size_t l = 0; l < aline.size(); l++, y += i_line_h)
+		{
+			int x = (x0 + x1 - ai_line_w[l]) / 2;
+			for (size_t m = 0; m < aline[l].size(); m++)
+			{
+				if (m > 0)
+					x += sz_space.cx;
+				for (const SSeg& sg : aw[aline[l][m]].aseg)
+				{
+					if (sg.bIcon)
+						DrawIcon(hdc, hf_icon, sg.ic, x, y + (i_line_h - i_icon) / 2, i_icon);
+					else
+					{
+						SelectObject(hdc, hf);
+						SetTextColor(hdc, RGB(255, 255, 255));
+						TextOutA(hdc, x, y, sg.str.c_str(), (int)sg.str.size());
+					}
+					x += sg.iW;
+				}
+			}
+		}
+		SelectObject(hdc, h_prev);
+	}
+}
+
 bool VRB_TextPanelSet(int i_panel, const char* str_title, const char* str_body)
 {
 	vr::IVROverlay* pov = vr::VROverlay();
@@ -1632,17 +1868,13 @@ bool VRB_TextPanelSet(int i_panel, const char* str_title, const char* str_body)
 	}
 	else
 	{
-		// Message: wrapped text (the game's menu face).
+		// Message: wrapped text (the game's menu face), with pictures of the controller's
+		// buttons where it names them.
 		HFONT hf = hfPick(hdc, i_panel == 2 ? 42 : 46, FW_SEMIBOLD, apszBody, 1);
+		HFONT hf_icon = hfPick(hdc, 26, FW_BOLD, apszBody, 1);
 		ahf.push_back(hf);
-		SelectObject(hdc, hf);
-		SetTextColor(hdc, RGB(255, 255, 255));
-		RECT rc = { 40, 20, i_w - 40, i_h - 20 };
-		RECT rc_calc = rc;
-		DrawTextA(hdc, str_body ? str_body : "", -1, &rc_calc, DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
-		int i_text_h = rc_calc.bottom - rc_calc.top;
-		rc.top = (std::max)(20, (i_h - i_text_h) / 2);
-		DrawTextA(hdc, str_body ? str_body : "", -1, &rc, DT_CENTER | DT_WORDBREAK);
+		ahf.push_back(hf_icon);
+		DrawRichText(hdc, hf, hf_icon, str_body ? str_body : "", 40, 20, i_w - 40, i_h - 20);
 	}
 	GdiFlush();
 

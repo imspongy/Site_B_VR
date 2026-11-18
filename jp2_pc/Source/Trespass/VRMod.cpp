@@ -139,7 +139,7 @@ namespace
 	// Settings (TrespasserVR.ini, [VR] section, next to OpenTrespasser.exe).
 	// The file is re-read automatically when it changes, so it can be edited while playing.
 	//
-	const int iINI_VERSION = 17;		// Older files are replaced with the new defaults.
+	const int iINI_VERSION = 18;		// Older files are replaced with the new defaults.
 
 	struct SSettings
 	{
@@ -504,8 +504,16 @@ namespace
 			"; held guns are drawn (1 = the game's size).\n"
 			"GunBack=0.04\n"
 			"GunSide=-0.05\n"
-			"; The same sideways setting for every gun except the rifle.\n"
+			"; The same sideways setting for pistols, the two shotguns and any other gun.\n"
+			"; (Bigger = further in toward the middle of your body.)\n"
+			"PistolSide=0.04\n"
+			"ShotgunSide=0.04\n"
+			"Shotgun2Side=0.01\n"
 			"GunSideOther=0.01\n"
+			"; How far up the shotguns sit in your hand (Shotgun = the first one, 8 shells;\n"
+			"; Shotgun2 = the one in level 2, 7 shells).  Negative = down.\n"
+			"ShotgunUp=-0.03\n"
+			"Shotgun2Up=0.06\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
@@ -564,6 +572,11 @@ namespace
 		s.bTutorial       = fIni(str_file, "Tutorial", 1.0f) > 0.5f;
 		gVR.fGunSide      = fIni(str_file, "GunSide", -0.05f);
 		gVR.fGunSideOther = fIni(str_file, "GunSideOther", 0.01f);
+		gVR.fPistolSide   = fIni(str_file, "PistolSide", 0.04f);
+		gVR.fShotgunSide  = fIni(str_file, "ShotgunSide", 0.04f);
+		gVR.fShotgun2Side = fIni(str_file, "Shotgun2Side", 0.01f);
+		gVR.fShotgunUp    = fIni(str_file, "ShotgunUp", -0.03f);
+		gVR.fShotgun2Up   = fIni(str_file, "Shotgun2Up", 0.06f);
 		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
 		s.fRecoil         = fIni(str_file, "Recoil", 1.0f);
 		s.bShowPhysics    = fIni(str_file, "ShowPhysics", 0) != 0;
@@ -1073,6 +1086,7 @@ namespace
 				if (!gpPlayer)
 					continue;
 				CPlacement3<> p3_body = gpPlayer->p3GetPlacement();
+				p3_body.v3Pos += CVector3<>(gVR.afBodyDrawShift[0], gVR.afBodyDrawShift[1], gVR.afBodyDrawShift[2]);
 				CVector3<> v3_local = (v3_h - p3_body.v3Pos) / p3_body.r3Rot;
 				if (m == 1)
 					v3_local.tX = -v3_local.tX;
@@ -1441,27 +1455,27 @@ namespace
 		struct SPair { const char* strFrom; const char* strTo; };
 		static const SPair apairs[] =
 		{
-			{ "To look around, move your mouse.", "To look around, just turn your head. The right stick turns you too." },
-			{ "To move forward, press and hold 'W'.", "To move, push the left stick. Click it in to sprint." },
-			{ "Press 'Q' to jump up.", "Press Cross (A) to jump up." },
-			{ "Press 'A' and 'D' to step left and right.", "Push the left stick sideways to step left and right." },
-			{ "And press 'Z' to crouch.", "And crouch down for real, or press Circle (B) to crouch." },
+			{ "To look around, move your mouse.", "To look around, just turn your head. {RSTICK} turns you too." },
+			{ "To move forward, press and hold 'W'.", "To move, push {LSTICK}. Click it in to sprint." },
+			{ "Press 'Q' to jump up.", "Press {JUMP} to jump up." },
+			{ "Press 'A' and 'D' to step left and right.", "" },
+			{ "And press 'Z' to crouch.", "And crouch down for real, or press {CROUCH} to crouch." },
 			{ "You can use your hand to move and carry objects.", "You can use your hands to move and carry objects." },
-			{ "Try pressing and holding the left mouse button.", "Reach out with either hand." },
-			{ "Now, moving the mouse moves your hand.", "Your hands follow your controllers." },
-			{ "To pick up an object, move your hand near it....", "To pick up an object, put your hand on it..." },
-			{ "Then click the right mouse button.", "...then squeeze and hold the grip." },
+			{ "Try pressing and holding the left mouse button.", "" },
+			{ "Now, moving the mouse moves your hand.", "" },
+			{ "To pick up an object, move your hand near it....", "" },
+			{ "Then click the right mouse button.", "" },
 			{ "Good! Hold the left mouse button and move the mouse to wield the two-by-four.", "Good! Swing your arm to wield the two-by-four." },
-			{ "Press the right button to drop it.", "Let go of the grip to drop it." },
-			{ "You may have to crouch to reach them if they're on the ground.", "Crouch down, or press Circle (B), to reach things on the ground." },
-			{ "To fire a gun, pick it up, and press the space bar.", "To fire a gun, pick it up and pull the trigger. Grab the barrel with your other hand to steady it." },
-			{ "You can aim the gun using the sights.", "Aim down the gun's sights." },
+			{ "Press the right button to drop it.", "" },
+			{ "You may have to crouch to reach them if they're on the ground.", "" },
+			{ "To fire a gun, pick it up, and press the space bar.", "To fire a gun, pick it up and pull {TRIGGER}. Hold the barrel with your other hand to steady it, or hold the bottom of a pistol's grip." },
+			{ "You can aim the gun using the sights.", "" },
 			{ "To adjust your wrist, press shift + left mouse button, and move the mouse.", "Let go of a gun at your hip or over your shoulder to holster it." },
-			{ "You can rotate your arm by holding control + the left mouse button, and moving the mouse.", "Squeeze the grip there with an empty hand to draw it again." },
-			{ "Press 'F' to throw an object you are holding.", "To throw something, swing your arm and let go of the grip." },
-			{ "You will always throw toward the center of your view.", "It flies the way your hand was moving." },
+			{ "You can rotate your arm by holding control + the left mouse button, and moving the mouse.", "Press {GRIP} there with an empty hand to draw it again." },
+			{ "Press 'F' to throw an object you are holding.", "To throw something, swing your arm and let go of {GRIP}." },
+			{ "You will always throw toward the center of your view.", "" },
 			{ "To strike with an object, pick up the object and press the space bar.", "To strike with an object, hold it and swing it hard." },
-			{ "You can always press F1 for a hint about what to do next", "You can always press Square (X) on your left controller for a hint about what to do next." },
+			{ "You can always press F1 for a hint about what to do next", "You can always press {HINT} on your left controller for a hint about what to do next." },
 		};
 		auto str_trim = [](std::string str)
 		{
@@ -1475,8 +1489,10 @@ namespace
 		// Anything else: swap the mouse and keyboard words for the controllers'.
 		static const SPair arepl[] =
 		{
-			{ "left mouse button", "grip" }, { "right mouse button", "grip" }, { "mouse button", "grip" },
-			{ "space bar", "trigger" }, { "spacebar", "trigger" }, { "the mouse", "your hand" },
+			{ "the left mouse button", "{GRIP}" }, { "the right mouse button", "{GRIP}" },
+			{ "left mouse button", "{GRIP}" }, { "right mouse button", "{GRIP}" }, { "mouse button", "{GRIP}" },
+			{ "the space bar", "{TRIGGER}" }, { "space bar", "{TRIGGER}" }, { "spacebar", "{TRIGGER}" },
+			{ "the mouse", "your hand" },
 		};
 		std::string str = str_in;
 		for (const SPair& pr : arepl)
@@ -1504,6 +1520,8 @@ namespace
 			return;
 		if (q == 0)
 			str = strVRText(str);
+		if (str.empty())
+			return;			// (A line the VR tutorial leaves out.)
 		Log("Text (%d%s, %.1f s): %s", i_type, b_chained ? ", next" : "", f_secs, str.c_str());
 		if (!b_chained)
 		{
@@ -1709,7 +1727,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	static bool b_logged_controller = false;
 	if (!b_logged_controller && (fr.aposHand[0].bValid || fr.aposHand[1].bValid))
 	{
-		Log("Controllers: %s", VRB_ControllerType());
+		Log("Controllers: %s -> button pictures for %s.", VRB_ControllerType(), VRB_ControllerKind() == 1 ? "PS VR2 Sense" : VRB_ControllerKind() == 2 ? "Index" : VRB_ControllerKind() == 3 ? "Vive" : "Touch");
 		b_logged_controller = true;
 	}
 

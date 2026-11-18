@@ -1312,6 +1312,30 @@ private:
 	};
 	SVRHand avrh[2];
 
+	// Where her visible body is drawn, relative to her physics body.
+	static CVector3<> v3VRDrawShift()
+	{
+		if (!gVR.bActive)
+			return CVector3<>(0, 0, 0);
+		return CVector3<>(gVR.afBodyDrawShift[0], gVR.afBodyDrawShift[1], gVR.afBodyDrawShift[2]);
+	}
+
+	// The longest side of a thing's box (m).
+	static float fVRLength(const CInstance* pins)
+	{
+		float f_len = 0;
+		if (pins && pins->prdtGetRenderInfo())
+		{
+			const CBoundVolBox* pbvb = pins->prdtGetRenderInfo()->bvGet().pbvbCast();
+			if (pbvb)
+			{
+				float f_s = fabsf(pins->fGetScale());
+				f_len = Max(Max((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]), (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s;
+			}
+		}
+		return f_len;
+	}
+
 	bool bVRHands() const
 	{
 		return gVR.bActive && gVR.bMotionHand;
@@ -2576,19 +2600,7 @@ private:
 			gVR.abHolding[i]    = pins != nullptr;
 			gVR.abHoldingGun[i] = pins && ptCast<CGun>(pins) != 0;
 			gVR.afHeldMass[i]   = pins ? pins->pphiGetPhysicsInfo()->fMass(pins) : 0.0f;
-			{
-				float f_len = 0;
-				if (pins && pins->prdtGetRenderInfo())
-				{
-					const CBoundVolBox* pbvb = pins->prdtGetRenderInfo()->bvGet().pbvbCast();
-					if (pbvb)
-					{
-						float f_s = fabsf(pins->fGetScale());
-						f_len = Max(Max((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]), (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s;
-					}
-				}
-				gVR.afHeldLength[i] = f_len;
-			}
+			gVR.afHeldLength[i] = fVRLength(pins);
 			if (pins && gVR.afHeldMass[i] <= 150.0f && !NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE)))
 			{
 				gVR.apvHeldFirm[i] = (const void*)pins;
@@ -2614,7 +2626,8 @@ private:
 			// Holster locations, for the VR mod's proximity test.
 			for (int i = 0; i < 2; i++)
 			{
-				CVector3<> v3 = PlayerSettings.aap3Stow[i][2].v3Pos * p3GetPlacement();
+				// (On her visible body, which is drawn under your head, not at her physics body.)
+				CVector3<> v3 = PlayerSettings.aap3Stow[i][2].v3Pos * p3GetPlacement() + v3VRDrawShift();
 				gVR.aafHolsterPosWorld[i][0] = v3.tX;
 				gVR.aafHolsterPosWorld[i][1] = v3.tY;
 				gVR.aafHolsterPosWorld[i][2] = v3.tZ;
@@ -3527,13 +3540,17 @@ private:
 			{
 				// Whether moved by physics or other, must drag along stowed object.
 				// Use stored stow position.
+				// (Holstered things go with her visible body: drawn under your head, crouching
+				// with you.)
+				CPlacement3<> p3_body = p3GetPlacement();
+				p3_body.v3Pos += v3VRDrawShift();
 				if (apinsStowed[0])
-					MoveWithMagnets(apinsStowed[0], ap3StowedObj[0] * p3GetPlacement(), this);
+					MoveWithMagnets(apinsStowed[0], ap3StowedObj[0] * p3_body, this);
 				if (apinsStowed[1])
-					MoveWithMagnets(apinsStowed[1], ap3StowedObj[1] * p3GetPlacement(), this);
+					MoveWithMagnets(apinsStowed[1], ap3StowedObj[1] * p3_body, this);
 				for (int i = 0; i < 2; i++)
 					if (apinsVRStowedLeft[i])
-						MoveWithMagnets(apinsVRStowedLeft[i], ap3VRStowedLeft[i] * p3GetPlacement(), this);
+						MoveWithMagnets(apinsVRStowedLeft[i], ap3VRStowedLeft[i] * p3_body, this);
 			}
 		}
 	}
@@ -4464,11 +4481,25 @@ private:
 			// Back into the palm, and across toward the palm's middle (mirrored for the left hand).
 			// (The rifle sits right with GunSide; the other guns come out on the other side of
 			// it, so they have their own setting.)
+			// Each kind of gun has its own setting (from the log: the rifle 10 rounds, a shot every
+			// 1.33 s; the first shotgun 8 shells, 0.57 s; the level 2 shotgun 7 shells, 0.67 s).
 			const CGun* pgun_grab = ptCast<CGun>(pins);
+			bool b_long  = fVRLength(pins) >= 0.55f;
+			bool b_bolt  = pgun_grab && b_long && !pgun_grab->bAutoFire;
 			bool b_rifle = pgun_grab && !pgun_grab->bAutoFire && pgun_grab->sTimeBetweenShots >= 1.0f;
-			float f_side = b_rifle ? gVR.fGunSide : gVR.fGunSideOther;
+			bool b_shot8 = b_bolt && !b_rifle && pgun_grab->iMaxAmmo == 8;
+			bool b_shot7 = b_bolt && !b_rifle && pgun_grab->iMaxAmmo < 8;
+			float f_side = b_rifle ? gVR.fGunSide
+			             : b_shot8 ? gVR.fShotgunSide
+			             : b_shot7 ? gVR.fShotgun2Side
+			             : (pgun_grab && !b_long) ? gVR.fPistolSide
+			             : gVR.fGunSideOther;
+			float f_up   = b_shot8 ? gVR.fShotgunUp : b_shot7 ? gVR.fShotgun2Up : 0.0f;
 			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? f_side : -f_side, -gVR.fGunBack, 0);
 			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
+			// Up or down along the gun's own up direction (the same for both hands).
+			if (f_up != 0.0f)
+				vh.p3Grab.v3Pos += CVector3<>(0, 0, f_up) * vh.p3Grab.r3Rot;
 		}
 		else
 			vh.p3Grab = pins->p3GetPlacement() * ~p3_hand;
@@ -4588,7 +4619,10 @@ private:
 		int i_holster = gVR.aiHolsterRequest[i_hand];
 		gVR.aiHolsterRequest[i_hand] = -1;
 
-		if (!b_enabled)
+		// A hand steadying the other hand's gun (cupping a pistol, holding a barrel) has no
+		// physical box: it sat against the gun and threw off a constant stream of sparks.
+		bool b_supporting = !vh.pinsHeld && ((i_hand == 1 && gVR.iTwoHand == 1) || (i_hand == 0 && gVR.iTwoHand == 2));
+		if (!b_enabled || b_supporting)
 		{
 			ReleaseVR(i_hand, false);
 			// Take the hand box out of the world so it isn't an invisible obstacle.
@@ -5457,7 +5491,26 @@ private:
 
 		// Bone rotations relative to the reference pose.
 		CMatrix3<> mx3_upper(CRotate3<>(CDir3<>(v3_e - v3_s), CDir3<>(v3_e_new - v3_s)));
-		CMatrix3<> mx3_fore (CRotate3<>(CDir3<>(v3_w - v3_e), CDir3<>(v3_w_new - v3_e_new)));
+		// The forearm swings to point at the wrist, and also rolls with the hand: half of the
+		// hand's twist around the forearm goes into the forearm (as a real forearm does).
+		CRotate3<> r3_swing(CDir3<>(v3_w - v3_e), CDir3<>(v3_w_new - v3_e_new));
+		CRotate3<> r3_fore = r3_swing;
+		{
+			CRotate3<> r3_rel = r3_delta * ~r3_swing;		// The hand's turn before the swing.
+			CDir3<> d3_axis(v3_w - v3_e);
+			TReal r_k = r3_rel.v3S * d3_axis;
+			TReal r_c = r3_rel.tC;
+			if (r_c < 0)
+			{
+				r_c = -r_c;
+				r_k = -r_k;
+			}
+			TReal r_half = atan2(r_k, r_c) * 0.5f;			// Quarter of the twist angle.
+			TReal r_sn = sin(r_half);
+			CRotate3<> r3_twist(cos(r_half), d3_axis.tX * r_sn, d3_axis.tY * r_sn, d3_axis.tZ * r_sn, true);
+			r3_fore = r3_twist * r3_swing;
+		}
+		CMatrix3<> mx3_fore (r3_fore);
 		CMatrix3<> mx3_hand (r3_delta);
 
 		// Finger curl (the physics hand is at rest, curl 0).
@@ -5616,8 +5669,12 @@ private:
 					}
 				}
 			}
+			gVR.afBodyDrawShift[0] = gVR.afBodyDrawShift[1] = gVR.afBodyDrawShift[2] = 0;
 			if (v3_shift.tLen() < 1.5f)
 			{
+				gVR.afBodyDrawShift[0] = v3_shift.tX;
+				gVR.afBodyDrawShift[1] = v3_shift.tY;
+				gVR.afBodyDrawShift[2] = v3_shift.tZ;
 				CPresence3<> pr3_shifted = pr3VRRealPresence;
 				pr3_shifted.v3Pos += v3_shift;
 				// Drawn at your own height (her eyes at yours), feet kept on the ground.
