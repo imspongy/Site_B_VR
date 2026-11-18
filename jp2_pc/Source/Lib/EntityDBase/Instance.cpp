@@ -398,8 +398,11 @@ namespace
 
 		if (!setUnique[eitPHYSICS])
 		{
-			// The info is shared, so we must copy it.
-			pphiPhysicsInfo       = pphiPhysicsInfo->pphiCopy();
+			// The info is shared, so we must copy it.  (Not a multi-box object: there is no
+			// copy for those, and the plain copy loses all its boxes, leaving an object that
+			// nothing collides with.  It is used as it is.)
+			if (!pphiPhysicsInfo->pphicCast())
+				pphiPhysicsInfo   = pphiPhysicsInfo->pphiCopy();
 			setUnique[eitPHYSICS] = true;
 		}
 

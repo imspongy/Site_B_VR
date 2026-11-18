@@ -1957,7 +1957,7 @@ private:
 					CInstance* pins = avrh[i].pinsHeld;
 					ReleaseVR(i, false);
 					if (!v3_throw.bIsZero())
-						pins->pphiGetPhysicsInfoWritable()->ForceVelocity(pins, v3_throw);
+						pins->pphiGetPhysicsInfo()->ForceVelocity(pins, v3_throw);
 					return;
 				}
 		}
@@ -4406,7 +4406,7 @@ private:
 		if (b_throw && v3_throw.tLen() > 0.3f)
 		{
 			pins->pphiGetPhysicsInfo()->Activate(pins, false, CPlacement3<>(CRotate3<>(), v3_throw));
-			pins->pphiGetPhysicsInfoWritable()->ForceVelocity(pins, v3_throw);
+			pins->pphiGetPhysicsInfo()->ForceVelocity(pins, v3_throw);
 			vh.pinsThrown = pins;
 			vh.v3Throw = v3_throw;
 			vh.iThrowSteps = 2;
@@ -4523,7 +4523,7 @@ private:
 		if (vh.iThrowSteps > 0 && vh.pinsThrown && vh.pinsThrown != vh.pinsHeld)
 		{
 			vh.iThrowSteps--;
-			vh.pinsThrown->pphiGetPhysicsInfoWritable()->ForceVelocity(vh.pinsThrown, vh.v3Throw);
+			vh.pinsThrown->pphiGetPhysicsInfo()->ForceVelocity(vh.pinsThrown, vh.v3Throw);
 		}
 
 		// Restore collisions with a recently released object.
@@ -5321,7 +5321,7 @@ private:
 				CPlacement3<> p3_now = ahold[i].pins->p3GetPlacement();
 				if ((p3_now.v3Pos - ahold[i].p3.v3Pos).tLenSqr() > 0.005f * 0.005f)
 					ahold[i].pins->Move(ahold[i].p3);
-				ahold[i].pins->pphiGetPhysicsInfoWritable()->ForceVelocity(ahold[i].pins, CVector3<>(0, 0, 0));
+				ahold[i].pins->pphiGetPhysicsInfo()->ForceVelocity(ahold[i].pins, CVector3<>(0, 0, 0));
 			}
 		}
 	}
