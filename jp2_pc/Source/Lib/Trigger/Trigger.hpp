@@ -524,6 +524,10 @@ public:
 	virtual void Process(const CMessageStep& msgstep) override;
 
 	//*****************************************************************************************
+	// VR: one of your hands standing in for Anne's hand.
+	bool bVRHandFor(CInstance* pins) const;
+
+	//*****************************************************************************************
 	virtual bool bEvaluateNow() override;
 
 	//*****************************************************************************************

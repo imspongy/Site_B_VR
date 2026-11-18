@@ -803,6 +803,28 @@ namespace
 		setGlintHandles.insert(au4.begin(), au4.end());
 	}
 
+	// Bats, pipes and similar weapons: light, movable, long and thin (narrower than a plank).
+	std::unordered_map<const CInstance*, bool> mapMelee;
+	bool bLooksMelee(CInstance* pins)
+	{
+		auto it = mapMelee.find(pins);
+		if (it != mapMelee.end())
+			return it->second;
+		bool b = false;
+		const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+		const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
+		if (pphi && pphi->bIsMovable() && pbvb)
+		{
+			float f_s = std::fabs(pins->fGetScale());
+			float af_d[3] = { ((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X]) * f_s, ((*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]) * f_s, ((*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s };
+			std::sort(af_d, af_d + 3);
+			float f_mass = pphi->fMass(pins);
+			b = af_d[2] >= 0.5f && af_d[2] <= 1.4f && af_d[1] <= 0.12f && f_mass <= 8.0f;
+		}
+		mapMelee[pins] = b;
+		return b;
+	}
+
 	void ConsiderGlint(CInstance* pins, const CPresence3<>& pr3, float f_radius, const CVector3<>& v3_eye)
 	{
 		if (!gbGlints || setPickedUp.count(pins))
@@ -811,7 +833,7 @@ namespace
 		float f_dist = v3_to.tLen();
 		if (f_dist > 30.0f || f_dist < 0.3f)
 			return;
-		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()))
+		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()) && !bLooksMelee(pins))
 			return;
 		if (pins == (CInstance*)gVR.apvHeldFirm[0] || pins == (CInstance*)gVR.apvHeldFirm[1])
 			return;
@@ -1833,6 +1855,7 @@ void VRScene_ReleaseLevel()
 	pvSkyTexture = nullptr;
 	iPhysTexRed = iPhysTexBlue = 0;
 	iGlintTex = 0;
+	mapMelee.clear();
 	ptrrLevel = nullptr;
 	pvLevelPlayer = nullptr;
 	VRR_ClearAll();
@@ -1871,6 +1894,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		pvSkyTexture = nullptr;
 		iPhysTexRed = iPhysTexBlue = 0;
 		iGlintTex = 0;
+		mapMelee.clear();
 		VRR_ClearAll();
 
 		// Load all of the level's textures now (the game normally streams them in a little at

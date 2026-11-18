@@ -2649,6 +2649,8 @@ private:
 			gVR.afHeldMass[i]   = pins ? pins->pphiGetPhysicsInfo()->fMass(pins) : 0.0f;
 			gVR.afHeldLength[i] = fVRLength(pins);
 			gVR.aiHeldGunKind[i] = pins ? avrh[i].iGunKind : -1;
+			gVR.apvVRHandBox[i] = avrh[i].pinsBox;
+			gVR.pvGameHand = pinsHand;
 			gVR.abHoldingMelee[i] = pins && avrh[i].bMelee;
 			// Gun adjusting in the headset: move the gun in the hand by what the stick did.
 			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0))
@@ -5083,6 +5085,17 @@ private:
 		{
 			if (!pins || pins == this || pins == pinsHand || pins == avrh[0].pinsBox || pins == avrh[1].pinsBox)
 				return false;
+			// Not what she is carrying or has holstered (or anything fixed to those): walking with a
+			// box in her hands pushed the box with her body, which crashed the game.
+			{
+				CInstance* pins_master = NMagnetSystem::pinsFindMaster(pins);
+				for (int h = 0; h < 2; h++)
+					if (avrh[h].pinsHeld && (pins == avrh[h].pinsHeld || pins_master == avrh[h].pinsHeld))
+						return false;
+				for (int i = 0; i < 4; i++)
+					if (gVR.apvHolstered[i] && ((const void*)pins == gVR.apvHolstered[i] || (const void*)pins_master == gVR.apvHolstered[i]))
+						return false;
+			}
 			CBoundaryBox* pbb = ptCast<CBoundaryBox>(pins);
 			if (pbb)
 				return b_wall && pbb->paniAnimate != this && pbb->paniAnimate && !pbb->paniAnimate->bDead();
@@ -5633,7 +5646,8 @@ private:
 				r_c = -r_c;
 				r_k = -r_k;
 			}
-			TReal r_half = atan2(r_k, r_c) * 0.5f;			// Quarter of the twist angle.
+			// (atan2 gives half the twist angle; the forearm takes ForearmTwist of the twist.)
+			TReal r_half = atan2(r_k, r_c) * Min(Max(gVR.fForearmTwist, 0.0f), 1.0f);
 			TReal r_sn = sin(r_half);
 			CRotate3<> r3_twist(cos(r_half), d3_axis.tX * r_sn, d3_axis.tY * r_sn, d3_axis.tZ * r_sn, true);
 			r3_fore = r3_twist * r3_swing;
@@ -5885,6 +5899,18 @@ private:
 				CVector3<> v3_gun_up  = CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot();
 				CVector3<> v3_gun_fwd = CVector3<>(0, 1, 0) * avrh[i_gun].pinsHeld->r3Rot();
 				ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.085f;
+				// Out from under the gun hand toward its own side (left hand to your left, right
+				// hand to your right).
+				{
+					const float* af_vq = gVR.afHeadRotWorld;
+					CVector3<> v3_right = CVector3<>(1, 0, 0) * CRotate3<>(af_vq[0], af_vq[1], af_vq[2], af_vq[3], true);
+					v3_right.tZ = 0;
+					if (v3_right.tLen() > 0.1f)
+					{
+						v3_right.Normalise();
+						ap3_target[i_support].v3Pos += v3_right * (i_support == 1 ? -gVR.fCupSide : gVR.fCupSide);
+					}
+				}
 				CRotate3<> r3_fwd(d3YAxis, CDir3<>(v3_gun_fwd));
 				CVector3<> v3_palm_now = CVector3<>(0, 0, -1) * r3_fwd;
 				CVector3<> v3_up_perp = v3_gun_up - v3_gun_fwd * (v3_gun_up * v3_gun_fwd);

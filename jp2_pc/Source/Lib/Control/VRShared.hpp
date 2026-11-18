@@ -56,6 +56,8 @@ struct SVRShared
 	// Holster positions (world space) on Anne's right side, published by the player.
 	float aafHolsterPosWorld[2][3] = { { 0, 0, 0 }, { 0, 0, 0 } };
 	bool  abHolsterFull[4] = { false, false, false, false };	// Right hip, right shoulder, left hip, left shoulder.
+	const void* apvVRHandBox[2] = { nullptr, nullptr };	// Your hands' physics boxes.
+	const void* pvGameHand = nullptr;		// Anne's own hand box (what keypads wait for).
 	const void* apvHolstered[4] = { nullptr, nullptr, nullptr, nullptr };	// What's in them (no knocking about while carried).
 	bool  bHolsterSound = false;		// The holster knock is being sent (let it through).
 
@@ -87,7 +89,9 @@ struct SVRShared
 	bool  abHoldingMelee[2] = { false, false };
 	float fMeleeTiltDeg = 45.0f;		// Bats and pipes tipped up in the hand.
 	float fMeleeScale = 1.0f;			// Melee hits (things swung in the hand) hurt this much more.
-	float fMeleeDrawScale = 0.85f;		// Bats and pipes drawn this size in the hand.
+	float fMeleeDrawScale = 0.7f;		// Bats and pipes drawn this size in the hand.
+	float fForearmTwist = 0.75f;		// How much of the hand's twist the forearm takes.
+	float fCupSide = 0.02f;			// The cupping hand out from under the gun hand (m).
 	float fArmScale = 0.85f;			// Her arms are drawn this size (shorter and slimmer).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 
@@ -143,7 +147,7 @@ struct SVRShared
 	float fBodyScale = 1.0f;		// Anne's body is drawn this much bigger, to match your height.
 	bool  bDamageGrace = false;		// Just after a level loads: Anne can't be hurt yet.
 	bool  bSubtitles = true;			// Voice-over subtitles in the headset.
-	float fShotgunSupportUp = 0.03f;	// The supporting hand on the shotgun is drawn this much higher (m).
+	float fShotgunSupportUp = 0.0f;	// The supporting hand on the shotgun is drawn this much higher (m).
 	float fShotgun1SupportUp = 0.01f;	// The same on the first shotgun (8 shells).
 	float aafCtrlUpInHand[2][3] = { { 0, 0, 1 }, { 0, 0, 1 } };	// The controller's up, in the game's hand frame.
 	float fRifleSupportDown = 0.03f;	// ...and on the rifle this much lower.

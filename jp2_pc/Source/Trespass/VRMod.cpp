@@ -572,7 +572,7 @@ namespace
 			"; Bats, pipes and the like: tipped up this many degrees in the hand (negative tips them\n"
 			"; down), and drawn this size (1 = the game's size).\n"
 			"MeleeTilt=45\n"
-			"MeleeScale=0.85\n"
+			"MeleeScale=0.7\n"
 			"; Melee damage (bats, pipes, sticks swung in the hand): 1 = useful as a last resort.\n"
 			"MeleeDamage=0.6\n"
 			"; Guns and the things the story sends you for sparkle until you first pick them up.\n"
@@ -585,9 +585,13 @@ namespace
 			"; Thrown things go this much faster than your hand.\n"
 			"ThrowScale=2.0\n"
 			"; How much higher (metres) your supporting hand is drawn on the shotgun's forend.\n"
-			"ShotgunHandUp=0.03\n"
+			"ShotgunHandUp=0.0\n"
 			"; The same on the first shotgun (8 shells).\n"
 			"Shotgun1HandUp=0.01\n"
+			"; How much of your wrist's twist her forearm follows (0 none, 1 all).\n"
+			"ForearmTwist=0.75\n"
+			"; The hand cupping under a pistol, moved out from under the gun hand (m).\n"
+			"CupSide=0.02\n"
 			"; How much lower (metres) your supporting hand is drawn on the rifle.\n"
 			"RifleHandDown=0.03\n"
 			"; Voice-over subtitles floating below your view: 1 on, 0 off.\n"
@@ -659,7 +663,7 @@ namespace
 		}
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
-		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.85f)));
+		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
 		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 0.6f);
 		s.bGlints         = fIni(str_file, "Glints", 1.0f) > 0.5f;
 		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
@@ -691,7 +695,9 @@ namespace
 		s.fAnneEyeHeight  = (std::min)(2.0f, (std::max)(1.2f, fIni(str_file, "AnneEyeHeight", 1.55f)));
 		s.bBodyFromView   = fIni(str_file, "BodyFromView", 1) != 0;
 		s.fHeadBelowEye   = fIni(str_file, "HeadBelowEye", 0.07f);
-		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.03f);
+		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.0f);
+		gVR.fForearmTwist = fIni(str_file, "ForearmTwist", 0.75f);
+		gVR.fCupSide = fIni(str_file, "CupSide", 0.02f);
 		gVR.fShotgun1SupportUp = fIni(str_file, "Shotgun1HandUp", 0.01f);
 		gVR.fRifleSupportDown = fIni(str_file, "RifleHandDown", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);
@@ -1967,6 +1973,16 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	const CRotate3<> r3_head_track = r3Game(fr.posHead.afQ);
 
 	// Recenter: turn-stick click.  Sprint: walk-stick click.
+	{
+		// The crash recorder goes back in if something replaced it (the level 2 crash left no
+		// report).
+		LPTOP_LEVEL_EXCEPTION_FILTER pfn_now = SetUnhandledExceptionFilter(VRCrashFilter);
+		if (pfn_now != VRCrashFilter && pfn_now)
+		{
+			pfnPrevCrashFilter = pfn_now;
+			Log("Crash recorder: something else had replaced it; put back.");
+		}
+	}
 	SVRHandInput hi_off  = fr.ctl.ahand[iOffCtl()];
 	SVRHandInput hi_main = fr.ctl.ahand[iMainCtl()];
 	GunAdjust(fr, hi_off, hi_main, f_dt);

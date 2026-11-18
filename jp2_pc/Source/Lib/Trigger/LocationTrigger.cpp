@@ -59,6 +59,7 @@
 #include "Lib/Groff/VTParse.hpp"
 #include "Lib/Loader/SaveBuffer.hpp"
 #include "Game/DesignDaemon/Player.hpp"
+#include "Lib/Control/VRShared.hpp"
 
 #include "Lib/Sys/Profile.hpp"
 
@@ -255,7 +256,7 @@ void CLocationTrigger::Process(const CMessageStep& msg)
 	{
 		if (pinsActivate)
 		{
-			if (bContained(pinsActivate))
+			if (bEvaluateNow())
 				AttemptTriggerFire();
 		}
 		else
@@ -321,7 +322,10 @@ void CLocationTrigger::Process(const CMessageMove& msg)
 		// yes, check if it generated this message
 		if (pins != pinsActivate )
 		{
-			return;
+			// VR: a trigger waiting for Anne's hand (keypad keys) is touched by your hands,
+			// which are their own boxes.
+			if (!bVRHandFor(pins))
+				return;
 		}
 	}
 
@@ -438,7 +442,9 @@ bool CLocationTrigger::bEvaluateNow()
 	{
 		// if the activate object is set then we only fire if that object is contained within
 		// the trigger.
-		return bContained(pinsActivate);
+		return bContained(pinsActivate) ||
+		       (bVRHandFor((CInstance*)gVR.apvVRHandBox[0]) && bContained((CInstance*)gVR.apvVRHandBox[0])) ||
+		       (bVRHandFor((CInstance*)gVR.apvVRHandBox[1]) && bContained((CInstance*)gVR.apvVRHandBox[1]));
 	}
 	else
 	{
@@ -489,6 +495,25 @@ bool CLocationTrigger::bEvaluateNow()
 	return false;
 }
 
+
+//*********************************************************************************************
+// VR: is this one of your hands, standing in for Anne's hand on a trigger that waits for her hand?
+bool CLocationTrigger::bVRHandFor(CInstance* pins) const
+{
+	if (!gVR.bActive || !pins || !pinsActivate)
+		return false;
+	if ((const void*)pins != gVR.apvVRHandBox[0] && (const void*)pins != gVR.apvVRHandBox[1])
+		return false;
+	bool b_hand = (const void*)pinsActivate == gVR.pvGameHand;
+	static const void* pv_logged = nullptr;
+	if (gVR.pfnLog && pv_logged != (const void*)this)
+	{
+		pv_logged = (const void*)this;
+		gVR.pfnLog("Trigger %s (waits for %s%s) reached by your %s hand.", strGetInstanceName(), pinsActivate->strGetInstanceName(),
+			b_hand ? ", Anne's hand" : "", (const void*)pins == gVR.apvVRHandBox[0] ? "right" : "left");
+	}
+	return b_hand;
+}
 
 //*********************************************************************************************
 EInstanceType CLocationTrigger::eitInstanceType(const CInstance* pins)
