@@ -4531,6 +4531,25 @@ public:
 		if (avrh[1 - i_hand].pinsHeld == pins)
 			ReleaseVR(1 - i_hand, false);
 
+		// A gun mounted on a hinge (the .50 sniper on its tripod): taken off the mount, so it is
+		// held like any other gun.  (Pivoting a mounted gun with a hand that can go anywhere
+		// pulled it off its hinge and it floated away.)
+		if (ptCast<CGun>(pins))
+		{
+			for (int i = 0; i < 4; i++)
+			{
+				const CMagnetPair* pmp = NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE));
+				if (!pmp)
+					break;
+				CInstance* pins_master = pmp->pinsMaster;
+				CInstance* pins_slave = pmp->pinsSlave;
+				NMagnetSystem::RemoveMagnetPair(pins_master, pins_slave, Set(emfHINGE));
+				if (gVR.pfnLog)
+					gVR.pfnLog("Gun %s taken off its mount (%s).", pins->strGetInstanceName(),
+						pins_master == pins ? (pins_slave ? "slave side" : "fixed to the world") : "mounted on another object");
+			}
+		}
+
 		// Taking it out of a holster?
 		for (int i = 0; i < 2; i++)
 		{
