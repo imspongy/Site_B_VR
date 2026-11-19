@@ -833,7 +833,7 @@ namespace
 		float f_dist = v3_to.tLen();
 		if (f_dist > 30.0f || f_dist < 0.3f)
 			return;
-		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()) && !bLooksMelee(pins))
+		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()))
 			return;
 		if (pins == (CInstance*)gVR.apvHeldFirm[0] || pins == (CInstance*)gVR.apvHeldFirm[1])
 			return;

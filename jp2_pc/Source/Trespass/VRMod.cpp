@@ -592,6 +592,10 @@ namespace
 			"ForearmTwist=0.75\n"
 			"; The hand cupping under a pistol, moved out from under the gun hand (m).\n"
 			"CupSide=0.02\n"
+			"; The burst pistol's cupping hand, and the submachine gun's supporting hand, further to\n"
+			"; your left (m).\n"
+			"BurstCupLeft=0.03\n"
+			"SmgHandLeft=0.04\n"
 			"; How much lower (metres) your supporting hand is drawn on the rifle.\n"
 			"RifleHandDown=0.03\n"
 			"; Voice-over subtitles floating below your view: 1 on, 0 off.\n"
@@ -698,6 +702,8 @@ namespace
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.0f);
 		gVR.fForearmTwist = fIni(str_file, "ForearmTwist", 0.75f);
 		gVR.fCupSide = fIni(str_file, "CupSide", 0.02f);
+		gVR.fBurstCupLeft = fIni(str_file, "BurstCupLeft", 0.03f);
+		gVR.fSmgSupportLeft = fIni(str_file, "SmgHandLeft", 0.04f);
 		gVR.fShotgun1SupportUp = fIni(str_file, "Shotgun1HandUp", 0.01f);
 		gVR.fRifleSupportDown = fIni(str_file, "RifleHandDown", 0.03f);
 		s.fFogScale       = fIni(str_file, "FogScale", 1.3f);

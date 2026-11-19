@@ -92,6 +92,8 @@ struct SVRShared
 	float fMeleeDrawScale = 0.7f;		// Bats and pipes drawn this size in the hand.
 	float fForearmTwist = 0.75f;		// How much of the hand's twist the forearm takes.
 	float fCupSide = 0.02f;			// The cupping hand out from under the gun hand (m).
+	float fBurstCupLeft = 0.03f;		// The burst pistol's cupping hand further to your left.
+	float fSmgSupportLeft = 0.04f;		// The submachine gun's supporting hand further to your left.
 	float fArmScale = 0.85f;			// Her arms are drawn this size (shorter and slimmer).
 	float fGunScale = 0.85f;		// Held guns are drawn this size (her hands are small).
 

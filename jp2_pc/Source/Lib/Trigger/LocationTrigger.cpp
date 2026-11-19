@@ -42,6 +42,8 @@
 
 #include "Trigger.hpp"
 #include <algorithm>
+#include <set>
+#include <string>
 
 #include "Action.hpp"
 #include "Lib/Physics/InfoBox.hpp"
@@ -505,11 +507,14 @@ bool CLocationTrigger::bVRHandFor(CInstance* pins) const
 	if ((const void*)pins != gVR.apvVRHandBox[0] && (const void*)pins != gVR.apvVRHandBox[1])
 		return false;
 	bool b_hand = (const void*)pinsActivate == gVR.pvGameHand;
-	static const void* pv_logged = nullptr;
-	if (gVR.pfnLog && pv_logged != (const void*)this)
+	// Logged once per trigger and hand (every move of a hand inside it comes here: logging each
+	// one filled the log with 350,000 lines and stalled the game, sound included).
+	static std::set<std::pair<const void*, const void*>> setLogged;
+	if (gVR.pfnLog && setLogged.size() < 500 && setLogged.insert(std::make_pair((const void*)this, (const void*)pins)).second)
 	{
-		pv_logged = (const void*)this;
-		gVR.pfnLog("Trigger %s (waits for %s%s) reached by your %s hand.", strGetInstanceName(), pinsActivate->strGetInstanceName(),
+		std::string str_trigger = strGetInstanceName();
+		std::string str_waits = pinsActivate->strGetInstanceName();
+		gVR.pfnLog("Trigger %s (waits for %s%s) reached by your %s hand.", str_trigger.c_str(), str_waits.c_str(),
 			b_hand ? ", Anne's hand" : "", (const void*)pins == gVR.apvVRHandBox[0] ? "right" : "left");
 	}
 	return b_hand;
