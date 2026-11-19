@@ -84,6 +84,11 @@ struct SVRShared
 	float aafGunAcross[5][2] = { { 0.01f, 0.01f }, { 0.04f, 0.04f }, { 0.01f, 0.01f }, { -0.05f, -0.05f }, { 0.01f, 0.01f } };
 	float aafGunUp[5][2] = {};
 	float aafGunLateral[5][2] = {};		// Left/right along the gun's own sideways direction (set with GunAdjust).
+	float (*pfnGunValue)(const char* str_key, float f_default) = nullptr;	// Per-model gun settings.
+	char  astrHeldGunKey[2][64] = {};	// The model key of the gun in each hand ("Gun_a6_d25_t50").
+	float afHeldGunLat[2] = {};			// Its current left/right and up settings.
+	float afHeldGunUp[2] = {};
+	void (*pfnLevelUnloading)() = nullptr;	// Called just before a level loads.
 	int   aiHeldGunKind[2] = { -1, -1 };
 	float aafGunAdjPending[2][2] = {};		// Stick adjustments not yet applied to the held gun.
 	bool  abHoldingMelee[2] = { false, false };

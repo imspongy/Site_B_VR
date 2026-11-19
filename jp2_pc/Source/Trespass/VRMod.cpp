@@ -36,6 +36,7 @@
 
 #include "precomp.h"
 #include <csignal>
+#include <map>
 #include <exception>
 #pragma hdrstop
 
@@ -619,6 +620,8 @@ namespace
 		std::fclose(pf);
 	}
 
+	void LoadGunValues(const std::string& str_path);
+
 	//******************************************************************************************
 	void LoadSettings()
 	{
@@ -666,6 +669,7 @@ namespace
 				}
 		}
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
+		LoadGunValues(str_file);
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
 		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 0.6f);
@@ -778,6 +782,35 @@ namespace
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if (GetFileAttributesExA(str_file.c_str(), GetFileExInfoStandard, &fad))
 			ftIni = fad.ftLastWriteTime;
+	}
+
+	//******************************************************************************************
+	// Per-model gun settings (Gun_... lines in the ini).
+	std::map<std::string, float> mapGunValues;
+	float fGunValue(const char* str_key, float f_default)
+	{
+		auto it = mapGunValues.find(str_key);
+		return it == mapGunValues.end() ? f_default : it->second;
+	}
+	void LoadGunValues(const std::string& str_path)
+	{
+		mapGunValues.clear();
+		if (FILE* pf = fopen(str_path.c_str(), "r"))
+		{
+			char str_line[512];
+			while (fgets(str_line, sizeof(str_line), pf))
+			{
+				if (strncmp(str_line, "Gun_", 4) != 0)
+					continue;
+				char* pc_eq = strchr(str_line, '=');
+				if (!pc_eq)
+					continue;
+				*pc_eq = 0;
+				mapGunValues[str_line] = (float)atof(pc_eq + 1);
+			}
+			fclose(pf);
+		}
+		gVR.pfnGunValue = [](const char* str_key, float f_default) { return fGunValue(str_key, f_default); };
 	}
 
 	//******************************************************************************************
@@ -988,7 +1021,7 @@ namespace
 				// own sideways direction); up moves it up.
 				float f_right = f_x * fRATE * f_dt;
 				float f_up = f_y * fRATE * f_dt;
-				gVR.aafGunUp[k][h] += f_up;
+				gVR.afHeldGunUp[h] += f_up;
 				gVR.aafGunAdjPending[h][0] += f_right;
 				gVR.aafGunAdjPending[h][1] += f_up;
 				ab_dirty[h] = true;
@@ -998,13 +1031,15 @@ namespace
 			{
 				// Let go of the stick: save.
 				int kk = ai_kind[h];
-				std::string str_side = std::string(astrKIND[kk]) + "Side" + (h == 0 ? "Right" : "Left");
-				std::string str_up   = std::string(astrKIND[kk]) + "Up" + (h == 0 ? "Right" : "Left");
-				std::string str_lat  = std::string(astrKIND[kk]) + "Lateral" + (h == 0 ? "Right" : "Left");
-				SetIniValue(str_lat.c_str(), gVR.aafGunLateral[kk][h]);
-				SetIniValue(str_up.c_str(), gVR.aafGunUp[kk][h]);
-				Log("Gun adjust: %s=%.3f %s=%.3f (%s=%.3f).", str_lat.c_str(), gVR.aafGunLateral[kk][h], str_up.c_str(), gVR.aafGunUp[kk][h],
-					str_side.c_str(), gVR.aafGunAcross[kk][h]);
+				// Saved for this model of gun only.
+				std::string str_model = gVR.astrHeldGunKey[h][0] ? gVR.astrHeldGunKey[h] : astrKIND[kk];
+				std::string str_up   = str_model + "Up" + (h == 0 ? "Right" : "Left");
+				std::string str_lat  = str_model + "Lateral" + (h == 0 ? "Right" : "Left");
+				SetIniValue(str_lat.c_str(), gVR.afHeldGunLat[h]);
+				SetIniValue(str_up.c_str(), gVR.afHeldGunUp[h]);
+				mapGunValues[str_lat] = gVR.afHeldGunLat[h];
+				mapGunValues[str_up] = gVR.afHeldGunUp[h];
+				Log("Gun adjust: %s=%.3f %s=%.3f.", str_lat.c_str(), gVR.afHeldGunLat[h], str_up.c_str(), gVR.afHeldGunUp[h]);
 				Haptic(h, 0.03f, 150.0f, 0.3f);
 				ab_dirty[h] = false;
 			}
@@ -1840,6 +1875,11 @@ void VRMod_LevelLoading(const char* str_scene)
 			str_level = n.strLevel;
 		}
 	Log("Loading level %s (%s %s).", str_file.c_str(), str_level.c_str(), str_name.c_str());
+	if (gVR.pfnLevelUnloading)
+	{
+		gVR.pfnLevelUnloading();
+		Log("Let go of everything held and holstered before loading.");
+	}
 	LogMemory("before loading");
 	VRScene_ReleaseLevel();
 	LogMemory("after letting go of the old level's VR copies");

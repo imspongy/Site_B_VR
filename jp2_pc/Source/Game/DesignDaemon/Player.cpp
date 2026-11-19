@@ -1361,6 +1361,17 @@ private:
 		gVR.bBodyDrawnPosValid = true;
 	}
 
+public:
+	// A new level is about to load.
+	void VRLevelUnloading()
+	{
+		for (int h = 0; h < 2; h++)
+			if (avrh[h].pinsHeld)
+				ReleaseVR(h, false);
+		for (int i = 0; i < 2; i++)
+			apinsVRStowedLeft[i] = nullptr;
+	}
+
 	// Holstered things go with her visible body: drawn under your head, crouching with you.
 	void VRMoveStowed()
 	{
@@ -2665,10 +2676,12 @@ private:
 				float f_sign = v3_gx_world * v3_right >= 0 ? 1.0f : -1.0f;
 				float f_d = gVR.aafGunAdjPending[i][0] * f_sign;
 				avrh[i].p3Grab.v3Pos += v3_gx * f_d;
-				gVR.aafGunLateral[avrh[i].iGunKind][i] += i == 0 ? f_d : -f_d;
+				gVR.afHeldGunLat[i] += i == 0 ? f_d : -f_d;
 				avrh[i].p3Grab.v3Pos += CVector3<>(0, 0, gVR.aafGunAdjPending[i][1]) * avrh[i].p3Grab.r3Rot;
 			}
 			gVR.aafGunAdjPending[i][0] = gVR.aafGunAdjPending[i][1] = 0;
+			if (!pins)
+				gVR.astrHeldGunKey[i][0] = 0;
 			if (pins && (gVR.afHeldMass[i] <= 150.0f || ptCast<CGun>(pins)) && !NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE)))
 			{
 				gVR.apvHeldFirm[i] = (const void*)pins;
@@ -4563,13 +4576,31 @@ private:
 			// GunAdjust=1).
 			float f_side = i_kind >= 0 ? gVR.aafGunAcross[i_kind][i_hand] : gVR.fGunSideOther;
 			float f_up   = i_kind >= 0 ? gVR.aafGunUp[i_kind][i_hand] : 0.0f;
+			float f_lat  = i_kind >= 0 ? gVR.aafGunLateral[i_kind][i_hand] : 0.0f;
+			// Each model of gun has its own setting if one was made for it (pistols that share a
+			// kind had been sharing one setting, so setting one moved the others).
+			char str_key[64] = "";
+			if (pgun_grab)
+			{
+				snprintf(str_key, sizeof(str_key), "Gun_a%d_d%d_t%d", pgun_grab->iMaxAmmo, (int)(pgun_grab->gdGunData.fDamage + 0.5f),
+					(int)(pgun_grab->sTimeBetweenShots * 100.0f + 0.5f));
+				if (gVR.pfnGunValue)
+				{
+					std::string str_k(str_key);
+					const char* str_h = i_hand == 0 ? "Right" : "Left";
+					f_lat = gVR.pfnGunValue((str_k + "Lateral" + str_h).c_str(), f_lat);
+					f_up  = gVR.pfnGunValue((str_k + "Up" + str_h).c_str(), f_up);
+				}
+			}
+			strncpy(gVR.astrHeldGunKey[i_hand], str_key, sizeof(gVR.astrHeldGunKey[i_hand]) - 1);
+			gVR.afHeldGunLat[i_hand] = f_lat;
+			gVR.afHeldGunUp[i_hand] = f_up;
 			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? f_side : -f_side, -gVR.fGunBack, 0);
 			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
 			// Up or down along the gun's own up direction (the same for both hands).
 			if (f_up != 0.0f)
 				vh.p3Grab.v3Pos += CVector3<>(0, 0, f_up) * vh.p3Grab.r3Rot;
 			// Sideways along the gun's own sideways direction (mirrored for the left hand).
-			float f_lat = i_kind >= 0 ? gVR.aafGunLateral[i_kind][i_hand] : 0.0f;
 			if (f_lat != 0.0f)
 				vh.p3Grab.v3Pos += CVector3<>(i_hand == 0 ? f_lat : -f_lat, 0, 0) * vh.p3Grab.r3Rot;
 			static const char* const astrKIND[5] = { "pistol", "shotgun", "shotgun 2", "rifle", "other long gun" };
@@ -4882,6 +4913,14 @@ private:
 				CVector3<> v3_now = pphi->p3GetVelocity(vh.pinsHeld).v3Pos;
 				v3_vel.tZ = Min(v3_now.tZ, 0.0f);
 				pphi->ForceVelocity(vh.pinsHeld, v3_vel);
+			}
+			else if (ptCast<CGun>(vh.pinsHeld) && pphi->pphicCast())
+			{
+				// A gun made of several boxes (the .50 sniper): its pieces fought the hand and it
+				// spun.  Held by placement alone, with its physics asleep while in the hand.
+				vh.pinsHeld->Move(p3_target);
+				if (pphi->bIsActive(vh.pinsHeld))
+					pphi->Deactivate(vh.pinsHeld);
 			}
 			else
 			{
@@ -6590,3 +6629,28 @@ private:
 	CPlayer::~CPlayer()
 	{
 	}
+
+//*********************************************************************************************
+// VR: a new level is about to load.  Let go of what the hands hold and forget the holsters, so
+// nothing points into the old level once it is gone (loading level 3 crashed with a gun in hand).
+static void VRPlayerLevelUnloading()
+{
+	if (gpPlayer)
+		static_cast<CPlayerPriv*>(gpPlayer)->VRLevelUnloading();
+	gVR.apvHeldFirm[0] = gVR.apvHeldFirm[1] = nullptr;
+	for (int i = 0; i < 4; i++)
+	{
+		gVR.apvHolstered[i] = nullptr;
+		gVR.abHolsterFull[i] = false;
+	}
+	gVR.apvVRHandBox[0] = gVR.apvVRHandBox[1] = nullptr;
+	gVR.pvGameHand = nullptr;
+	gVR.abHoldingGun[0] = gVR.abHoldingGun[1] = false;
+	gVR.abHoldingMelee[0] = gVR.abHoldingMelee[1] = false;
+	gVR.aiHeldGunKind[0] = gVR.aiHeldGunKind[1] = -1;
+	gVR.bBodyDrawnPosValid = false;
+}
+static struct SVRPlayerHooks
+{
+	SVRPlayerHooks() { gVR.pfnLevelUnloading = VRPlayerLevelUnloading; }
+} vrPlayerHooks;
