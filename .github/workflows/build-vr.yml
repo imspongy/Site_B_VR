@@ -46,6 +46,9 @@ jobs:
             Set-Content $out/OpenTrespasser.ini
           Copy-Item ../VR-README.md $out/VR-README.md
           Copy-Item ../VR/JurassicPark.ttf $out/JurassicPark.ttf
+          New-Item -ItemType Directory -Force -Path $out/menu | Out-Null
+          Copy-Item ../VR/menu/vrsettings.ddf $out/menu/vrsettings.ddf
+          Copy-Item ../VR/menu/ingameopt_vr_addition.ddf $out/menu/ingameopt_vr_addition.ddf
 
       - uses: actions/upload-artifact@v4
         with:

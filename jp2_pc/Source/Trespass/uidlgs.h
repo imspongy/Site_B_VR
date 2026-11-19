@@ -220,6 +220,27 @@ public:
     void GetWndFile(LPSTR psz, int ic) override;
 
     void UIButtonUp(CUIButton * pbutton) override;
+    void UIHotspotClick(CUIHotspot * pctrl, BOOL bDown) override;
+};
+
+
+// VR settings (from the pause menu): writes TrespasserVR.ini.
+class CVRSettingsWnd : public CUIDlg
+{
+public:
+    CVRSettingsWnd(CUIManager * puimgr);
+    virtual ~CVRSettingsWnd();
+
+    BOOL OnCreate() override;
+
+    void GetWndFile(LPSTR psz, int ic) override;
+
+    void UIButtonUp(CUIButton * pbutton) override;
+    void UISliderChange(CUISlider * pctrl, int iNewValue) override;
+    void UIHotspotClick(CUIHotspot * pctrl, BOOL bDown) override;
+
+private:
+    void ShowSliderValue(int i_slider);
 };
 
 

@@ -1,0 +1,315 @@
+; VR settings (Site B VR).  Opened from the pause menu; saved to TrespasserVR.ini.
+BACKGROUND 0 0 320 200 ""
+
+UICTRL "static" 1 1 -1 0 0 -1 -1 1 "menu\\generic_bg.tga"
+
+UICTRL "textbox" 1 1 -1 20 3 300 16
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "VR Settings" ; Initial Text
+        13 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "checkbox" 1 1 1020 16 20 46 34
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 38 19 156 33
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Smooth turning" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1100 16 20 156 33 0
+
+UICTRL "checkbox" 1 1 1021 16 34 46 48
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 38 33 156 47
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Left-handed" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1101 16 34 156 47 0
+
+UICTRL "checkbox" 1 1 1022 16 48 46 62
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 38 47 156 61
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Toggle grip" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1102 16 48 156 61 0
+
+UICTRL "checkbox" 1 1 1023 16 62 46 76
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 38 61 156 75
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Vibration" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1103 16 62 156 75 0
+
+UICTRL "checkbox" 1 1 1024 16 76 46 90
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 38 75 156 89
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Use my real height" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1104 16 76 156 89 0
+
+UICTRL "checkbox" 1 1 1025 166 20 196 34
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 188 19 306 33
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Subtitles" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1105 166 20 306 33 0
+
+UICTRL "checkbox" 1 1 1026 166 34 196 48
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 188 33 306 47
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Tutorial messages" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1106 166 34 306 47 0
+
+UICTRL "checkbox" 1 1 1027 166 48 196 62
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 188 47 306 61
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Weapon sparkle" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1107 166 48 306 61 0
+
+UICTRL "checkbox" 1 1 1028 166 62 196 76
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 188 61 306 75
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Gun recoil" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1108 166 62 306 75 0
+
+UICTRL "checkbox" 1 1 1029 166 76 196 90
+        "menu\\check_0.tga"
+        "menu\\check_1.tga"
+        "menu\\check_2.tga"
+        "menu\\check_3.tga"
+
+UICTRL "textbox" 1 1 -1 188 75 306 89
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "Show view on monitor" ; Initial Text
+        11 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1109 166 76 306 89 0
+
+UICTRL "textbox" 1 1 1204 16 92 156 103
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "" ; Initial Text
+        10 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "slider" 1 1 1004 16 102 156 122
+        "menu\\slider.tga"
+        101 ; # of units
+        0 ; Default Unit value
+        0 ; Border/Ticks
+
+UICTRL "textbox" 1 1 1205 166 92 306 103
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "" ; Initial Text
+        10 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "slider" 1 1 1005 166 102 306 122
+        "menu\\slider.tga"
+        101 ; # of units
+        0 ; Default Unit value
+        0 ; Border/Ticks
+
+UICTRL "textbox" 1 1 1206 16 122 156 133
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "" ; Initial Text
+        10 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "slider" 1 1 1006 16 132 156 152
+        "menu\\slider.tga"
+        101 ; # of units
+        0 ; Default Unit value
+        0 ; Border/Ticks
+
+UICTRL "textbox" 1 1 1207 166 122 306 133
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "" ; Initial Text
+        10 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "slider" 1 1 1007 166 132 306 152
+        "menu\\slider.tga"
+        101 ; # of units
+        0 ; Default Unit value
+        0 ; Border/Ticks
+
+UICTRL "BUTTON" 1 1 1000 185 155 -1 -1
+        1 "menu\\cancel_0.tga"
+          "menu\\cancel_1.tga"
+          "menu\\cancel_2.tga"
+          ""
+
+UICTRL "BUTTON" 1 1 1001 22 155 -1 -1
+        1 "menu\\ok_0.tga"
+          "menu\\ok_1.tga"
+          "menu\\ok_2.tga"
+          "menu\\ok_3.tga"

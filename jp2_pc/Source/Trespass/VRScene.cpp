@@ -708,13 +708,14 @@ namespace
 		CVector3<> v3ShadowCentre;
 		float      fFar;
 		float      fShadow;
+		float      fDetailCull;
 		std::vector<CInstance*>* papinsTerrainObjs;		// Collect terrain objects (level start).
 	};
 
 	// Counters for the log: why instances were not drawn.
 	struct SWalkStats
 	{
-		int iSeen, iHidden, iNoShape, iNotMesh, iEmpty, iFar, iBehind;
+		int iSeen, iHidden, iNoShape, iNotMesh, iEmpty, iFar, iBehind, iSmall;
 	};
 	SWalkStats wsLast = {};
 
@@ -1200,6 +1201,18 @@ namespace
 		{
 			ws.iFar++;
 			return;
+		}
+		// Too small to see from here (a few pixels across): not drawn.  Level 2's thousands of
+		// small things far off cost more to draw than they show.  (Dinosaurs and anything in or
+		// on your hands are always drawn.)
+		if (wk.fDetailCull > 0 && !pbm.ptGet())
+		{
+			float f_size = pme->fRadius * std::fabs(pr3.rScale);
+			if (f_size < wk.fDetailCull * f_dist && f_dist > 3.0f)
+			{
+				ws.iSmall++;
+				return;
+			}
 		}
 		if (f_dist > f_r + 2.0f && (v3_to * wk.v3Fwd) < -0.6f * f_dist)
 		{
@@ -1918,6 +1931,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	float f_far = pcam ? (float)pcam->campropGetProperties().rFarClipPlaneDist : 500.0f;
 	wk.fFar = std::max(50.0f, f_far * set.fDrawDistance);
 	wk.fShadow = set.fShadowDistance;
+	wk.fDetailCull = set.fDetailCull;
 	wk.papinsTerrainObjs = b_new_level ? &apins_trr : nullptr;
 
 	iObjects = iSkinned = iTexturesWaiting = 0;
@@ -2069,9 +2083,9 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	float f_mb;
 	VRR_GetStats(i_draws, i_batches, i_tex, i_meshes, f_mb);
 	std::snprintf(strStats, sizeof(strStats), "GPU renderer: %d objects, %d characters, %d draws in %d card calls (3 passes), %d textures (%.0f MB), %d meshes, %d textures loading; "
-	              "walk: %d instances, %d hidden, %d no shape, %d not mesh, %d empty, %d far, %d behind.",
+	              "walk: %d instances, %d hidden, %d no shape, %d not mesh, %d empty, %d far, %d behind, %d too small.",
 	              iObjects, iSkinned, i_draws, i_batches, i_tex, f_mb, i_meshes, iTexturesWaiting,
-	              wsLast.iSeen, wsLast.iHidden, wsLast.iNoShape, wsLast.iNotMesh, wsLast.iEmpty, wsLast.iFar, wsLast.iBehind);
+	              wsLast.iSeen, wsLast.iHidden, wsLast.iNoShape, wsLast.iNotMesh, wsLast.iEmpty, wsLast.iFar, wsLast.iBehind, wsLast.iSmall);
 	return true;
 }
 

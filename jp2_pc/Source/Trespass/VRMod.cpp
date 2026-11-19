@@ -85,6 +85,32 @@ static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for t
 // Crash recorder: if the game crashes, the log gets where (as an offset into the program, which
 // the build's map file turns into a function), plus likely callers found on the stack.
 static LPTOP_LEVEL_EXCEPTION_FILTER pfnPrevCrashFilter = nullptr;
+static void VRCrashFilterLogStack(EXCEPTION_POINTERS* pep)
+{
+#if defined(_M_IX86)
+	HMODULE hmod = GetModuleHandleA(nullptr);
+	uintptr_t u_base = (uintptr_t)hmod;
+	const IMAGE_DOS_HEADER* pdos = (const IMAGE_DOS_HEADER*)hmod;
+	const IMAGE_NT_HEADERS* pnt = (const IMAGE_NT_HEADERS*)((const char*)hmod + pdos->e_lfanew);
+	uintptr_t u_end = u_base + pnt->OptionalHeader.SizeOfImage;
+	const uintptr_t* pu_sp = (const uintptr_t*)pep->ContextRecord->Esp;
+	char sz[512] = {};
+	int i_len = 0, i_found = 0;
+	for (int i = 0; i < 4096 && i_found < 24; i++)
+	{
+		if (IsBadReadPtr(pu_sp + i, sizeof(uintptr_t)))
+			break;
+		uintptr_t u = pu_sp[i];
+		if (u > u_base + 0x1000 && u < u_end)
+		{
+			i_len += snprintf(sz + i_len, sizeof(sz) - i_len, " %08X", (unsigned)(u - u_base));
+			i_found++;
+		}
+	}
+	if (gVR.pfnLog)
+		gVR.pfnLog("Likely callers (program offsets):%s", sz);
+#endif
+}
 static LONG WINAPI VRCrashFilter(EXCEPTION_POINTERS* pep)
 {
 	static bool b_in = false;
@@ -107,7 +133,8 @@ static LONG WINAPI VRCrashFilter(EXCEPTION_POINTERS* pep)
 			gVR.pfnLog("CRASH: exception 0x%08X at 0x%08X (program offset 0x%08X), data address 0x%08X.",
 			           (unsigned)pep->ExceptionRecord->ExceptionCode, (unsigned)u_at, (unsigned)(u_at - u_base),
 			           pep->ExceptionRecord->NumberParameters > 1 ? (unsigned)pep->ExceptionRecord->ExceptionInformation[1] : 0u);
-#if defined(_M_IX86)
+			VRCrashFilterLogStack(pep);
+#if 0
 			const uintptr_t* pu_sp = (const uintptr_t*)pep->ContextRecord->Esp;
 			char sz[512] = {};
 			int i_len = 0, i_found = 0;
@@ -127,6 +154,36 @@ static LONG WINAPI VRCrashFilter(EXCEPTION_POINTERS* pep)
 		}
 	}
 	return pfnPrevCrashFilter ? pfnPrevCrashFilter(pep) : EXCEPTION_CONTINUE_SEARCH;
+}
+
+//**********************************************************************************************
+// While a level loads, the game's own handler (error.log) catches crashes before the recorder
+// above can, and loading level 3 dies without either writing anything.  So during loading, the
+// first serious faults are logged as they happen (even ones something later handles).
+static volatile bool bVRLoadingLevel = false;
+static LONG WINAPI VRLoadFaultHandler(EXCEPTION_POINTERS* pep)
+{
+	if (!bVRLoadingLevel || !pep || !pep->ExceptionRecord || !gVR.pfnLog)
+		return EXCEPTION_CONTINUE_SEARCH;
+	DWORD u_code = pep->ExceptionRecord->ExceptionCode;
+	bool b_serious = u_code == EXCEPTION_ACCESS_VIOLATION || u_code == EXCEPTION_STACK_OVERFLOW ||
+	                 u_code == EXCEPTION_ILLEGAL_INSTRUCTION || u_code == EXCEPTION_INT_DIVIDE_BY_ZERO ||
+	                 u_code == EXCEPTION_PRIV_INSTRUCTION || u_code == 0xC0000374 || u_code == 0xC0000409;
+	static int i_logged = 0;
+	if (!b_serious || i_logged >= 8)
+		return EXCEPTION_CONTINUE_SEARCH;
+	i_logged++;
+	uintptr_t u_at = (uintptr_t)pep->ExceptionRecord->ExceptionAddress;
+	char str_mod[MAX_PATH] = "?";
+	HMODULE hmod_at = nullptr;
+	if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)u_at, &hmod_at) && hmod_at)
+		GetModuleFileNameA(hmod_at, str_mod, sizeof(str_mod));
+	gVR.pfnLog("LOAD FAULT: exception 0x%08X at 0x%08X in %s (offset 0x%08X), data address 0x%08X.",
+		(unsigned)u_code, (unsigned)u_at, str_mod, (unsigned)(u_at - (uintptr_t)hmod_at),
+		pep->ExceptionRecord->NumberParameters > 1 ? (unsigned)pep->ExceptionRecord->ExceptionInformation[1] : 0u);
+	// The game's callers on the stack.
+	VRCrashFilterLogStack(pep);
+	return EXCEPTION_CONTINUE_SEARCH;
 }
 
 // The rest of the ways a program can die without an exception reaching the filter above.
@@ -229,6 +286,7 @@ namespace
 		bool  bShowPhysics    = false;
 		bool  bTutorial       = true;
 		bool  bGunAdjust      = false;
+		float fDetailCull     = 0.0025f;
 		bool  bGlints         = true;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
@@ -578,6 +636,9 @@ namespace
 			"MeleeDamage=0.6\n"
 			"; Guns and the things the story sends you for sparkle until you first pick them up.\n"
 			"Glints=1\n"
+			"; Things smaller than this fraction of their distance are not drawn (faster in big levels;\n"
+			"; 0 draws everything; 0.0025 is about 3 pixels).\n"
+			"DetailCull=0.0025\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
@@ -669,6 +730,7 @@ namespace
 				}
 		}
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
+		s.fDetailCull     = (std::max)(0.0f, fIni(str_file, "DetailCull", 0.0025f));
 		LoadGunValues(str_file);
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
@@ -1618,6 +1680,7 @@ void VRMod_Startup()
 			b_filter = true;
 			pfnPrevCrashFilter = SetUnhandledExceptionFilter(VRCrashFilter);
 			std::set_terminate(VRTerminateHandler);
+			AddVectoredExceptionHandler(1, VRLoadFaultHandler);
 			signal(SIGABRT, VRAbortSignal);
 			_set_purecall_handler(VRPureCallHandler);
 			_set_invalid_parameter_handler(VRInvalidParameterHandler);
@@ -1875,6 +1938,7 @@ void VRMod_LevelLoading(const char* str_scene)
 			str_level = n.strLevel;
 		}
 	Log("Loading level %s (%s %s).", str_file.c_str(), str_level.c_str(), str_name.c_str());
+	bVRLoadingLevel = true;
 	if (gVR.pfnLevelUnloading)
 	{
 		gVR.pfnLevelUnloading();
@@ -1898,6 +1962,9 @@ void VRMod_LevelLoading(const char* str_scene)
 
 void VRMod_LevelLoaded()
 {
+	bVRLoadingLevel = false;
+	Log("Level loaded.");
+	LogMemory("after loading");
 	bLevelLoaded = true;
 	u4LevelLoadedTick = GetTickCount();
 	gVR.bDamageGrace = true;
@@ -2479,6 +2546,7 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		set.fFogScale = setVR.fFogScale;
 		set.bShowPhysics = setVR.bShowPhysics;
 		set.bGlints = setVR.bGlints;
+		set.fDetailCull = setVR.fDetailCull;
 
 		double d_t0 = dNowMs();
 		SSceneCall sc = { &eyes, &set, false };
@@ -2693,4 +2761,22 @@ static void LogMemory(const char* str_when)
 	if (GlobalMemoryStatusEx(&ms))
 		Log("Memory %s: %.0f MB of %.0f MB address space in use.", str_when,
 			(double)(ms.ullTotalVirtual - ms.ullAvailVirtual) / (1024.0 * 1024.0), (double)ms.ullTotalVirtual / (1024.0 * 1024.0));
+}
+
+//**********************************************************************************************
+// VR settings menu.
+float VRMod_IniGet(const char* str_key, float f_default)
+{
+	return fIni(strIniPath(), str_key, f_default);
+}
+
+void VRMod_IniSet(const char* str_key, float f_value)
+{
+	SetIniValue(str_key, f_value);
+}
+
+void VRMod_IniApply()
+{
+	LoadSettings();
+	Log("Settings changed in the VR settings menu.");
 }

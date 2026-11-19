@@ -30,3 +30,8 @@ bool VRMod_Active();
 // (gmlGameLoop.Paint() + EndFrame), leaving the image in the back buffer.
 // Returns false if VR is not active, in which case the caller should paint normally.
 bool VRMod_RenderStereo(const std::function<void()>& paint_scene);
+
+// VR settings menu (pause menu): read a TrespasserVR.ini value, set one, and apply the file.
+float VRMod_IniGet(const char* str_key, float f_default);
+void VRMod_IniSet(const char* str_key, float f_value);
+void VRMod_IniApply();

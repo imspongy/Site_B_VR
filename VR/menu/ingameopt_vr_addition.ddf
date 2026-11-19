@@ -1,0 +1,16 @@
+
+; Site B VR: VR settings
+UICTRL "textbox" 1 1 -1 110 172 210 188
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "VR Settings" ; Initial Text
+        12 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "hotspot" 1 1 1100 110 172 210 188 0

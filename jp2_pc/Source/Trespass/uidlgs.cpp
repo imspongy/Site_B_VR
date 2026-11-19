@@ -30,6 +30,7 @@
 #include "../Lib/Sys/reg.h"
 #include "../Lib/Sys/RegInit.hpp"
 #include "keyremap.h"
+#include "VRMod.h"
 #include "Lib/Sys/DWSizeStruct.hpp"
 
 
@@ -1238,6 +1239,152 @@ void CInGameOptionsWnd::UIButtonUp(CUIButton * pbutton)
                 }
 
             }
+            break;
+    }
+}
+
+
+void CInGameOptionsWnd::UIHotspotClick(CUIHotspot * pctrl, BOOL bDown)
+{
+    // "VR Settings" (a hotspot over its label, added to ingameopt.ddf).
+    if (!bDown || pctrl->GetID() != 1100)
+        return;
+    CVRSettingsWnd  dlg(m_pUIMgr);
+    dlg.StartUIWnd();
+}
+
+
+//+--------------------------------------------------------------------------
+// VR settings.
+//
+namespace
+{
+    struct SVRCheck { int iID; const char* strKey; float fDefault; };
+    const SVRCheck asVRChecks[] =
+    {
+        { 1020, "SmoothTurn", 1 },
+        { 1021, "LeftHanded", 0 },
+        { 1022, "GripToggle", 0 },
+        { 1023, "Haptics", 1 },
+        { 1024, "RealHeight", 1 },
+        { 1025, "Subtitles", 1 },
+        { 1026, "Tutorial", 1 },
+        { 1027, "Glints", 1 },
+        { 1028, "Recoil", 1 },
+        { 1029, "MirrorToMonitor", 0 },
+    };
+
+    struct SVRSlider { int iID; int iLabelID; const char* strKey; const char* strName; float fMin, fMax, fDefault; const char* strFormat; };
+    const SVRSlider asVRSliders[] =
+    {
+        { 1004, 1204, "SmoothTurnSpeed", "Turn speed",    60.0f, 300.0f, 150.0f, "%s: %.0f deg/s" },
+        { 1005, 1205, "DrawDistance",    "Draw distance", 2.0f,  12.0f,  8.0f,   "%s: %.1f" },
+        { 1006, 1206, "MoveSpeed",       "Walk speed",    1.0f,  4.0f,   2.2f,   "%s: %.1f m/s" },
+        { 1007, 1207, "MeleeDamage",     "Melee damage",  0.0f,  2.0f,   0.6f,   "%s: %.2f" },
+    };
+
+    float fSliderValue(const SVRSlider& sl, int i_unit)
+    {
+        return sl.fMin + (sl.fMax - sl.fMin) * (float)i_unit / 100.0f;
+    }
+}
+
+CVRSettingsWnd::CVRSettingsWnd(CUIManager * puimgr) : CUIDlg(puimgr)
+{
+}
+
+CVRSettingsWnd::~CVRSettingsWnd()
+{
+}
+
+BOOL CVRSettingsWnd::OnCreate()
+{
+    if (!CUIDlg::OnCreate())
+    {
+        TraceError(("CVRSettingsWnd::OnCreate() -- base create failed"));
+        return FALSE;
+    }
+
+    CenterUIWindow(this);
+
+    for (const SVRCheck& ck : asVRChecks)
+    {
+        CUICheckbox* pcheck = (CUICheckbox *)GetUICtrl(ck.iID);
+        if (pcheck)
+            pcheck->SetDown(VRMod_IniGet(ck.strKey, ck.fDefault) > 0.5f);
+    }
+    for (int i = 0; i < (int)(sizeof(asVRSliders) / sizeof(asVRSliders[0])); i++)
+    {
+        const SVRSlider& sl = asVRSliders[i];
+        CUISlider* pslider = (CUISlider *)GetUICtrl(sl.iID);
+        if (!pslider)
+            continue;
+        float f = VRMod_IniGet(sl.strKey, sl.fDefault);
+        int i_unit = (int)((f - sl.fMin) / (sl.fMax - sl.fMin) * 100.0f + 0.5f);
+        pslider->SetCurrUnit(i_unit < 0 ? 0 : i_unit > 100 ? 100 : i_unit);
+        ShowSliderValue(i);
+    }
+    return TRUE;
+}
+
+void CVRSettingsWnd::GetWndFile(LPSTR psz, int ic)
+{
+    strcpy(psz, "vrsettings.ddf");
+}
+
+void CVRSettingsWnd::ShowSliderValue(int i_slider)
+{
+    const SVRSlider& sl = asVRSliders[i_slider];
+    CUISlider* pslider = (CUISlider *)GetUICtrl(sl.iID);
+    CUITextbox* ptext = (CUITextbox *)GetUICtrl(sl.iLabelID);
+    if (!pslider || !ptext)
+        return;
+    char sz[64];
+    snprintf(sz, sizeof(sz), sl.strFormat, sl.strName, fSliderValue(sl, pslider->GetCurrUnit()));
+    ptext->SetText(sz);
+}
+
+void CVRSettingsWnd::UISliderChange(CUISlider * pslider, int iNewValue)
+{
+    for (int i = 0; i < (int)(sizeof(asVRSliders) / sizeof(asVRSliders[0])); i++)
+        if (asVRSliders[i].iID == pslider->GetID())
+            ShowSliderValue(i);
+}
+
+void CVRSettingsWnd::UIHotspotClick(CUIHotspot * pctrl, BOOL bDown)
+{
+    if (!bDown)
+        return;
+    CUICheckbox* pcheck = (CUICheckbox*)GetUICtrl(pctrl->GetID() - 1100 + 1020);
+    if (pcheck)
+        pcheck->SetDown(!pcheck->GetDown());
+}
+
+void CVRSettingsWnd::UIButtonUp(CUIButton * pbutton)
+{
+    switch (pbutton->GetID())
+    {
+        // cancel
+        case 1000:
+            EndUIWnd((DWORD)-1);
+            break;
+
+        // ok: save and use them now
+        case 1001:
+            for (const SVRCheck& ck : asVRChecks)
+            {
+                CUICheckbox* pcheck = (CUICheckbox *)GetUICtrl(ck.iID);
+                if (pcheck)
+                    VRMod_IniSet(ck.strKey, pcheck->GetDown() ? 1.0f : 0.0f);
+            }
+            for (const SVRSlider& sl : asVRSliders)
+            {
+                CUISlider* pslider = (CUISlider *)GetUICtrl(sl.iID);
+                if (pslider)
+                    VRMod_IniSet(sl.strKey, fSliderValue(sl, pslider->GetCurrUnit()));
+            }
+            VRMod_IniApply();
+            EndUIWnd(0);
             break;
     }
 }
