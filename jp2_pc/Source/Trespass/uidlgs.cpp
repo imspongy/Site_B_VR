@@ -1270,8 +1270,7 @@ namespace
         { 1025, "Subtitles", 1 },
         { 1026, "Tutorial", 1 },
         { 1027, "Glints", 1 },
-        { 1028, "Recoil", 1 },
-        { 1029, "MirrorToMonitor", 0 },
+        { 1028, "MirrorToMonitor", 0 },
     };
 
     struct SVRSlider { int iID; int iLabelID; const char* strKey; const char* strName; float fMin, fMax, fDefault; const char* strFormat; };
@@ -1280,7 +1279,6 @@ namespace
         { 1004, 1204, "SmoothTurnSpeed", "Turn speed",    60.0f, 300.0f, 150.0f, "%s: %.0f deg/s" },
         { 1005, 1205, "DrawDistance",    "Draw distance", 2.0f,  12.0f,  8.0f,   "%s: %.1f" },
         { 1006, 1206, "MoveSpeed",       "Walk speed",    1.0f,  4.0f,   2.2f,   "%s: %.1f m/s" },
-        { 1007, 1207, "MeleeDamage",     "Melee damage",  0.0f,  2.0f,   0.6f,   "%s: %.2f" },
     };
 
     float fSliderValue(const SVRSlider& sl, int i_unit)
