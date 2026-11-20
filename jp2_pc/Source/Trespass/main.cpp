@@ -339,13 +339,33 @@ bool ValidateDiskSpace(int iMB)
     char szPath[_MAX_PATH] = { '\0' };
     GetFileLoc(FA_INSTALLDIR, szPath, sizeof(szPath));
     
-    const auto diskstat = std::filesystem::space(szPath);
+    // (Every step can fail on a file it can't read -- one being written, say -- and an
+    // uncaught failure here crashed the game whenever it saved.  Failures now just count as
+    // nothing, and if the disk can't be asked at all, saving goes ahead.)
+    std::error_code ec;
+    const auto diskstat = std::filesystem::space(szPath, ec);
+    if (ec)
+        return true;
     
     //Existing swp files count as free space
     std::uintmax_t swpFilesSize = 0;
-    for (const auto& entry : std::filesystem::directory_iterator("."))
-        if (entry.is_regular_file() && entry.path().extension() == ".swp")
-            swpFilesSize += entry.file_size();
+    try
+    {
+        std::filesystem::directory_iterator it(".", std::filesystem::directory_options::skip_permission_denied, ec);
+        for (; !ec && it != std::filesystem::directory_iterator(); it.increment(ec))
+        {
+            std::error_code ec_entry;
+            if (it->is_regular_file(ec_entry) && !ec_entry && it->path().extension() == ".swp")
+            {
+                std::uintmax_t u = it->file_size(ec_entry);
+                if (!ec_entry)
+                    swpFilesSize += u;
+            }
+        }
+    }
+    catch (...)
+    {
+    }
     
     const std::uintmax_t neededBytes = iMB * static_cast<std::uintmax_t>(1024 * 1024);
     return diskstat.free + swpFilesSize > neededBytes;
