@@ -500,7 +500,7 @@ bool CLocationTrigger::bEvaluateNow()
 
 //*********************************************************************************************
 // VR: is this one of your hands, standing in for Anne's hand on a trigger that waits for her hand?
-bool CLocationTrigger::bVRHandFor(CInstance* pins) const
+bool CLocationTrigger::bVRHandFor(const CInstance* pins) const
 {
 	if (!gVR.bActive || !pins || !pinsActivate)
 		return false;

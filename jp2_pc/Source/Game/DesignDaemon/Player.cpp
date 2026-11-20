@@ -52,6 +52,7 @@
 #include "Lib/EntityDBase/Message.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgTrigger.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgStep.hpp"
+#include "Lib/EntityDBase/Query/QWater.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgMove.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgCollision.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgControl.hpp"
