@@ -619,7 +619,16 @@ bool CLocationTrigger::Evaluate
 	// enters the trigger is fires.
 	// If we are not a point trigger then as soon as the bounding volume of the moving object
 	// intersects the trigger it fires.
-	if (bPointTrigger)
+	if (bVRHandFor(pins))
+	{
+		// VR: your hand presses a keypad key with the tip of its index finger (the whole hand
+		// box pressed several keys at once).
+		int h = (const void*)pins == gVR.apvVRHandBox[0] ? 0 : 1;
+		CVector3<> v3_tip(gVR.aafFingerTip[h][0], gVR.aafFingerTip[h][1], gVR.aafFingerTip[h][2]);
+		v3_tip *= ~pr3Presence();
+		b_in = bv_BoundingVolume->bContains(v3_tip);
+	}
+	else if (bPointTrigger)
 	{		
 		pos *= ~pr3Presence();
 

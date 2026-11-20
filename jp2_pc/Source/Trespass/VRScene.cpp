@@ -23,6 +23,7 @@
 
 #include "Lib/Control/VRShared.hpp"
 #include "Lib/EntityDBase/WorldDBase.hpp"
+#include "Lib/EntityDBase/MessageTypes/MsgStep.hpp"
 #include "Lib/EntityDBase/Instance.hpp"
 #include "Lib/EntityDBase/Animate.hpp"
 #include "Lib/EntityDBase/PhysicsInfo.hpp"
@@ -1248,7 +1249,18 @@ namespace
 					const CTexture* ptex = pmsh->pasfSurfaces.uLen ? pmsh->pasfSurfaces[0].ptexTexture.ptGet() : nullptr;
 					it = mapWaterTex.emplace(pins, iTexture(ptex, b_alpha)).first;
 				}
-				PreRenderInstance(pins);
+				// (Once per game step, as the game itself did: its waves step with the game, and
+				// re-running them for every drawn frame re-sized their arrays far more often.)
+				{
+					static std::unordered_map<const void*, TSec> mapWaterStepped;
+					TSec s_now = CMessageStep::sStaticTotal;
+					auto it_s = mapWaterStepped.find(pins);
+					if (gVR.bWaterWaves && (it_s == mapWaterStepped.end() || it_s->second != s_now))
+					{
+						mapWaterStepped[pins] = s_now;
+						PreRenderInstance(pins);
+					}
+				}
 				if (!bDrawWater(pmsh.ptGet(), af_world))
 					AddSubsets(*pme, pme->iHandle, af_world, 0, false, evrrBLEND | evrrWATER | evrrTWO_SIDED | evrrNO_SHADOW, it->second);
 				iObjects++;

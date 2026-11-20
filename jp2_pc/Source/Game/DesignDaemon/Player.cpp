@@ -1422,6 +1422,9 @@ public:
 	float          fVRBodyAboveFeet = 0.95f;
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
+	bool           bVRSwimming = false;
+	bool           bVRSubstituted = false;	// Right hand drawn in the game's own gun grip.
+	bool           bVRDropStowed = false;	// Just loaded a save: drop what was holstered.
 	std::set<CInstance*> setVRHingedIgnored;	// Hinged things her body boxes no longer push.
 	bool           bVRLandSound = false;	// Play a landing footfall this step.
 	float          fVRLandSpeed = 0;
@@ -2713,6 +2716,27 @@ public:
 				gVR.aafHolsterPosWorld[i][1] = v3.tY;
 				gVR.aafHolsterPosWorld[i][2] = v3.tZ;
 			}
+			// After loading a save: what was holstered is dropped in front of her, to pick up
+			// again (it came back floating where she had been, out of reach).
+			if (bVRDropStowed && gVR.bActive)
+			{
+				bVRDropStowed = false;
+				CPlacement3<> p3_body = p3GetPlacement();
+				for (int i = 0; i < 2; i++)
+				{
+					CInstance* pins_s = apinsStowed[i];
+					if (!pins_s)
+						continue;
+					apinsStowed[i] = 0;
+					NMagnetSystem::RemoveMagnets(pins_s, true, true);
+					CVector3<> v3_drop = CVector3<>(i == 0 ? 0.25f : -0.25f, 0.6f, -0.3f) * p3_body;
+					pins_s->Move(CPlacement3<>(pins_s->r3Rot(), v3_drop));
+					if (pins_s->pphiGetPhysicsInfo())
+						pins_s->pphiGetPhysicsInfo()->Activate(pins_s);
+					if (gVR.pfnLog)
+						gVR.pfnLog("Loaded game: holstered %s dropped in front of her.", pins_s->strGetInstanceName());
+				}
+			}
 			// Every step, not only when she moves: they follow you crouching and leaning.
 			if (gVR.bActive)
 				VRMoveStowed();
@@ -3734,6 +3758,7 @@ public:
 			// This contained useless hand instance.
 			apinsStowed[0] = apinsStowed[1] = 0;
 		apinsVRStowedLeft[0] = apinsVRStowedLeft[1] = nullptr;
+		bVRDropStowed = true;
 
 		// Load the held instance handle!
 		pc = pcLoadInstancePointer(pc, &pinsHeld);
@@ -4478,6 +4503,11 @@ public:
 	//*****************************************************************************************
 	void CPlayerPriv::ReleaseVR(int i_hand, bool b_throw)
 	{
+		if (i_hand == 0 && bVRSubstituted)
+		{
+			CAnimate::Substitute(0);
+			bVRSubstituted = false;
+		}
 		SVRHand& vh = avrh[i_hand];
 		if (!vh.pinsHeld)
 			return;
@@ -4530,6 +4560,18 @@ public:
 		// Only one hand holds an object.
 		if (avrh[1 - i_hand].pinsHeld == pins)
 			ReleaseVR(1 - i_hand, false);
+
+		// The right hand holding something the game has its own hand shape for (guns: trigger
+		// finger out): that shape is used, as the game did.
+		if (i_hand == 0)
+		{
+			const CMagnetPair* pmp_sub = NMagnetSystem::pmpFindMagnet(pins, Set(emfHAND_HOLD));
+			int i_sub = pmp_sub ? pmp_sub->pmagData->u1SubstituteMesh : 0;
+			CAnimate::Substitute(i_sub);
+			bVRSubstituted = i_sub != 0;
+			if (bVRSubstituted && gVR.pfnLog)
+				gVR.pfnLog("Hand: the game's own grip shape %d for %s.", i_sub, pins->strGetInstanceName());
+		}
 
 		// A gun mounted on a hinge (the .50 sniper on its tripod): taken off the mount, so it is
 		// held like any other gun.  (Pivoting a mounted gun with a hand that can go anywhere
@@ -5083,7 +5125,11 @@ public:
 				    pins == avrh[0].pinsBox || pins == avrh[1].pinsBox || pins == avrh[0].pinsHeld || pins == avrh[1].pinsHeld)
 					continue;
 				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
-				if (!pphi || !pphi->bIsMovable() || pphi->fMass(pins) >= 60.0f)
+				if (!pphi)
+					continue;
+				// Loose light things, or fixed things she walks through (plants that aren't solid).
+				bool b_plant = pphi->bIsMovable() ? pphi->fMass(pins) < 60.0f : !pphi->bIsTangible();
+				if (!b_plant)
 					continue;
 				// Not the same plant again too soon.
 				bool b_recent = false;
@@ -5295,7 +5341,8 @@ public:
 		if (gVR.bBodyTargetValid)
 			v3_d = CVector3<>(gVR.afBodyTarget[0] - v3VRFeet.tX, gVR.afBodyTarget[1] - v3VRFeet.tY, 0);
 		{
-			float f_max = 7.0f * f_dt;
+			// (Swimming is slower.)
+			float f_max = (bVRSwimming ? 2.0f : 7.0f) * f_dt;
 			if (v3_d.tLen() > f_max)
 				v3_d *= f_max / v3_d.tLen();
 		}
@@ -5391,7 +5438,48 @@ public:
 		//
 		bool b_jump = gVR.bJump && !bVRPrevJump;
 		bVRPrevJump = gVR.bJump;
-		if (bVRGrounded && b_jump)
+		// Deep water: she floats, head and shoulders out, instead of walking on the bottom.
+		{
+			const float fFLOAT = 1.3f;		// Feet this far under the surface when floating.
+			bool b_was = bVRSwimming;
+			bVRSwimming = false;
+			CWDbQueryWaterHeight wqwh(CVector2<>(v3VRFeet.tX, v3VRFeet.tY));
+			if (wqwh.petWater && wqwh.v3Water.tZ > rWATER_NONE * 0.5)
+			{
+				float f_surface = wqwh.v3Water.tZ;
+				float f_bottom;
+				bool b_bottom = b_floor(v3VRFeet.tX, v3VRFeet.tY, f_surface, 30.0f, f_bottom);
+				if (!b_bottom || f_surface - f_bottom > fFLOAT)
+				{
+					bVRSwimming = true;
+					float f_float_z = f_surface - fFLOAT;
+					// Sink in from a jump or fall, then bob up to the surface.
+					if (v3VRFeet.tZ > f_float_z && !b_was)
+					{
+						fVRVz -= fGRAVITY * f_dt;
+						v3VRFeet.tZ += fVRVz * f_dt;
+					}
+					else
+					{
+						v3VRFeet.tZ += (f_float_z - v3VRFeet.tZ) * Min(1.0f, 3.0f * f_dt);
+						fVRVz = 0;
+					}
+					if (v3VRFeet.tZ < f_float_z - 1.0f)
+						v3VRFeet.tZ = f_float_z - 1.0f;
+					bVRGrounded = false;
+					if (!b_was && gVR.pfnLog)
+						gVR.pfnLog("Body: swimming.");
+				}
+				else if (b_was)
+					bVRGrounded = true;		// Wading ashore.
+			}
+		}
+
+		if (bVRSwimming)
+		{
+			// (No jumping, falling or steps while afloat.)
+		}
+		else if (bVRGrounded && b_jump)
 		{
 			fVRVz = sqrtf(2.0f * fGRAVITY * gVR.fJumpHeight);
 			bVRGrounded = false;
@@ -5399,7 +5487,10 @@ public:
 		}
 
 		float f_floor;
-		if (bVRGrounded)
+		if (bVRSwimming)
+		{
+		}
+		else if (bVRGrounded)
 		{
 			if (b_floor_feet(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fSTEP, fSTEP + 0.45f, f_floor))
 				v3VRFeet.tZ = f_floor;
@@ -5953,7 +6044,7 @@ public:
 		CPlacement3<> ap3_target[2] = { p3VRController(0), p3VRController(1) };
 		float af_curl[2];
 		for (int h = 0; h < 2; h++)
-			af_curl[h] = avrh[h].pinsHeld ? 0.75f : gVR.afCurl[h];
+			af_curl[h] = avrh[h].pinsHeld ? ((h == 0 && bVRSubstituted) ? 0.0f : 0.75f) : gVR.afCurl[h];
 
 		if (gVR.iTwoHand)
 		{

@@ -10,10 +10,10 @@ UICTRL "textbox" 1 1 -1 20 3 300 16
         0 0 0; Back lit color
         "VR Settings" ; Initial Text
         13 ; Point Size
-        500 ; Weight
+        700 ; Weight
         0 255 0 ; Bk Color
         255 255 255 ; FG Color
-        0x0 ; DT Flags
+        0x5 ; DT Flags
         0 ; Draw Border
 
 UICTRL "checkbox" 1 1 1020 16 20 46 34
@@ -184,27 +184,6 @@ UICTRL "textbox" 1 1 -1 188 47 306 61
 
 UICTRL "hotspot" 1 1 1107 166 48 306 61 0
 
-UICTRL "checkbox" 1 1 1028 166 62 196 76
-        "menu\\check_0.tga"
-        "menu\\check_1.tga"
-        "menu\\check_2.tga"
-        "menu\\check_3.tga"
-
-UICTRL "textbox" 1 1 -1 188 61 306 75
-        1 ; Transparent Bk
-        1 ; Back Lit
-        1 ; Back lit offset
-        0 0 0; Back lit color
-        "Show view on monitor" ; Initial Text
-        11 ; Point Size
-        500 ; Weight
-        0 255 0 ; Bk Color
-        255 255 255 ; FG Color
-        0x0 ; DT Flags
-        0 ; Draw Border
-
-UICTRL "hotspot" 1 1 1108 166 62 306 75 0
-
 UICTRL "textbox" 1 1 1204 16 92 156 103
         1 ; Transparent Bk
         1 ; Back Lit
@@ -257,6 +236,25 @@ UICTRL "textbox" 1 1 1206 16 122 156 133
         0 ; Draw Border
 
 UICTRL "slider" 1 1 1006 16 132 156 152
+        "menu\\slider.tga"
+        101 ; # of units
+        0 ; Default Unit value
+        0 ; Border/Ticks
+
+UICTRL "textbox" 1 1 1207 166 122 306 133
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "" ; Initial Text
+        10 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "slider" 1 1 1007 166 132 306 152
         "menu\\slider.tga"
         101 ; # of units
         0 ; Default Unit value

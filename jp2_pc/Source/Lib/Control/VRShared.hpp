@@ -89,6 +89,8 @@ struct SVRShared
 	float afHeldGunLat[2] = {};			// Its current left/right and up settings.
 	float afHeldGunUp[2] = {};
 	void (*pfnLevelUnloading)() = nullptr;	// Called just before a level loads.
+	bool  bWaterWaves = true;			// Water's own wave simulation runs.
+	float aafFingerTip[2][3] = {};		// Index fingertip of each hand (world).
 	int   aiHeldGunKind[2] = { -1, -1 };
 	float aafGunAdjPending[2][2] = {};		// Stick adjustments not yet applied to the held gun.
 	bool  abHoldingMelee[2] = { false, false };

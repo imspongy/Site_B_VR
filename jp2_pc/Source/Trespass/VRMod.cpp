@@ -60,6 +60,7 @@ static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for t
 #include "Lib/Renderer/Sky.hpp"
 #include "Lib/Renderer/Occlude.hpp"
 #include "Lib/Sys/RegInit.hpp"
+#include "Lib/EntityDBase/WorldDBase.hpp"
 #include "Lib/Sys/Profile.hpp"
 #include "Lib/Std/StringEx.hpp"
 #include "Lib/EntityDBase/QualitySettings.hpp"
@@ -287,6 +288,7 @@ namespace
 		bool  bTutorial       = true;
 		bool  bGunAdjust      = false;
 		float fDetailCull     = 0.0025f;
+		bool  bAutosave       = true;
 		bool  bGlints         = true;
 		bool  bOcclusion      = true;	// The game's hiding of objects behind big ones.	// More accurate texture perspective (less wobble).
 		bool  bMirrorToMonitor = false;	// Also show the game on the monitor (costs speed).
@@ -639,6 +641,10 @@ namespace
 			"; Things smaller than this fraction of their distance are not drawn (faster in big levels;\n"
 			"; 0 draws everything; 0.0025 is about 3 pixels).\n"
 			"DetailCull=0.0025\n"
+			"; Save the game automatically a few seconds into each new level: 1 on, 0 off.\n"
+			"Autosave=1\n"
+			"; Water surfaces run the game's own wave simulation (things float, waves move): 1 on, 0 off.\n"
+			"WaterWaves=1\n"
 			"GunScale=0.85\n"
 			"; How much guns kick (0 = none).\n"
 			"Recoil=1.0\n"
@@ -681,6 +687,8 @@ namespace
 		std::fclose(pf);
 	}
 
+	std::string strAutosaveName;
+	bool bAutosavePending = false;
 	void LoadGunValues(const std::string& str_path);
 
 	//******************************************************************************************
@@ -731,6 +739,8 @@ namespace
 		}
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
 		s.fDetailCull     = (std::max)(0.0f, fIni(str_file, "DetailCull", 0.0025f));
+		gVR.bWaterWaves   = fIni(str_file, "WaterWaves", 1.0f) > 0.5f;
+		s.bAutosave       = fIni(str_file, "Autosave", 1.0f) > 0.5f;
 		LoadGunValues(str_file);
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
@@ -1939,6 +1949,16 @@ void VRMod_LevelLoading(const char* str_scene)
 		}
 	Log("Loading level %s (%s %s).", str_file.c_str(), str_level.c_str(), str_name.c_str());
 	bVRLoadingLevel = true;
+	// A level not played last time: autosave once it has settled.
+	{
+		static std::string str_last_level;
+		if (str_file != str_last_level)
+		{
+			strAutosaveName = str_level + " " + str_name;
+			bAutosavePending = setVR.bAutosave;
+		}
+		str_last_level = str_file;
+	}
 	if (gVR.pfnLevelUnloading)
 	{
 		gVR.pfnLevelUnloading();
@@ -2095,6 +2115,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			pfnPrevCrashFilter = pfn_now;
 			Log("Crash recorder: something else had replaced it; put back.");
 		}
+	}
+	// Autosave a few seconds into a new level.
+	if (bAutosavePending && bLevelLoaded && GetTickCount() - u4LevelLoadedTick > 5000)
+	{
+		bAutosavePending = false;
+		std::string str_save = "Autosave - " + strAutosaveName;
+		wWorld.DeferredSave(str_save.c_str());
+		Log("Autosave: \"%s\".", str_save.c_str());
 	}
 	SVRHandInput hi_off  = fr.ctl.ahand[iOffCtl()];
 	SVRHandInput hi_main = fr.ctl.ahand[iMainCtl()];
@@ -2442,7 +2470,9 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			// Turn the barrel toward up by the kick angle (rotation in world space, after the hand).
 			CVector3<> v3_b = v3_barrel / fLen(v3_barrel);
 			float f_rad = f_deg * af_kick[h] * fDEG;
-			CVector3<> v3_up_dir = CVector3<>(0, 0, 1) - v3_b * v3_b.tZ;
+			// Toward the gun's own top (sideways if the gun is tipped on its side).
+			CVector3<> v3_gun_up = CVector3<>(0, 0, 1) * r3_grab * (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h];
+			CVector3<> v3_up_dir = v3_gun_up - v3_b * (v3_gun_up * v3_b);
 			if (fLen(v3_up_dir) > 0.05f)
 			{
 				v3_up_dir = v3_up_dir / fLen(v3_up_dir);
@@ -2467,6 +2497,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		}
 
 		StoreV(gVR.aafHandPos[h], av3HandWorld[h]);
+		// The index fingertip: forward of the grip (the controller points along its forward).
+		StoreV(gVR.aafFingerTip[h], av3HandWorld[h] + CVector3<>(0, 0.09f, -0.015f) * ar3HandWorld[h]);
 		StoreQ(gVR.aafHandRot[h], (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h]);
 		{
 			// The controller's own up (its top, where your thumb is), in the game's hand frame.
