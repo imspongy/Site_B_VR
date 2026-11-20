@@ -740,7 +740,7 @@ namespace
 		s.bGunAdjust      = fIni(str_file, "GunAdjust", 0) != 0;
 		s.fDetailCull     = (std::max)(0.0f, fIni(str_file, "DetailCull", 0.0025f));
 		gVR.bWaterWaves   = fIni(str_file, "WaterWaves", 1.0f) > 0.5f;
-		s.bAutosave       = fIni(str_file, "Autosave", 1.0f) > 0.5f;
+		s.bAutosave       = fIni(str_file, "Autosave", 0.0f) > 0.5f;
 		LoadGunValues(str_file);
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
@@ -1315,7 +1315,9 @@ namespace
 		VRScene_LogPhysics();
 		gVR.bLogBodyRequest = true;
 		Log("View now: eye %.2f, room floor %.2f, your head %.2f above it.", v3Origin.tZ + v3LastHeadTrack.tZ, v3Origin.tZ, v3LastHeadTrack.tZ);
-		std::thread([au4_copy, i_n, i_session, str_dir]()
+try
+		{
+				std::thread([au4_copy, i_n, i_session, str_dir]()
 		{
 			CreateDirectoryA(str_dir.c_str(), nullptr);
 			for (int i = 0; i < i_n; i++)
@@ -1326,6 +1328,11 @@ namespace
 			}
 			bCapBusy = false;
 		}).detach();
+		}
+		catch (...)
+		{
+			Log("Capture: couldn't start the saving thread.");
+		}
 		Haptic(0, 0.15f, 60.0f, 0.5f);
 		Haptic(1, 0.15f, 60.0f, 0.5f);
 	}
@@ -2117,7 +2124,13 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 		}
 	}
 	// Autosave a few seconds into a new level.
-	if (bAutosavePending && bLevelLoaded && GetTickCount() - u4LevelLoadedTick > 5000)
+	// (Counted in played frames, not time: loading the level's art takes seconds of its own.)
+	static int i_autosave_frames = 0;
+	if (!bLevelLoaded || !bAutosavePending)
+		i_autosave_frames = 0;
+	else
+		i_autosave_frames++;
+	if (bAutosavePending && bLevelLoaded && i_autosave_frames > 600 && GetTickCount() - u4LevelLoadedTick > 8000)
 	{
 		bAutosavePending = false;
 		std::string str_save = "Autosave - " + strAutosaveName;

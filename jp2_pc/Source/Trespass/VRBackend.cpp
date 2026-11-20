@@ -891,12 +891,32 @@ namespace
 				rows(0, i_height);
 			else
 			{
+				// (If a helper thread can't be started, that part is done here: an uncaught failure
+				// to start one crashed the game while it saved.)
 				std::thread ath[8];
+				bool ab_started[8] = {};
 				for (int t = 1; t < iTHREADS; t++)
-					ath[t] = std::thread(rows, i_height * t / iTHREADS, i_height * (t + 1) / iTHREADS);
+				{
+					try
+					{
+						ath[t] = std::thread(rows, i_height * t / iTHREADS, i_height * (t + 1) / iTHREADS);
+						ab_started[t] = true;
+					}
+					catch (...)
+					{
+						ab_started[t] = false;
+					}
+				}
 				rows(0, i_height / iTHREADS);
 				for (int t = 1; t < iTHREADS; t++)
-					ath[t].join();
+				{
+					if (ab_started[t])
+					{
+						try { ath[t].join(); } catch (...) {}
+					}
+					else
+						rows(i_height * t / iTHREADS, i_height * (t + 1) / iTHREADS);
+				}
 			}
 		}
 		else if (i_bits == 32 || i_bits == 24)
