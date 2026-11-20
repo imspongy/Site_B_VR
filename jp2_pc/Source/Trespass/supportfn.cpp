@@ -1366,7 +1366,8 @@ std::string GetFirstLevelName()
     for (const auto& entry : candidates)
     {
         const auto fullpath = datapath / entry;
-        if (std::filesystem::exists(fullpath))
+        std::error_code ec;
+        if (std::filesystem::exists(fullpath, ec))
             return entry;
     }
 

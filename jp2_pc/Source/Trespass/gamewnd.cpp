@@ -709,8 +709,20 @@ void CGameWnd::InnerLoopCall()
 		// Stop simulation.
 		CMessageSystem(escSTOP_SIM).Dispatch();
 
-		// Save the level.
-		g_CTPassGlobals.SaveGame(strName.c_str());
+		// Save the level.  (A save that fails -- a file it can't reach on the disk -- is skipped
+		// instead of ending the game.)
+		try
+		{
+			g_CTPassGlobals.SaveGame(strName.c_str());
+		}
+		catch (const std::exception& ex)
+		{
+			VRMod_Note((std::string("Save failed: ") + ex.what()).c_str());
+		}
+		catch (...)
+		{
+			VRMod_Note("Save failed.");
+		}
 
 		// Start simulation.
 		CMessageSystem(escSTART_SIM).Dispatch();

@@ -35,3 +35,6 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene);
 float VRMod_IniGet(const char* str_key, float f_default);
 void VRMod_IniSet(const char* str_key, float f_value);
 void VRMod_IniApply();
+
+// Writes a line to the VR log.
+void VRMod_Note(const char* str);

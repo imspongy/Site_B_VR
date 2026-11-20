@@ -65,12 +65,16 @@ std::string IniFile::convertFileName(const std::string& filename)
 	//If it is a pure file name, the file will be assumed to be at C:\Windows
 	//A path like .\foo.ini would suffice
 	//To be safe, we use the full absolute path
-	return std::filesystem::absolute(filename).string();
+	// (Non-throwing: a failure falls back to the name as given.)
+	std::error_code ec;
+	std::filesystem::path p = std::filesystem::absolute(filename, ec);
+	return ec ? filename : p.string();
 }
 
 std::pair<std::string, std::string> IniFile::determineDefaultFile()
 {
-	if (std::filesystem::exists("tpass.ini"))
+	std::error_code ec;
+	if (std::filesystem::exists("tpass.ini", ec))
 		return std::pair("tpass.ini", "Settings");
 	else
 		return std::pair("OpenTrespasser.ini", "OpenTrespasser");
@@ -78,6 +82,7 @@ std::pair<std::string, std::string> IniFile::determineDefaultFile()
 
 void IniFile::createFileIfNotExists()
 {
-	if (!std::filesystem::exists(filepath))
+	std::error_code ec;
+	if (!std::filesystem::exists(filepath, ec) && !ec)
 		std::fstream file(filepath, std::ios_base::out | std::ios_base::trunc | std::ios_base::_Noreplace);
 }

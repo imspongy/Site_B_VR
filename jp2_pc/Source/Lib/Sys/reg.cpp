@@ -178,7 +178,8 @@ IniFile& GetIniFile()
 
 void OpenKey()
 {
-	if (!std::filesystem::exists("OpenTrespasser.ini") && !std::filesystem::exists("tpass.ini"))
+	std::error_code ec1, ec2;
+	if (!std::filesystem::exists("OpenTrespasser.ini", ec1) && !std::filesystem::exists("tpass.ini", ec2) && !ec1 && !ec2)
 		ConvertRegistryToIni(GetIniFile());
 }
 

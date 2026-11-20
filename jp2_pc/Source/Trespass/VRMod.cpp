@@ -2825,3 +2825,8 @@ void VRMod_IniApply()
 	LoadSettings();
 	Log("Settings changed in the VR settings menu.");
 }
+
+void VRMod_Note(const char* str)
+{
+	Log("%s", str);
+}
