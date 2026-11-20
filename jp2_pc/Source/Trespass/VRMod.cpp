@@ -1961,7 +1961,7 @@ void VRMod_LevelLoading(const char* str_scene)
 		static std::string str_last_level;
 		if (str_file != str_last_level)
 		{
-			strAutosaveName = str_level + " " + str_name;
+			strAutosaveName = str_level;		// "Chapter 2" (save names hold 20 letters).
 			bAutosavePending = setVR.bAutosave;
 		}
 		str_last_level = str_file;
@@ -2133,7 +2133,8 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 	if (bAutosavePending && bLevelLoaded && i_autosave_frames > 600 && GetTickCount() - u4LevelLoadedTick > 8000)
 	{
 		bAutosavePending = false;
-		std::string str_save = "Autosave - " + strAutosaveName;
+		// (Short: the game keeps only so many letters of a save's name.)
+		std::string str_save = "Autosave " + strAutosaveName;
 		wWorld.DeferredSave(str_save.c_str());
 		Log("Autosave: \"%s\".", str_save.c_str());
 	}

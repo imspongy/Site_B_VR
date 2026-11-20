@@ -500,8 +500,9 @@ BOOL CTPassGlobals::SaveNamedGame(LPCSTR pszFile, LPCSTR pszName)
     //
     // Write the save name into the files
     //
-    Assert(strlen(pszName) <= SAVENAME_SIZE);
-    strcpy(szFName, pszName);
+    // (Cut to fit: a longer name overran this buffer and the game shut itself down.)
+    memset(szFName, 0, sizeof(szFName));
+    strncpy(szFName, pszName, SAVENAME_SIZE);
     szFName[SAVENAME_SIZE] = '\0';
     sf.bSave("SaveGameName", szFName, sizeof(szFName));
 
