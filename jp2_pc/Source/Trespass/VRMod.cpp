@@ -659,6 +659,8 @@ namespace
 			"; How much of your wrist's twist her forearm follows (0 none, 1 all).\n"
 			"ForearmTwist=0.75\n"
 			"; The hand cupping under a pistol, moved out from under the gun hand (m).\n"
+			"; Steadying a pistol: 1 wraps the front of the grip, 0 cups under it.\n"
+			"PistolSupport=1\n"
 			"CupSide=0.02\n"
 			"; The burst pistol's cupping hand, and the submachine gun's supporting hand, further to\n"
 			"; your left (m).\n"
@@ -779,6 +781,7 @@ namespace
 		gVR.fShotgunSupportUp = fIni(str_file, "ShotgunHandUp", 0.0f);
 		gVR.fForearmTwist = fIni(str_file, "ForearmTwist", 0.75f);
 		gVR.fCupSide = fIni(str_file, "CupSide", 0.02f);
+		gVR.iPistolSupport = (int)fIni(str_file, "PistolSupport", 1.0f);
 		gVR.fBurstCupLeft = fIni(str_file, "BurstCupLeft", 0.03f);
 		gVR.fSmgSupportLeft = fIni(str_file, "SmgHandLeft", 0.04f);
 		gVR.fSmgSupportUp = fIni(str_file, "SmgHandUp", 0.03f);

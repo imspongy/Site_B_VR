@@ -6136,6 +6136,36 @@ public:
 				else
 					ap3_target[i_support].r3Rot = r3_fwd;
 				af_curl[i_support] = 1.0f;
+
+				// Wrap pose (PistolSupport=1): the supporting hand wraps the front of the grip
+				// instead of cupping under it -- palm against the gun hand's fingers, its own
+				// fingers angled down and forward under the trigger guard, a little ahead of and
+				// beside the gun hand.
+				if (gVR.iPistolSupport == 1)
+				{
+					const float* af_vq = gVR.afHeadRotWorld;
+					CVector3<> v3_right = CVector3<>(1, 0, 0) * CRotate3<>(af_vq[0], af_vq[1], af_vq[2], af_vq[3], true);
+					v3_right.tZ = 0;
+					if (v3_right.tLen() > 0.1f)
+						v3_right.Normalise();
+					// Out toward the supporting hand's own side.
+					CVector3<> v3_side = v3_right * (i_support == 1 ? -1.0f : 1.0f);
+					v3_side = v3_side - v3_gun_fwd * (v3_side * v3_gun_fwd);
+					if (v3_side.tLen() > 1e-3f)
+						v3_side.Normalise();
+					ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.045f + v3_gun_fwd * 0.025f + v3_side * 0.035f;
+					// Fingers down and forward (45 degrees), palm toward the gun.
+					CVector3<> v3_fingers = v3_gun_fwd * 0.7071f - v3_gun_up * 0.7071f;
+					CVector3<> v3_palm = -v3_side;
+					v3_palm = v3_palm - v3_fingers * (v3_palm * v3_fingers);
+					CRotate3<> r3_f(d3YAxis, CDir3<>(v3_fingers));
+					CVector3<> v3_palm_f = CVector3<>(0, 0, -1) * r3_f;
+					if (v3_palm.tLen() > 1e-3f)
+						ap3_target[i_support].r3Rot = r3_f * CRotate3<>(CDir3<>(v3_palm_f), CDir3<>(v3_palm));
+					else
+						ap3_target[i_support].r3Rot = r3_f;
+					af_curl[i_support] = 0.8f;
+				}
 			}
 			else if (avrh[i_gun].pinsHeld)
 			{

@@ -82,6 +82,7 @@ Texture2D<uint>        gIdMap      : register(t4);
 StructuredBuffer<float4> gDecal    : register(t5);
 Texture2D<float2>      gUvMap      : register(t6);
 Texture2D              gNormalTex  : register(t7);
+StructuredBuffer<float4> gTri      : register(t8);	// Ground texture triangles: (x, y, u, v) x 3.
 
 struct VSObjIn
 {
@@ -317,28 +318,43 @@ float3 TerrainDetail(float3 wp, float3 atlas_col)
 	{
 		uint id = ids[k];
 		uint idc = id < 0xFFFE ? id : 0;
-		float4 m0 = gDecal[idc * 2], m1 = gDecal[idc * 2 + 1];
+		float4 m0 = gDecal[idc * 3], m1 = gDecal[idc * 3 + 1];
 
 		// Flat-projected textures: coordinates straight from the position.
 		float2 uv_a = float2(dot(m0.xy, wp.xy) + m0.z, dot(m1.xy, wp.xy) + m1.z);
 		float2 gx_a = float2(dot(m0.xy, dx), dot(m1.xy, dx));
 		float2 gy_a = float2(dot(m0.xy, dy), dot(m1.xy, dy));
 
-		// Textures that follow a shape (roads, paths): coordinates stored in the map, blended
-		// between the texels that belong to the same texture.
-		float2 uvp = 0;
-		float ws = 0;
-		[unroll] for (int q = 0; q < 4; q++)
+		// Textures that follow a shape (roads, paths, beaches): the map holds which of the
+		// texture's own triangles covers this spot, and that triangle's own coordinates are
+		// used here, exactly, at full resolution (as the game lays them).
+		float2 uv_m = uv_a, gx_m = gx_a, gy_m = gy_a;
+		bool b_tri_ok = false;
+		if (m1.w > 0.5)
 		{
-			float m = ids[q] == id ? wts[q] : 0.0;
-			uvp += uvs[q] * m;
-			ws += m;
+			uint tri = (uint)uvs[k].x;
+			float4 p0 = gTri[tri * 3], p1 = gTri[tri * 3 + 1], p2 = gTri[tri * 3 + 2];
+			float2 e1 = p1.xy - p0.xy, e2 = p2.xy - p0.xy;
+			float det = e1.x * e2.y - e1.y * e2.x;
+			if (abs(det) > 1e-10)
+			{
+				float2 du = float2(p1.z - p0.z, p2.z - p0.z), dv = float2(p1.w - p0.w, p2.w - p0.w);
+				float2 db_dx = float2(e2.y, -e1.y) / det;
+				float2 db_dy = float2(-e2.x, e1.x) / det;
+				float2 rel = wp.xy - p0.xy;
+				float b1 = (rel.x * e2.y - rel.y * e2.x) / det;
+				float b2 = (e1.x * rel.y - e1.y * rel.x) / det;
+				uv_m = p0.zw + float2(b1 * du.x + b2 * du.y, b1 * dv.x + b2 * dv.y);
+				float2 duv_dx = float2(db_dx.x * du.x + db_dx.y * du.y, db_dx.x * dv.x + db_dx.y * dv.y);
+				float2 duv_dy = float2(db_dy.x * du.x + db_dy.y * du.y, db_dy.x * dv.x + db_dy.y * dv.y);
+				gx_m = duv_dx * dx.x + duv_dy * dx.y;
+				gy_m = duv_dx * dy.x + duv_dy * dy.y;
+				b_tri_ok = true;
+			}
 		}
-		float2 uv_m = uvp / max(ws, 1e-5);
-		float2 gx_m = ddx(uv_m), gy_m = ddy(uv_m);
 
 		float3 col = atlas_col;
-		if (id < 0xFFFE)
+		if (id < 0xFFFE && (m1.w < 0.5 || b_tri_ok))
 		{
 			bool b_map = m1.w > 0.5;
 			float2 uv = b_map ? uv_m : uv_a;
@@ -432,12 +448,14 @@ struct PSIdOut
 	float2 uv : SV_Target1;
 };
 
-PSIdOut PSIdDecal(PSIdIn i)
+PSIdOut PSIdDecal(PSIdIn i, uint prim : SV_PrimitiveID)
 {
 	clip(gTex.Sample(gSamp, i.uv).a - 0.5);
 	PSIdOut o;
 	o.id = i.id;
-	o.uv = i.uv;
+	// Shape-following textures: which of their triangles is here.
+	float4 m2 = gDecal[i.id * 3 + 2];
+	o.uv = gDecal[i.id * 3 + 1].w > 0.5 ? float2(m2.x + prim, 0) : i.uv;
 	return o;
 }
 
@@ -679,6 +697,9 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	std::vector<SVRRDraw>     adrwDecal;
 	std::vector<std::array<float, 6>> aafDecalMap;	// Texture mapping of each decal (u, v from world x, y).
 	std::vector<bool>         abDecalMap;			// Whether the mapping is usable.
+	std::vector<std::vector<float>> aafDecalTris;	// Shape-following decals: their triangles (x, y, u, v) x 3.
+	ID3D11Buffer*             pbufTri = nullptr;
+	ID3D11ShaderResourceView* psrvTri = nullptr;
 
 	// Terrain textures at full resolution.
 	ID3D11Texture2D*          ptexDetail = nullptr;	// Array: one slice per terrain texture.
@@ -690,6 +711,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	ID3D11Buffer*             pbufDecal = nullptr;
 	ID3D11ShaderResourceView* psrvDecal = nullptr;
 	bool                      bDetailBuilt = false;
+	int                       iDetailTriDecals = 0;
 	int                       iDetailSlices = 0, iDetailSize = 0, iIdMapSize = 0;
 
 	ID3D11VertexShader*       pvsIdDecal = nullptr;
@@ -707,6 +729,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		SafeRelease(ptexUvMap);
 		SafeRelease(psrvDecal);
 		SafeRelease(pbufDecal);
+		SafeRelease(psrvTri);
+		SafeRelease(pbufTri);
 		bDetailBuilt = false;
 		iDetailSlices = iDetailSize = iIdMapSize = 0;
 	}
@@ -1358,6 +1382,7 @@ void VRR_ClearAll()
 	adrwDecal.clear();
 	aafDecalMap.clear();
 	abDecalMap.clear();
+	aafDecalTris.clear();
 	ReleaseDetail();
 	adrw.clear();
 	avDyn.clear();
@@ -1511,6 +1536,7 @@ bool VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing,
 	adrwDecal.clear();
 	aafDecalMap.clear();
 	abDecalMap.clear();
+	aafDecalTris.clear();
 	ReleaseDetail();
 
 	std::vector<uint32_t> au4;
@@ -1573,10 +1599,14 @@ bool VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing,
 }
 
 //**********************************************************************************************
-void VRR_TerrainAddDecal(const SVRRDraw& drw, const float* pf_map)
+void VRR_TerrainAddDecal(const SVRRDraw& drw, const float* pf_map, const float* pf_tris, int i_tris)
 {
 	if (bReady && drw.iNumIndices > 0)
 	{
+		if (pf_tris && i_tris > 0 && !pf_map)
+			aafDecalTris.push_back(std::vector<float>(pf_tris, pf_tris + i_tris * 12));
+		else
+			aafDecalTris.push_back(std::vector<float>());
 		adrwDecal.push_back(drw);
 		std::array<float, 6> af = {};
 		if (pf_map)
@@ -1673,17 +1703,50 @@ static void BuildDetail()
 		return;
 	}
 
-	// Decal table: two float4 per decal.
-	std::vector<float> af_tab((size_t)i_decals * 8, 0.0f);
+	// Triangles of the shape-following decals.
+	std::vector<float> af_tris;
+	std::vector<int> ai_tri_base(i_decals, -1);
+	for (int i = 0; i < i_decals && i < (int)aafDecalTris.size(); i++)
+	{
+		if (aafDecalTris[i].empty())
+			continue;
+		ai_tri_base[i] = (int)(af_tris.size() / 12);
+		af_tris.insert(af_tris.end(), aafDecalTris[i].begin(), aafDecalTris[i].end());
+	}
+	if (af_tris.empty())
+		af_tris.assign(12, 0.0f);
+	{
+		D3D11_BUFFER_DESC bdt = {};
+		bdt.ByteWidth = (UINT)(af_tris.size() * sizeof(float));
+		bdt.Usage = D3D11_USAGE_IMMUTABLE;
+		bdt.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		bdt.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		bdt.StructureByteStride = 16;
+		D3D11_SUBRESOURCE_DATA srdt = { af_tris.data(), 0, 0 };
+		if (FAILED(pDev->CreateBuffer(&bdt, &srdt, &pbufTri)) || FAILED(pDev->CreateShaderResourceView(pbufTri, nullptr, &psrvTri)))
+		{
+			SafeRelease(psrvTri);
+			SafeRelease(pbufTri);
+			ai_tri_base.assign(i_decals, -1);
+		}
+	}
+
+	// Decal table: three float4 per decal.
+	std::vector<float> af_tab((size_t)i_decals * 12, 0.0f);
+	int i_tri_decals = 0;
 	for (int i = 0; i < i_decals; i++)
 	{
 		const std::array<float, 6>& m = aafDecalMap[i];
-		float* pf = &af_tab[(size_t)i * 8];
+		float* pf = &af_tab[(size_t)i * 12];
 		pf[0] = m[0]; pf[1] = m[1]; pf[2] = m[2];
 		pf[3] = (float)map_slice[adrwDecal[i].iTexture];
 		pf[4] = m[3]; pf[5] = m[4]; pf[6] = m[5];
-		pf[7] = 0.0f;		// (1 would take coordinates from the coordinate map: off, it swirled.)
+		pf[7] = (!abDecalMap[i] && ai_tri_base[i] >= 0) ? 1.0f : 0.0f;	// Laid by its own triangles.
+		pf[8] = (float)(ai_tri_base[i] >= 0 ? ai_tri_base[i] : 0);
+		if (pf[7] > 0.5f)
+			i_tri_decals++;
 	}
+	iDetailTriDecals = i_tri_decals;
 	D3D11_BUFFER_DESC bd = {};
 	bd.ByteWidth = (UINT)(af_tab.size() * sizeof(float));
 	bd.Usage = D3D11_USAGE_IMMUTABLE;
@@ -1757,7 +1820,7 @@ static void BuildDetail()
 		std::memcpy(ainst[i].afRow, adrwDecal[i].afWorld, sizeof(ainst[i].afRow));
 		// Textures that don't lie flat on the ground (roads that follow a curve) use the
 		// painted overview instead.
-		ainst[i].u4Flags = abDecalMap[i] ? (uint32_t)i : 0xFFFEu;
+		ainst[i].u4Flags = (abDecalMap[i] || (i < (int)aafDecalTris.size() && !aafDecalTris[i].empty() && psrvTri)) ? (uint32_t)i : 0xFFFEu;
 	}
 	ID3D11Buffer* pvb_inst = pbufCreate((UINT)(sizeof(SInstance) * ainst.size()), D3D11_BIND_VERTEX_BUFFER, false, ainst.data());
 	if (pvb_inst)
@@ -1767,6 +1830,7 @@ static void BuildDetail()
 		pCtx->IASetInputLayout(pilObject);
 		pCtx->VSSetShader(pvsIdDecal, nullptr, 0);
 		pCtx->PSSetShader(ppsIdDecal, nullptr, 0);
+		pCtx->PSSetShaderResources(5, 1, &psrvDecal);
 		int i_bound = -1;
 		for (int i = 0; i < i_decals; i++)
 		{
@@ -1786,6 +1850,8 @@ static void BuildDetail()
 	}
 	ID3D11RenderTargetView* aprtv_null[2] = { nullptr, nullptr };
 	pCtx->OMSetRenderTargets(2, aprtv_null, nullptr);
+	ID3D11ShaderResourceView* psrv_null = nullptr;
+	pCtx->PSSetShaderResources(5, 1, &psrv_null);
 	prtv_id->Release();
 	prtv_uv->Release();
 	bDetailBuilt = true;
@@ -1864,6 +1930,7 @@ void VRR_TerrainBuildAtlas()
 	adrwDecal.clear();
 	aafDecalMap.clear();
 	abDecalMap.clear();
+	aafDecalTris.clear();
 }
 
 //**********************************************************************************************
@@ -2082,6 +2149,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			bDetailBuilt ? psrvUvMap : nullptr
 		};
 		pCtx->PSSetShaderResources(0, 7, apsrv);
+		ID3D11ShaderResourceView* psrv_tri = bDetailBuilt ? psrvTri : nullptr;
+		pCtx->PSSetShaderResources(8, 1, &psrv_tri);
 
 		// Sky.
 		pCtx->RSSetState(prsNone);
@@ -2249,4 +2318,10 @@ void VRR_AbortFrame()
 		ID3D11RenderTargetView* aprtv_null[2] = { nullptr, nullptr };
 		pCtx->OMSetRenderTargets(2, aprtv_null, nullptr);
 	}
+}
+
+//**********************************************************************************************
+int VRR_TerrainTriDecals()
+{
+	return iDetailTriDecals;
 }

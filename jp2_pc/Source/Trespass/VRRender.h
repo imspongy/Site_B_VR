@@ -124,7 +124,9 @@ void  VRR_AddDraw(const SVRRDraw& drw);
 bool  VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing, const SVRRTerrainVertex* ptv, int i_atlas_size);
 // pf_map: the decal's texture mapping, u = m0 x + m1 y + m2, v = m3 x + m4 y + m5 in world
 // metres, so the terrain can show the texture at full resolution (null: use the atlas only).
-void  VRR_TerrainAddDecal(const SVRRDraw& drw, const float* pf_map = nullptr);
+// pf_tris: for a decal with no flat mapping, its triangles in world x, y with their u, v
+// (12 floats each), so it can be laid at full resolution.
+void  VRR_TerrainAddDecal(const SVRRDraw& drw, const float* pf_map = nullptr, const float* pf_tris = nullptr, int i_tris = 0);
 void  VRR_TerrainBuildAtlas();
 bool  VRR_HasTerrain();
 
@@ -149,3 +151,5 @@ void  VRR_AbortFrame();
 
 // Statistics for the log.
 void  VRR_GetStats(int& ri_draws, int& ri_batches, int& ri_textures, int& ri_meshes, float& rf_gpu_mb);
+
+int   VRR_TerrainTriDecals();		// Decals laid by their own triangles (after the build).

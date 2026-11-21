@@ -99,6 +99,7 @@ namespace
 	std::unordered_set<const CMesh*> setAnimatedThisFrame;
 
 	std::unordered_map<const CMesh*, SMeshEntry> mapMesh;
+	std::vector<float> afTriScratch;
 	std::unordered_map<const void*, int>         mapTex;		// Raster (or texture) -> handle.
 	std::unordered_map<const void*, bool>        mapTexAlpha;
 
@@ -1839,7 +1840,50 @@ namespace
 				drw.u4Flags = 0;
 				float af_map[6];
 				bool b_map = bFitDecalMapping(pmsh.ptGet(), sub.psf, af_world, af_map);
-				VRR_TerrainAddDecal(drw, b_map ? af_map : nullptr);
+				// No single flat mapping (roads, paths, beaches that follow a shape): its own
+				// triangles go with it, in the same order the GPU mesh has them, so it is laid at
+				// full resolution exactly as the game lays it.
+				afTriScratch.clear();
+				if (!b_map)
+				{
+					const CMesh::SVertex* pmv0 = pmsh->pamvVertices.atArray;
+					int i_verts = (int)pmsh->pamvVertices.uLen;
+					CPresence3<> pr3 = pins->pr3Presence();
+					// Same polygon order as pmeGet: polygons of this surface, in mesh order.
+					for (uint u = 0; u < pmsh->pampPolygons.uLen; u++)
+					{
+						const CMesh::SPolygon& mp = pmsh->pampPolygons[u];
+						if (mp.bOcclude || mp.bCache || mp.papmvVertices.uLen < 3 || (const CMesh::SSurface*)mp.pSurface != sub.psf)
+							continue;
+						int i_n = (int)mp.papmvVertices.uLen;
+						const CVector3<>& p0 = *mp.papmvVertices[0]->pv3Point;
+						CVector3<> v3_sum(0, 0, 0);
+						for (int i = 1; i + 1 < i_n; i++)
+							v3_sum += (*mp.papmvVertices[i]->pv3Point - p0) ^ (*mp.papmvVertices[i + 1]->pv3Point - p0);
+						bool b_reverse = (v3_sum * mp.plPlane.d3Normal) < 0;
+						for (int i = 1; i + 1 < i_n; i++)
+						{
+							int ai[3] = { (int)(mp.papmvVertices[0] - pmv0), (int)(mp.papmvVertices[i] - pmv0), (int)(mp.papmvVertices[i + 1] - pmv0) };
+							if (ai[0] < 0 || ai[1] < 0 || ai[2] < 0 || ai[0] >= i_verts || ai[1] >= i_verts || ai[2] >= i_verts)
+								continue;
+							if (b_reverse)
+								std::swap(ai[1], ai[2]);
+							for (int k = 0; k < 3; k++)
+							{
+								const CMesh::SVertex& mv = pmv0[ai[k]];
+								CVector3<> v3_w = *mv.pv3Point * pr3;
+								afTriScratch.push_back(v3_w.tX);
+								afTriScratch.push_back(v3_w.tY);
+								afTriScratch.push_back(mv.tcTex.tX);
+								afTriScratch.push_back(mv.tcTex.tY);
+							}
+						}
+					}
+					// Must match the GPU subset triangle for triangle.
+					if ((int)afTriScratch.size() / 12 != sub.iCount / 3)
+						afTriScratch.clear();
+				}
+				VRR_TerrainAddDecal(drw, b_map ? af_map : nullptr, afTriScratch.empty() ? nullptr : afTriScratch.data(), (int)afTriScratch.size() / 12);
 				if (b_map)
 					i_mapped++;
 				i_decals++;
@@ -1848,7 +1892,7 @@ namespace
 		VRR_TerrainBuildAtlas();
 
 		SceneLog("GPU renderer: terrain %.0f x %.0f m, grid %.1f m.", f_w, f_h, f_spacing);
-		SceneLog("GPU renderer: %.0f terrain textures, %.0f at full resolution.", i_decals, i_mapped);
+		SceneLog("GPU renderer: %.0f terrain textures, %.0f at full resolution flat, %.0f by their own triangles.", i_decals, i_mapped, VRR_TerrainTriDecals());
 		SceneLog("GPU renderer: terrain atlas %.0f pixels; built in %.1f s.", i_atlas, (GetTickCount() - u4_start) / 1000.0);
 	}
 }
@@ -1977,6 +2021,42 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	UpdateGlintHandles(b_new_level);
 	gbGlints = set.bGlints;
 	aglGlints.clear();
+	// Level data check: what Anne walks into (to find out what each level's plants are made
+	// of; logged once per object, a limited number per level).
+	{
+		static std::unordered_set<const void*> setTouched;
+		static const void* pv_level = nullptr;
+		if (pv_level != (const void*)ptrr)
+		{
+			setTouched.clear();
+			pv_level = ptrr;
+		}
+		if (gpPlayer && setTouched.size() < 120)
+		{
+			CVector3<> v3_p = gpPlayer->v3Pos();
+			for (CInstance* pins : apinsNear)
+			{
+				if (!pins || pins == (CInstance*)gpPlayer || setTouched.count(pins))
+					continue;
+				rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
+				if (!pmsh)
+					continue;
+				float f_r = pins->prdtGetRenderInfo()->bvGet().fMaxExtent() * std::fabs(pins->fGetScale());
+				CVector3<> v3_d = pins->v3Pos() - v3_p;
+				float f_h = std::sqrt(v3_d.tX * v3_d.tX + v3_d.tY * v3_d.tY);
+				if (f_r > 6.0f || f_h > f_r * 0.7f + 0.3f || std::fabs(v3_d.tZ) > f_r + 1.5f)
+					continue;
+				setTouched.insert(pins);
+				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+				SceneLog("Level data: Anne in %s (%s, radius %.1f m): %s%s%s, sound material %u.", pins->strGetInstanceName(),
+					typeid(*pins).name(), f_r,
+					!pphi ? "no physics" : pphi->bIsMovable() ? "movable" : "fixed",
+					pphi ? (pphi->bIsTangible() ? ", solid" : ", not solid") : "",
+					pphi && pphi->bIsMovable() ? (pphi->fMass(pins) < 60 ? ", light" : ", heavy") : "",
+					pphi ? (unsigned)pphi->smatGetMaterialType() : 0u);
+			}
+		}
+	}
 	apinsNearLast.swap(apinsNear);
 	apinsNear.clear();
 	SWalkStats ws = {};
