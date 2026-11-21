@@ -1075,6 +1075,68 @@ namespace
 		static bool ab_dirty[2] = { false, false };
 		static int ai_kind[2] = { -1, -1 };
 		static const char* const astrKIND[5] = { "Pistol", "Shotgun", "Shotgun2", "Rifle", "OtherGun" };
+		// The supporting hand on a two-handed gun: its stick moves that hand on the gun (right,
+		// up, and with the stick pressed in forward/back), saved per gun model and gun hand.
+		static bool ab_sup_dirty[2] = { false, false };
+		static std::string astr_sup_key[2];
+		for (int h = 0; h < 2; h++)
+		{
+			int i_gun = 1 - h;
+			bool b_support = setVR.bGunAdjust && !gVR.abHoldingGun[h] && gVR.iTwoHand == (i_gun == 0 ? 1 : 2) &&
+			                 gVR.abHoldingGun[i_gun] && gVR.astrHeldGunKey[i_gun][0];
+			if (!b_support)
+			{
+				if (ab_sup_dirty[h])
+				{
+					// Hand let go of the gun while adjusting: save what it had.
+					for (const char* str_axis : { "Right", "Up", "Forward" })
+					{
+						std::string str = astr_sup_key[h] + str_axis;
+						SetIniValue(str.c_str(), fGunValue(str.c_str(), 0.0f));
+					}
+					ab_sup_dirty[h] = false;
+				}
+				continue;
+			}
+			const SVRHandInput& hi = fr.ctl.ahand[iCtl(h)];
+			float f_x = std::fabs(hi.fStickX) > 0.3f ? hi.fStickX : 0.0f;
+			float f_y = std::fabs(hi.fStickY) > 0.3f ? hi.fStickY : 0.0f;
+			bool b_fwd = hi.bStickClick;
+			SVRHandInput& rhi = iCtl(h) == iOffCtl() ? rhi_off : rhi_main;
+			rhi.fStickX = rhi.fStickY = 0;
+			rhi.bStickClick = false;
+			std::string str_base = std::string(gVR.astrHeldGunKey[i_gun]) + "Support" + (i_gun == 0 ? "Right" : "Left");
+			if (f_x != 0 || f_y != 0)
+			{
+				const float fRATE = 0.03f;
+				astr_sup_key[h] = str_base;
+				auto add = [&](const char* str_axis, float f_d)
+				{
+					std::string str = str_base + str_axis;
+					mapGunValues[str] = fGunValue(str.c_str(), 0.0f) + f_d;
+				};
+				if (b_fwd)
+					add("Forward", f_y * fRATE * f_dt);
+				else
+				{
+					add("Right", f_x * fRATE * f_dt);
+					add("Up", f_y * fRATE * f_dt);
+				}
+				ab_sup_dirty[h] = true;
+			}
+			else if (ab_sup_dirty[h])
+			{
+				std::string str_r = str_base + "Right", str_u = str_base + "Up", str_f = str_base + "Forward";
+				SetIniValue(str_r.c_str(), fGunValue(str_r.c_str(), 0.0f));
+				SetIniValue(str_u.c_str(), fGunValue(str_u.c_str(), 0.0f));
+				SetIniValue(str_f.c_str(), fGunValue(str_f.c_str(), 0.0f));
+				Log("Gun adjust (supporting hand): %s=%.3f %s=%.3f %s=%.3f.", str_r.c_str(), fGunValue(str_r.c_str(), 0.0f),
+					str_u.c_str(), fGunValue(str_u.c_str(), 0.0f), str_f.c_str(), fGunValue(str_f.c_str(), 0.0f));
+				Haptic(h, 0.03f, 150.0f, 0.3f);
+				ab_sup_dirty[h] = false;
+			}
+		}
+
 		for (int h = 0; h < 2; h++)
 		{
 			int k = gVR.aiHeldGunKind[h];

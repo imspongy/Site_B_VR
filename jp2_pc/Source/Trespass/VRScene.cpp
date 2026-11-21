@@ -2035,42 +2035,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	if (b_build_terrain && pwWorld->ppartTerrainPartitionList())
 		Visit(pwWorld->ppartTerrainPartitionList(), wk, ws);
 	wsLast = ws;
-	// Level data check (this frame's objects only, never last frame's): what Anne walks into (to find out what each level's plants are made
-	// of; logged once per object, a limited number per level).
-	{
-		static std::unordered_set<const void*> setTouched;
-		static const void* pv_level = nullptr;
-		if (pv_level != (const void*)ptrr)
-		{
-			setTouched.clear();
-			pv_level = ptrr;
-		}
-		if (gpPlayer && setTouched.size() < 120)
-		{
-			CVector3<> v3_p = gpPlayer->v3Pos();
-			for (CInstance* pins : apinsNear)
-			{
-				if (!pins || pins == (CInstance*)gpPlayer || setTouched.count(pins))
-					continue;
-				rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
-				if (!pmsh)
-					continue;
-				float f_r = pins->prdtGetRenderInfo()->bvGet().fMaxExtent() * std::fabs(pins->fGetScale());
-				CVector3<> v3_d = pins->v3Pos() - v3_p;
-				float f_h = std::sqrt(v3_d.tX * v3_d.tX + v3_d.tY * v3_d.tY);
-				if (f_r > 6.0f || f_h > f_r * 0.7f + 0.3f || std::fabs(v3_d.tZ) > f_r + 1.5f)
-					continue;
-				setTouched.insert(pins);
-				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
-				if (gVR.pfnLog) gVR.pfnLog("Level data: Anne in %s (%s, radius %.1f m): %s%s%s, sound material %u.", pins->strGetInstanceName(),
-					typeid(*pins).name(), f_r,
-					!pphi ? "no physics" : pphi->bIsMovable() ? "movable" : "fixed",
-					pphi ? (pphi->bIsTangible() ? ", solid" : ", not solid") : "",
-					pphi && pphi->bIsMovable() ? (pphi->fMass(pins) < 60 ? ", light" : ", heavy") : "",
-					pphi ? (unsigned)pphi->smatGetMaterialType() : 0u);
-			}
-		}
-	}
 
 	DrawParticles(wk.v3Eye);
 	DrawGlints(wk.v3Eye);

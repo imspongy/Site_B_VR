@@ -6214,12 +6214,28 @@ public:
 						ap3_target[i_support].v3Pos += (CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot()) * gVR.fSmgSupportUp;
 					}
 				}
-				// This gun model's own supporting hand height (ini Gun_...SupportUp, metres).
-				if (pgun && gVR.pfnGunValue && gVR.astrHeldGunKey[i_gun][0])
+			}
+			// This gun model's own supporting hand place (ini Gun_...Support<gun hand>Right/Up/Forward,
+			// metres; set in the headset with the supporting hand's stick when GunAdjust=1).
+			if (avrh[i_gun].pinsHeld && gVR.pfnGunValue && gVR.astrHeldGunKey[i_gun][0])
+			{
+				std::string str_k = std::string(gVR.astrHeldGunKey[i_gun]) + "Support" + (i_gun == 0 ? "Right" : "Left");
+				float f_up_old = gVR.pfnGunValue((std::string(gVR.astrHeldGunKey[i_gun]) + "SupportUp").c_str(), 0.0f);
+				float f_r = gVR.pfnGunValue((str_k + "Right").c_str(), 0.0f);
+				float f_u = gVR.pfnGunValue((str_k + "Up").c_str(), f_up_old);
+				float f_f = gVR.pfnGunValue((str_k + "Forward").c_str(), 0.0f);
+				const CRotate3<>& r3_g = avrh[i_gun].pinsHeld->r3Rot();
+				ap3_target[i_support].v3Pos += (CVector3<>(0, 0, 1) * r3_g) * f_u + (CVector3<>(0, 1, 0) * r3_g) * f_f;
+				if (f_r != 0.0f)
 				{
-					float f_sup_up = gVR.pfnGunValue((std::string(gVR.astrHeldGunKey[i_gun]) + "SupportUp").c_str(), 0.0f);
-					if (f_sup_up != 0.0f)
-						ap3_target[i_support].v3Pos += (CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot()) * f_sup_up;
+					const float* af_vq = gVR.afHeadRotWorld;
+					CVector3<> v3_right = CVector3<>(1, 0, 0) * CRotate3<>(af_vq[0], af_vq[1], af_vq[2], af_vq[3], true);
+					v3_right.tZ = 0;
+					if (v3_right.tLen() > 0.1f)
+					{
+						v3_right.Normalise();
+						ap3_target[i_support].v3Pos += v3_right * f_r;
+					}
 				}
 			}
 		}
