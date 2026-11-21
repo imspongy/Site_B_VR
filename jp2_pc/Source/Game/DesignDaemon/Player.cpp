@@ -2678,6 +2678,11 @@ public:
 			gVR.apvVRHandBox[i] = avrh[i].pinsBox;
 			gVR.pvGameHand = pinsHand;
 			gVR.abHoldingMelee[i] = pins && avrh[i].bMelee;
+			// Keep the held thing (and pieces fixed to it) out of collisions with her and both hand
+			// boxes every frame: a hand box that came into the world after the grab, or a gun whose
+			// magnet master changed, otherwise rubbed against it the whole time (silenced SMG).
+			if (pins)
+				IgnoreVR(i, pins, true);
 			// Gun adjusting in the headset: move the gun in the hand by what the stick did.
 			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0 || gVR.aafGunAdjPending[i][2] != 0))
 			{
@@ -2749,7 +2754,7 @@ public:
 						continue;
 					if (!ptCast<CGun>(pins_s) && !pins_s->pphiGetPhysicsInfo())
 						continue;
-					NMagnetSystem::RemoveMagnets(pins_s, true, true);
+					NMagnetSystem::RemoveMagnetPair(damp[u]->pinsMaster ? damp[u]->pinsMaster : this, pins_s);	// Only what fixes it to her: its own grip and silencer magnets stay.
 					CVector3<> v3_drop = CVector3<>((i_dropped % 2) ? -0.25f : 0.25f, 0.6f, -0.3f) * p3_body;
 					pins_s->Move(CPlacement3<>(pins_s->r3Rot(), v3_drop));
 					if (pins_s->pphiGetPhysicsInfo())
@@ -2771,7 +2776,7 @@ public:
 					if (!pins_s)
 						continue;
 					apinsStowed[i] = 0;
-					NMagnetSystem::RemoveMagnets(pins_s, true, true);
+					NMagnetSystem::RemoveMagnetPair(this, pins_s);
 					CVector3<> v3_drop = CVector3<>(i == 0 ? 0.25f : -0.25f, 0.6f, -0.3f) * p3_body;
 					pins_s->Move(CPlacement3<>(pins_s->r3Rot(), v3_drop));
 					if (pins_s->pphiGetPhysicsInfo())
@@ -4541,6 +4546,8 @@ public:
 		for (int h = 0; h < 2; h++)
 			if (avrh[h].pinsBox && avrh[h].pinsBox != pins && avrh[h].bBoxInWorld)
 				pphSystem->IgnoreCollisions(avrh[h].pinsBox, pins, b_ignore);
+		if (pinsHand && pinsHand != pins)
+			pphSystem->IgnoreCollisions(pinsHand, pins, b_ignore);
 		// And the pieces fixed to it (a silencer on a gun: the hand rubbed against it and threw
 		// sparks the whole time).
 		CDArray<CMagnetPair*> damp(32);
