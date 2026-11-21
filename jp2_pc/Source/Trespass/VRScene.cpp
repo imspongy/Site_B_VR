@@ -2048,7 +2048,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 					continue;
 				setTouched.insert(pins);
 				const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
-				SceneLog("Level data: Anne in %s (%s, radius %.1f m): %s%s%s, sound material %u.", pins->strGetInstanceName(),
+				if (gVR.pfnLog) gVR.pfnLog("Level data: Anne in %s (%s, radius %.1f m): %s%s%s, sound material %u.", pins->strGetInstanceName(),
 					typeid(*pins).name(), f_r,
 					!pphi ? "no physics" : pphi->bIsMovable() ? "movable" : "fixed",
 					pphi ? (pphi->bIsTangible() ? ", solid" : ", not solid") : "",
