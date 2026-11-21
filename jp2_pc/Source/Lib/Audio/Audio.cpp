@@ -249,6 +249,10 @@
 #include "Lib/Sys/MemoryLog.hpp"
 #include "Lib/Sys/DWSizeStruct.hpp"
 #include "Eax.h"			// Creative environmental audio
+#include "Lib/Control/VRShared.hpp"
+
+// For the VR log: whether the sound device does the game's reverb (EAX), and why not.
+const char* strAudioEAXState = "not tried";
 
 
 
@@ -1409,6 +1413,7 @@ void CAudio::EnableEnvironmentalAudio
 
 	// create the EAX sound buffer
 	hr=pDSInterface->CreateSoundBuffer(&dsbd,&pDSEAX,NULL);
+	strAudioEAXState = "no 3D sound buffer";
 
 	if (hr != DS_OK)
 	{
@@ -1420,6 +1425,7 @@ void CAudio::EnableEnvironmentalAudio
 
 	// Query this sound buffer for the 3D interface
 	hr=pDSEAX->QueryInterface(IID_IDirectSound3DBuffer, (void**)&pDSEAX3D);
+	strAudioEAXState = "no 3D interface";
 	if (hr != DS_OK)
 	{
 		// Query for the 3D interface failed so we cannot go any futher creating the
@@ -1434,6 +1440,7 @@ void CAudio::EnableEnvironmentalAudio
 
 	// Query the 3D sound buffer for the property set interface...
 	hr=pDSEAX3D->QueryInterface(IID_IKsPropertySet, (void**)&pDSPropertySet);
+	strAudioEAXState = "the sound device has no property sets (Windows' own DirectSound has had no EAX since Vista)";
 	if (hr != DS_OK)
 	{
 		//
@@ -1451,6 +1458,7 @@ void CAudio::EnableEnvironmentalAudio
 
 	// Now create the EAX reverb interface from the DS property set interface....
 	hr=pDSPropertySet->QuerySupport(DSPROPSETID_EAX, DSPROPERTY_EAX_ALL, (unsigned long*)&u4EAXPropertySupport);
+	strAudioEAXState = "the sound device does not support EAX";
 
 	if ((hr != DS_OK) || ((u4EAXPropertySupport & (KSPROPERTY_SUPPORT_GET | KSPROPERTY_SUPPORT_SET)) != (KSPROPERTY_SUPPORT_GET | KSPROPERTY_SUPPORT_SET)))
 	{
@@ -1468,6 +1476,8 @@ void CAudio::EnableEnvironmentalAudio
 	//
 	// If we get to here EAX is initialized and running...
 	//
+
+	strAudioEAXState = "on";
 
 	// Set the defaults so there is no reverb.
 	SetEAXEnvironment(0);
@@ -1526,6 +1536,11 @@ SAudioEnvironment CAudio::aenvGetEnvironment()
 //**********************************************************************************************
 void CAudio::SetEAXEnvironment(uint32 u4_env)
 {
+	static uint32 u4_last = 0xFFFFFFFF;
+	if (gVR.pfnLog && u4_env != u4_last)
+		gVR.pfnLog("Audio: the level asks for reverb environment %u (%s).", (unsigned)u4_env,
+			pDSPropertySet ? "applied" : "no reverb: EAX not available");
+	u4_last = u4_env;
 	if (pDSPropertySet == NULL)
 	{
 		return;

@@ -2069,6 +2069,10 @@ void VRMod_LevelLoaded()
 {
 	bVRLoadingLevel = false;
 	Log("Level loaded.");
+	{
+		extern const char* strAudioEAXState;
+		Log("Audio: game reverb (EAX): %s.", strAudioEAXState);
+	}
 	gVR.bDropAttachedRequest = true;
 	LogMemory("after loading");
 	bLevelLoaded = true;

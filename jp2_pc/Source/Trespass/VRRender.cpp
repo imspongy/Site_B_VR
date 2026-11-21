@@ -69,6 +69,7 @@ cbuffer CBFrame : register(b1)
 	float4 gSkyFog;			// rgb
 	float4 gAtlas;			// x0, y0, 1 / size x, 1 / size y
 	float4 gAtlasOn;		// x: atlas present
+	float4 gPatchGrid;		// fine ground patches: x0, y0, patch size
 };
 
 Texture2D              gTex        : register(t0);
@@ -389,7 +390,7 @@ float4 PSTerrainCoarse(PSTerIn i) : SV_Target
 {
 	uint w, h;
 	gPatchMask.GetDimensions(w, h);
-	int2 c = (int2)floor((i.wp.xy - gAtlas.xy) / 32.0);
+	int2 c = (int2)floor((i.wp.xy - gPatchGrid.xy) / max(gPatchGrid.z, 1.0));
 	if (w > 0 && c.x >= 0 && c.y >= 0 && c.x < (int)w && c.y < (int)h && gPatchMask.Load(int3(c, 0)) != 0)
 		discard;
 	return PSTerrain(i);
@@ -587,6 +588,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		float afSkyFog[4];
 		float afAtlas[4];
 		float afAtlasOn[4];
+		float afPatchGrid[4];
 	};
 
 	struct SInstance
@@ -700,6 +702,9 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	static const int          iMAX_PATCHES = 128;
 	ID3D11Buffer*             apvbPatch[iMAX_PATCHES] = {};
 	ID3D11Buffer*             pibPatch = nullptr;
+	ID3D11Buffer*             apibPatch[iMAX_PATCHES] = {};	// Each patch's own triangles (its squares fold their own way).
+	int                       aiPatchIdx[iMAX_PATCHES] = {};
+	float                     afPatchGrid[4] = { 0, 0, 32, 0 };
 	int                       aiPatchCell[iMAX_PATCHES][2] = {};	// Which 32 m cell each slot holds.
 	ID3D11Texture2D*          ptexPatchMask = nullptr;			// One texel a cell: patch drawn there.
 	ID3D11ShaderResourceView* psrvPatchMask = nullptr;
@@ -1236,25 +1241,26 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 
 	void DrawPatches()
 	{
-		if (!pibPatch)
-			return;
 		UINT u_stride = sizeof(SVRRTerrainVertex), u_offset = 0;
-		pCtx->IASetIndexBuffer(pibPatch, DXGI_FORMAT_R32_UINT, 0);
 		pCtx->IASetInputLayout(pilTerrain);
 		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		for (int i = 0; i < iMAX_PATCHES; i++)
 		{
-			if (!apvbPatch[i])
+			if (!apvbPatch[i] || !apibPatch[i])
 				continue;
+			pCtx->IASetIndexBuffer(apibPatch[i], DXGI_FORMAT_R32_UINT, 0);
 			pCtx->IASetVertexBuffers(0, 1, &apvbPatch[i], &u_stride, &u_offset);
-			pCtx->DrawIndexed(iPatchIndices, 0, 0);
+			pCtx->DrawIndexed(aiPatchIdx[i], 0, 0);
 		}
 	}
 
 	void ReleasePatches()
 	{
 		for (int i = 0; i < iMAX_PATCHES; i++)
+		{
 			SafeRelease(apvbPatch[i]);
+			SafeRelease(apibPatch[i]);
+		}
 		SafeRelease(pibPatch);
 		iPatchN = iPatchIndices = 0;
 		SafeRelease(psrvPatchMask);
@@ -1283,8 +1289,9 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	{
 		SafeRelease(psrvPatchMask);
 		SafeRelease(ptexPatchMask);
-		iMaskW = (int)std::ceil(f_sx / 32.0f) + 1;
-		iMaskH = (int)std::ceil(f_sy / 32.0f) + 1;
+		float f_size = std::max(afPatchGrid[2], 1.0f);
+		iMaskW = (int)std::ceil((afAtlas[0] + f_sx - afPatchGrid[0]) / f_size) + 2;
+		iMaskH = (int)std::ceil((afAtlas[1] + f_sy - afPatchGrid[1]) / f_size) + 2;
 		D3D11_TEXTURE2D_DESC td = {};
 		td.Width = iMaskW;
 		td.Height = iMaskH;
@@ -1632,6 +1639,7 @@ bool VRR_TerrainSet(int i_nx, int i_ny, float f_x0, float f_y0, float f_spacing,
 	afAtlas[1] = f_y0;
 	afAtlas[2] = 1.0f / f_sx;
 	afAtlas[3] = 1.0f / f_sy;
+	afPatchGrid[0] = f_x0; afPatchGrid[1] = f_y0; afPatchGrid[2] = 32.0f;
 	CreatePatchMask(f_sx, f_sy);
 
 	// The atlas: one texture painted with the terrain's textures from above.
@@ -2125,6 +2133,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		cb.afAtlasOn[0] = bAtlasBuilt ? 1.0f : 0.0f;
 		cb.afAtlasOn[1] = bDetailBuilt ? 1.0f : 0.0f;
 		cb.afAtlasOn[2] = (float)(GetTickCount() % 3600000u) / 1000.0f;	// Seconds, for moving water.
+		for (int k = 0; k < 4; k++)
+			cb.afPatchGrid[k] = afPatchGrid[k];
 	}
 
 	//
@@ -2354,42 +2364,40 @@ static uint32_t u4PatchEdge(int i_n, int e, int k)
 }
 
 //**********************************************************************************************
-bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv)
+bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, const uint8_t* pu1_flip)
 {
 	if (!bReady || i_slot < 0 || i_slot >= iMAX_PATCHES || i_n < 2 || !ptv)
 		return false;
-	if (i_n != iPatchN || !pibPatch)
-	{
-		for (int i = 0; i < iMAX_PATCHES; i++)
-			SafeRelease(apvbPatch[i]);
-		SafeRelease(pibPatch);
-		std::vector<uint32_t> au4;
-		au4.reserve((size_t)(i_n - 1) * (i_n - 1) * 6 + (size_t)4 * (i_n - 1) * 12);
-		for (int y = 0; y < i_n - 1; y++)
-			for (int x = 0; x < i_n - 1; x++)
+	std::vector<uint32_t> au4;
+	au4.reserve((size_t)(i_n - 1) * (i_n - 1) * 6 + (size_t)4 * (i_n - 1) * 12);
+	for (int y = 0; y < i_n - 1; y++)
+		for (int x = 0; x < i_n - 1; x++)
+		{
+			uint32_t a = y * i_n + x, b = a + 1, c = a + i_n, d = c + 1;
+			if (pu1_flip && pu1_flip[(size_t)y * (i_n - 1) + x])
 			{
-				uint32_t a = y * i_n + x, b = a + 1, c = a + i_n, d = c + 1;
+				// Folded on the other diagonal (b-c).
+				au4.push_back(a); au4.push_back(b); au4.push_back(c);
+				au4.push_back(b); au4.push_back(d); au4.push_back(c);
+			}
+			else
+			{
 				au4.push_back(a); au4.push_back(b); au4.push_back(d);
 				au4.push_back(a); au4.push_back(d); au4.push_back(c);
 			}
-		// Skirts: each edge hangs a short wall down, so where the coarse grid beside a patch
-		// is lower there's no gap to see through.  Both windings, seen from either side.
-		for (int e = 0; e < 4; e++)
-			for (int k = 0; k < i_n - 1; k++)
-			{
-				uint32_t a = u4PatchEdge(i_n, e, k), b = u4PatchEdge(i_n, e, k + 1);
-				uint32_t c = (uint32_t)(i_n * i_n + e * i_n + k), d = c + 1;
-				au4.push_back(a); au4.push_back(b); au4.push_back(d);
-				au4.push_back(a); au4.push_back(d); au4.push_back(c);
-				au4.push_back(a); au4.push_back(d); au4.push_back(b);
-				au4.push_back(a); au4.push_back(c); au4.push_back(d);
-			}
-		pibPatch = pbufCreate((UINT)(sizeof(uint32_t) * au4.size()), D3D11_BIND_INDEX_BUFFER, false, au4.data());
-		if (!pibPatch)
-			return false;
-		iPatchN = i_n;
-		iPatchIndices = (int)au4.size();
-	}
+		}
+	// Skirts: each edge hangs a short wall down, so where the coarse grid beside a patch
+	// is lower there's no gap to see through.  Both windings, seen from either side.
+	for (int e = 0; e < 4; e++)
+		for (int k = 0; k < i_n - 1; k++)
+		{
+			uint32_t a = u4PatchEdge(i_n, e, k), b = u4PatchEdge(i_n, e, k + 1);
+			uint32_t c = (uint32_t)(i_n * i_n + e * i_n + k), d = c + 1;
+			au4.push_back(a); au4.push_back(b); au4.push_back(d);
+			au4.push_back(a); au4.push_back(d); au4.push_back(c);
+			au4.push_back(a); au4.push_back(d); au4.push_back(b);
+			au4.push_back(a); au4.push_back(c); au4.push_back(d);
+		}
 	std::vector<SVRRTerrainVertex> atv(ptv, ptv + (size_t)i_n * i_n);
 	for (int e = 0; e < 4; e++)
 		for (int k = 0; k < i_n; k++)
@@ -2399,13 +2407,35 @@ bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv)
 			atv.push_back(tv);
 		}
 	SafeRelease(apvbPatch[i_slot]);
+	SafeRelease(apibPatch[i_slot]);
 	apvbPatch[i_slot] = pbufCreate((UINT)(sizeof(SVRRTerrainVertex) * atv.size()), D3D11_BIND_VERTEX_BUFFER, false, atv.data());
+	apibPatch[i_slot] = pbufCreate((UINT)(sizeof(uint32_t) * au4.size()), D3D11_BIND_INDEX_BUFFER, false, au4.data());
+	aiPatchIdx[i_slot] = (int)au4.size();
+	if (!apvbPatch[i_slot] || !apibPatch[i_slot])
+	{
+		SafeRelease(apvbPatch[i_slot]);
+		SafeRelease(apibPatch[i_slot]);
+		return false;
+	}
+	float f_size = std::max(afPatchGrid[2], 1.0f);
 	float f_cx = (ptv[0].afPos[0] + ptv[(size_t)i_n * i_n - 1].afPos[0]) * 0.5f;
 	float f_cy = (ptv[0].afPos[1] + ptv[(size_t)i_n * i_n - 1].afPos[1]) * 0.5f;
-	aiPatchCell[i_slot][0] = (int)std::floor((f_cx - afAtlas[0]) / 32.0f);
-	aiPatchCell[i_slot][1] = (int)std::floor((f_cy - afAtlas[1]) / 32.0f);
+	aiPatchCell[i_slot][0] = (int)std::floor((f_cx - afPatchGrid[0]) / f_size);
+	aiPatchCell[i_slot][1] = (int)std::floor((f_cy - afPatchGrid[1]) / f_size);
 	bMaskDirty = true;
-	return apvbPatch[i_slot] != nullptr;
+	return true;
+}
+
+//**********************************************************************************************
+void VRR_TerrainPatchGrid(float f_x0, float f_y0, float f_size)
+{
+	if (!bReady || f_size < 1.0f)
+		return;
+	afPatchGrid[0] = f_x0;
+	afPatchGrid[1] = f_y0;
+	afPatchGrid[2] = f_size;
+	if (afAtlas[2] > 0 && afAtlas[3] > 0)
+		CreatePatchMask(1.0f / afAtlas[2], 1.0f / afAtlas[3]);
 }
 
 //**********************************************************************************************
@@ -2414,6 +2444,7 @@ void VRR_TerrainPatchClear(int i_slot)
 	if (i_slot >= 0 && i_slot < iMAX_PATCHES)
 	{
 		SafeRelease(apvbPatch[i_slot]);
+		SafeRelease(apibPatch[i_slot]);
 		bMaskDirty = true;
 	}
 }

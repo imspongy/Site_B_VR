@@ -1436,7 +1436,7 @@ namespace
 	// float.  Around the player the ground is sampled every half metre, in patches built a
 	// little each frame as you move.
 	//
-	const float fPATCH_SIZE = 32.0f;
+	float fPATCH_SIZE = 32.0f;			// Set per level: 64 steps of the game's own terrain point spacing.
 	const int   iPATCH_N = 65;				// Vertices along a side (0.5 m apart).
 	const int   iPATCH_RADIUS = 4;			// Patches either side of yours that are kept ready (about 140 m).
 	const int   iPATCH_SLOTS = 128;
@@ -1627,19 +1627,29 @@ namespace
 				pjob.iY = i_by;
 				pjob.iSlot = i_slot;
 				pjob.iNext = 0;
-				pjob.afH.assign((size_t)(iPATCH_N + 2) * (iPATCH_N + 2), 0.0f);
+				pjob.afH.assign((size_t)(iPATCH_N + 2) * (iPATCH_N + 2) + (size_t)(iPATCH_N - 1) * (iPATCH_N - 1), 0.0f);
 			}
 
 			// Sample.
 			const int i_side = iPATCH_N + 2;
-			const int i_total = i_side * i_side;
+			const int i_grid = i_side * i_side;
+			const int i_total = i_grid + (iPATCH_N - 1) * (iPATCH_N - 1);	// Then each square's middle.
 			const float f_step = fPATCH_SIZE / (iPATCH_N - 1);
 			float f_ox = fPatchX0 + pjob.iX * fPATCH_SIZE, f_oy = fPatchY0 + pjob.iY * fPATCH_SIZE;
 			int i_since = 0;
 			while (pjob.iNext < i_total)
 			{
-				int i_x = pjob.iNext % i_side - 1, i_y = pjob.iNext / i_side - 1;
-				pjob.afH[pjob.iNext] = (float)ptrr->rHeight(f_ox + i_x * f_step, f_oy + i_y * f_step);
+				if (pjob.iNext < i_grid)
+				{
+					int i_x = pjob.iNext % i_side - 1, i_y = pjob.iNext / i_side - 1;
+					pjob.afH[pjob.iNext] = (float)ptrr->rHeight(f_ox + i_x * f_step, f_oy + i_y * f_step);
+				}
+				else
+				{
+					int i_c = pjob.iNext - i_grid;
+					int i_x = i_c % (iPATCH_N - 1), i_y = i_c / (iPATCH_N - 1);
+					pjob.afH[pjob.iNext] = (float)ptrr->rHeight(f_ox + (i_x + 0.5f) * f_step, f_oy + (i_y + 0.5f) * f_step);
+				}
 				pjob.iNext++;
 				if (++i_since >= 400)
 				{
@@ -1668,7 +1678,19 @@ namespace
 					CColour clr = ptrr->clrGetBaseTextureColour(f_x, f_y);
 					tv.u4Colour = u4RGBA(clr.u1Red, clr.u1Green, clr.u1Blue);
 				}
-			if (VRR_TerrainPatchSet(pjob.iSlot, iPATCH_N, atv.data()))
+			// Each square split along the diagonal the real ground folds on (the one whose
+			// middle matches the ground's middle), as the game's own triangles are.
+			std::vector<uint8_t> au1_flip((size_t)(iPATCH_N - 1) * (iPATCH_N - 1), 0);
+			for (int y = 0; y < iPATCH_N - 1; y++)
+				for (int x = 0; x < iPATCH_N - 1; x++)
+				{
+					auto h = [&](int i_x, int i_y) { return pjob.afH[(size_t)(i_y + 1) * i_side + (i_x + 1)]; };
+					float f_mid = pjob.afH[(size_t)i_grid + (size_t)y * (iPATCH_N - 1) + x];
+					float f_ad = 0.5f * (h(x, y) + h(x + 1, y + 1));
+					float f_bc = 0.5f * (h(x + 1, y) + h(x, y + 1));
+					au1_flip[(size_t)y * (iPATCH_N - 1) + x] = std::fabs(f_bc - f_mid) + 0.001f < std::fabs(f_ad - f_mid) ? 1 : 0;
+				}
+			if (VRR_TerrainPatchSet(pjob.iSlot, iPATCH_N, atv.data(), au1_flip.data()))
 			{
 				apatch[pjob.iSlot].bUsed = true;
 				apatch[pjob.iSlot].iX = pjob.iX;
@@ -1792,13 +1814,36 @@ namespace
 		while (i_atlas < f_texels && i_atlas < 16384)
 			i_atlas *= 2;
 
-		fPatchX0 = f_x0;
-		fPatchY0 = f_y0;
+		// The fine patches lie on the game's own terrain points (the wavelet tree's finest grid),
+		// so their corners are the real corners of the ground: sampled off that grid, a sharp
+		// edge (a trench lip) was smeared up to a quarter metre and covered what sat against it.
+		{
+			float f_res = 0.5f, f_gx = f_x0, f_gy = f_y0;
+			NMultiResolution::CQuadRootQuery* pqnq = ptrr->pqnqGetQueryRoot();
+			if (pqnq)
+			{
+				CVector2<> v2_0 = CVector2<>(0, 0) * pqnq->mpConversions.tlr2QuadToWorld;
+				CVector2<> v2_1 = CVector2<>(1, 1) * pqnq->mpConversions.tlr2QuadToWorld;
+				if (v2_1.tX - v2_0.tX > 0.01f && v2_1.tX - v2_0.tX < 16.0f)
+				{
+					f_res = v2_1.tX - v2_0.tX;
+					f_gx = v2_0.tX;
+					f_gy = v2_0.tY;
+				}
+			}
+			int i_mul = std::max(1, (int)std::floor(0.5f / f_res + 0.5f));
+			float f_step = f_res * i_mul;
+			fPATCH_SIZE = f_step * (iPATCH_N - 1);
+			fPatchX0 = f_gx + std::floor((f_x0 - f_gx) / f_step) * f_step;
+			fPatchY0 = f_gy + std::floor((f_y0 - f_gy) / f_step) * f_step;
+			SceneLog("GPU renderer: the game's terrain points are %.3f m apart; fine ground every %.3f m.", f_res, f_step);
+		}
 		if (!VRR_TerrainSet(i_nx, i_ny, f_x0, f_y0, f_spacing, atv.data(), i_atlas))
 		{
 			SceneLog("GPU renderer: could not create the terrain.");
 			return;
 		}
+		VRR_TerrainPatchGrid(fPatchX0, fPatchY0, fPATCH_SIZE);
 
 		// Terrain textures, lowest first.
 		std::stable_sort(apins_trr.begin(), apins_trr.end(), [](CInstance* a, CInstance* b)
