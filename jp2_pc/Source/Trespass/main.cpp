@@ -781,9 +781,70 @@ void DumpException(LPEXCEPTION_POINTERS pep_info)
 		}
 	}
 
+	// Where in which module, and the call chain (exe offsets, for the map file: the exe is not
+	// always loaded at the same address).
+	{
+		HMODULE hmod_exe = GetModuleHandleA(nullptr);
+		fprintf(pfile, "Exe loaded at 0x%08X\n", (unsigned)(uintptr_t)hmod_exe);
+		HMODULE hmod = nullptr;
+		char str_mod[MAX_PATH] = "?";
+		if (pep_info->ExceptionRecord &&
+			GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			                   (LPCSTR)pep_info->ExceptionRecord->ExceptionAddress, &hmod) && hmod)
+		{
+			GetModuleFileNameA(hmod, str_mod, MAX_PATH);
+			fprintf(pfile, "Fault in %s at offset 0x%08X\n", str_mod,
+				(unsigned)((uintptr_t)pep_info->ExceptionRecord->ExceptionAddress - (uintptr_t)hmod));
+		}
+		if (pep_info->ContextRecord)
+		{
+			fprintf(pfile, "Call chain (exe offsets):\n");
+			uint32* pu4_frame = (uint32*)pep_info->ContextRecord->Ebp;
+			for (int i = 0; i < 32 && pu4_frame; i++)
+			{
+				if (IsBadReadPtr(pu4_frame, 8))
+					break;
+				uint32 u4_ret = pu4_frame[1];
+				HMODULE hmod_r = nullptr;
+				if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				                       (LPCSTR)(uintptr_t)u4_ret, &hmod_r) && hmod_r == hmod_exe)
+					fprintf(pfile, "  0x%08X\n", (unsigned)(u4_ret - (uint32)(uintptr_t)hmod_exe));
+				else
+					fprintf(pfile, "  0x%08X (other module)\n", (unsigned)u4_ret);
+				uint32* pu4_next = (uint32*)pu4_frame[0];
+				if (pu4_next <= pu4_frame)
+					break;
+				pu4_frame = pu4_next;
+			}
+		}
+	}
+
 	// Close log.
 	fprintf(pfile, "\n");
 	fclose(pfile);
+
+	// And a full dump for the debugger.
+	{
+		HMODULE hmod_dbg = LoadLibraryA("dbghelp.dll");
+		typedef BOOL (WINAPI *TMiniDump)(HANDLE, DWORD, HANDLE, int, void*, void*, void*);
+		TMiniDump pfn_dump = hmod_dbg ? (TMiniDump)GetProcAddress(hmod_dbg, "MiniDumpWriteDump") : nullptr;
+		if (pfn_dump)
+		{
+			CreateDirectoryA("VRCapture", nullptr);
+			CreateDirectoryA("VRCapture\\dumps", nullptr);
+			char str_file[MAX_PATH];
+			sprintf(str_file, "VRCapture\\dumps\\crash_%u.dmp", (unsigned)tm_timestamp);
+			HANDLE h_file = CreateFileA(str_file, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (h_file != INVALID_HANDLE_VALUE)
+			{
+				struct { DWORD ThreadId; LPEXCEPTION_POINTERS ExceptionPointers; BOOL ClientPointers; } mei =
+					{ GetCurrentThreadId(), pep_info, FALSE };
+				// MiniDumpWithDataSegs | MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo
+				pfn_dump(GetCurrentProcess(), GetCurrentProcessId(), h_file, 0x1 | 0x40 | 0x1000, &mei, nullptr, nullptr);
+				CloseHandle(h_file);
+			}
+		}
+	}
 }
 
 
