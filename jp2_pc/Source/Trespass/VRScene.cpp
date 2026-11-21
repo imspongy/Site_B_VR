@@ -634,15 +634,16 @@ namespace
 		if (pins && (pins == (CInstance*)gpPlayer || (const void*)pins == gVR.pvMirrorInstance))
 		{
 			int i_shape = (const void*)pins == gVR.pvMirrorInstance ? gVR.aiHandShape[1] : gVR.aiHandShape[0];
-			static const CBioMesh* pbm_shaped = nullptr;
-			static int i_shaped = -1;
-			if (pbm != pbm_shaped || i_shape != i_shaped)
+			// Each shape only replaces the points it lists, and the game also changes the shape of
+			// this same mesh for its own hand: so start from the plain hand every time, then put
+			// this hand's shape on (otherwise a hand kept parts of the shape before it, and the
+			// rifle hand looked like the Benelli's).
+			CSubBioMesh* psbm = dynamic_cast<CSubBioMesh*>(const_cast<CBioMesh*>(pbm));
+			if (psbm && !psbm->lpsubSubstitutes.empty())
 			{
-				CSubBioMesh* psbm = dynamic_cast<CSubBioMesh*>(const_cast<CBioMesh*>(pbm));
-				if (psbm)
+				psbm->Substitute(0);
+				if (i_shape > 0 && i_shape < (int)psbm->lpsubSubstitutes.size())
 					psbm->Substitute(i_shape);
-				pbm_shaped = pbm;
-				i_shaped = i_shape;
 			}
 		}
 		CAnimate* pani = ptCast<CAnimate>(pins);
