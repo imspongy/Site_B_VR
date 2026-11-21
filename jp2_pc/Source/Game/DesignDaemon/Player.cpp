@@ -6117,7 +6117,7 @@ public:
 					{
 						v3_right.Normalise();
 						ap3_target[i_support].v3Pos -= v3_right * gVR.fSmgSupportLeft;
-						ap3_target[i_support].v3Pos += v3_gun_up * gVR.fSmgSupportUp;
+						ap3_target[i_support].v3Pos += (CVector3<>(0, 0, 1) * ap3_target[i_gun].r3Rot) * gVR.fSmgSupportUp;
 					}
 				}
 			}
