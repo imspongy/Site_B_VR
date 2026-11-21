@@ -110,6 +110,8 @@ namespace
 	const void*     pvSkyTexture = nullptr;
 	char            strStats[512] = "";
 	int             iObjects = 0, iSkinned = 0, iTexturesWaiting = 0;
+	bool            bTerrainBuilt = false;
+	int             iTerrainTries = 0;
 
 	std::vector<SVRRVertex> avScratch;
 	std::vector<uint32_t>   au4Scratch;
@@ -1951,7 +1953,14 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		ptrrLevel = ptrr;
 		pvLevelPlayer = gpPlayer;
 		SceneLog("GPU renderer: new level.");
+		bTerrainBuilt = false;
+		iTerrainTries = 0;
 	}
+	// The terrain is built again if building it failed (a texture not ready yet: the whole
+	// terrain was missing for that level).
+	bool b_build_terrain = ptrr && !bTerrainBuilt && iTerrainTries < 10;
+	if (b_build_terrain)
+		iTerrainTries++;
 
 	SWalk wk;
 	wk.v3Eye = CVector3<>((eyes.afPos[0][0] + eyes.afPos[1][0]) * 0.5f, (eyes.afPos[0][1] + eyes.afPos[1][1]) * 0.5f, (eyes.afPos[0][2] + eyes.afPos[1][2]) * 0.5f);
@@ -1961,7 +1970,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	wk.fFar = std::max(50.0f, f_far * set.fDrawDistance);
 	wk.fShadow = set.fShadowDistance;
 	wk.fDetailCull = set.fDetailCull;
-	wk.papinsTerrainObjs = b_new_level ? &apins_trr : nullptr;
+	wk.papinsTerrainObjs = b_build_terrain ? &apins_trr : nullptr;
 
 	iObjects = iSkinned = iTexturesWaiting = 0;
 	setAnimatedThisFrame.clear();
@@ -1972,7 +1981,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	apinsNear.clear();
 	SWalkStats ws = {};
 	Visit(pwWorld->ppartPartitionList(), wk, ws);
-	if (b_new_level && pwWorld->ppartTerrainPartitionList())
+	if (b_build_terrain && pwWorld->ppartTerrainPartitionList())
 		Visit(pwWorld->ppartTerrainPartitionList(), wk, ws);
 	wsLast = ws;
 
@@ -1983,9 +1992,12 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	if (gbShowPhysics)
 		DrawPhysicsBoxes(wk.v3Eye);
 
-	if (b_new_level && ptrr)
+	if (b_build_terrain)
 	{
+		if (iTerrainTries > 1)
+			SceneLog("GPU renderer: building the terrain again (try %d).", iTerrainTries);
 		BuildTerrain(ptrr, apins_trr, std::max(0.25f, set.fTerrainDetail));
+		bTerrainBuilt = true;
 		ResetPatches();
 		if (gpPlayer)
 			UpdatePatches(ptrr, gpPlayer->v3Pos(), 1.0e9);		// The ones around you, now.

@@ -1993,6 +1993,7 @@ void VRMod_LevelLoaded()
 {
 	bVRLoadingLevel = false;
 	Log("Level loaded.");
+	gVR.bDropAttachedRequest = true;
 	LogMemory("after loading");
 	bLevelLoaded = true;
 	u4LevelLoadedTick = GetTickCount();

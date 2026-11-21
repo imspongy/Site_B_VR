@@ -1323,6 +1323,17 @@ private:
 		return CVector3<>(gVR.afBodyDrawShift[0], gVR.afBodyDrawShift[1], gVR.afBodyDrawShift[2]);
 	}
 
+	// Length used for holding: automatic guns with big magazines (submachine guns, even short
+	// ones like the plain MP5) are held as long guns, by the barrel, not cupped like pistols.
+	static float fVRHoldLength(const CInstance* pins)
+	{
+		float f_len = fVRLength(pins);
+		const CGun* pgun = ptCast<CGun>(const_cast<CInstance*>(pins));
+		if (pgun && pgun->bAutoFire && pgun->iMaxAmmo >= 30)
+			f_len = Max(f_len, 0.6f);
+		return f_len;
+	}
+
 	// The longest side of a thing's box (m).
 	static float fVRLength(const CInstance* pins)
 	{
@@ -2662,7 +2673,7 @@ public:
 			gVR.abHolding[i]    = pins != nullptr;
 			gVR.abHoldingGun[i] = pins && ptCast<CGun>(pins) != 0;
 			gVR.afHeldMass[i]   = pins ? pins->pphiGetPhysicsInfo()->fMass(pins) : 0.0f;
-			gVR.afHeldLength[i] = fVRLength(pins);
+			gVR.afHeldLength[i] = fVRHoldLength(pins);
 			gVR.aiHeldGunKind[i] = pins ? avrh[i].iGunKind : -1;
 			gVR.apvVRHandBox[i] = avrh[i].pinsBox;
 			gVR.pvGameHand = pinsHand;
@@ -2719,6 +2730,36 @@ public:
 			}
 			// After loading a save: what was holstered is dropped in front of her, to pick up
 			// again (it came back floating where she had been, out of reach).
+			if (gVR.bDropAttachedRequest && gVR.bActive)
+			{
+				// Right after a level or saved game loads: anything still fixed to her (guns
+				// that were holstered when the game was saved) is let go, to be picked up again.
+				gVR.bDropAttachedRequest = false;
+				bVRDropStowed = true;
+				CDArray<CMagnetPair*> damp(32);
+				NMagnetSystem::GetAttachedMagnetsSlaves(this, &damp);
+				CPlacement3<> p3_body = p3GetPlacement();
+				int i_dropped = 0;
+				for (uint u = 0; u < damp.uLen; u++)
+				{
+					CInstance* pins_s = damp[u]->pinsSlave;
+					if (!pins_s || pins_s == this || pins_s == avrh[0].pinsHeld || pins_s == avrh[1].pinsHeld ||
+					    pins_s == avrh[0].pinsBox || pins_s == avrh[1].pinsBox || ptCast<CBoundaryBox>(pins_s))
+						continue;
+					if (!ptCast<CGun>(pins_s) && !pins_s->pphiGetPhysicsInfo())
+						continue;
+					NMagnetSystem::RemoveMagnets(pins_s, true, true);
+					CVector3<> v3_drop = CVector3<>((i_dropped % 2) ? -0.25f : 0.25f, 0.6f, -0.3f) * p3_body;
+					pins_s->Move(CPlacement3<>(pins_s->r3Rot(), v3_drop));
+					if (pins_s->pphiGetPhysicsInfo())
+						pins_s->pphiGetPhysicsInfo()->Activate(pins_s);
+					i_dropped++;
+					if (gVR.pfnLog)
+						gVR.pfnLog("Loaded game: %s (fixed to her) dropped in front of her.", pins_s->strGetInstanceName());
+				}
+				if (gVR.pfnLog)
+					gVR.pfnLog("Loaded game: %d things fixed to her, %d dropped.", (int)damp.uLen, i_dropped);
+			}
 			if (bVRDropStowed && gVR.bActive)
 			{
 				bVRDropStowed = false;
@@ -4499,6 +4540,22 @@ public:
 		for (int h = 0; h < 2; h++)
 			if (avrh[h].pinsBox && avrh[h].pinsBox != pins && avrh[h].bBoxInWorld)
 				pphSystem->IgnoreCollisions(avrh[h].pinsBox, pins, b_ignore);
+		// And the pieces fixed to it (a silencer on a gun: the hand rubbed against it and threw
+		// sparks the whole time).
+		CDArray<CMagnetPair*> damp(32);
+		NMagnetSystem::GetAttachedMagnetsSlaves(pins, &damp);
+		for (uint u = 0; u < damp.uLen; u++)
+		{
+			CInstance* pins_piece = damp[u]->pinsSlave;
+			if (!pins_piece || pins_piece == pins || pins_piece == this)
+				continue;
+			for (int i = 0; i < (int)ebbEND; i++)
+				if (apbbBoundaryBoxes[i] && apbbBoundaryBoxes[i] != pins_piece)
+					pphSystem->IgnoreCollisions(apbbBoundaryBoxes[i], pins_piece, b_ignore);
+			for (int h = 0; h < 2; h++)
+				if (avrh[h].pinsBox && avrh[h].bBoxInWorld)
+					pphSystem->IgnoreCollisions(avrh[h].pinsBox, pins_piece, b_ignore);
+		}
 	}
 
 	//*****************************************************************************************
@@ -4622,7 +4679,7 @@ public:
 			// Each kind of gun has its own setting (from the log: the rifle 10 rounds, a shot every
 			// 1.33 s; the first shotgun 8 shells, 0.57 s; the level 2 shotgun 7 shells, 0.67 s).
 			const CGun* pgun_grab = ptCast<CGun>(pins);
-			bool b_long  = fVRLength(pins) >= 0.55f;
+			bool b_long  = fVRHoldLength(pins) >= 0.55f;
 			bool b_bolt  = pgun_grab && b_long && !pgun_grab->bAutoFire;
 			// (Long guns only: the pistols also fire once a second or slower, and were being
 			// placed as rifles.)
@@ -5340,7 +5397,7 @@ public:
 			v3_d = CVector3<>(gVR.afBodyTarget[0] - v3VRFeet.tX, gVR.afBodyTarget[1] - v3VRFeet.tY, 0);
 		{
 			// (Swimming is slower.)
-			float f_max = (bVRSwimming ? 2.0f : 7.0f) * f_dt;
+			float f_max = 7.0f * f_dt;
 			if (v3_d.tLen() > f_max)
 				v3_d *= f_max / v3_d.tLen();
 		}
