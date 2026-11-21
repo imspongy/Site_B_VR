@@ -1940,6 +1940,7 @@ void VRScene_ReleaseLevel()
 		return;
 	mapMesh.clear();
 	mapTex.clear();
+	mapSolidTex.clear();
 	mapTexAlpha.clear();
 	mapNormalTex.clear();
 	mapWaterTex.clear();
@@ -1981,6 +1982,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	{
 		mapMesh.clear();
 		mapTex.clear();
+	mapSolidTex.clear();
 		mapTexAlpha.clear();
 		mapNormalTex.clear();
 	mapWaterTex.clear();
