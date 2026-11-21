@@ -2679,7 +2679,7 @@ public:
 			gVR.pvGameHand = pinsHand;
 			gVR.abHoldingMelee[i] = pins && avrh[i].bMelee;
 			// Gun adjusting in the headset: move the gun in the hand by what the stick did.
-			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0))
+			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0 || gVR.aafGunAdjPending[i][2] != 0))
 			{
 				// Left/right: along the gun's sideways direction, the way that is to your right as
 				// you look (the stick's [0] is metres to your right).
@@ -2693,8 +2693,9 @@ public:
 				avrh[i].p3Grab.v3Pos += v3_gx * f_d;
 				gVR.afHeldGunLat[i] += i == 0 ? f_d : -f_d;
 				avrh[i].p3Grab.v3Pos += CVector3<>(0, 0, gVR.aafGunAdjPending[i][1]) * avrh[i].p3Grab.r3Rot;
+				avrh[i].p3Grab.v3Pos += CVector3<>(0, gVR.aafGunAdjPending[i][2], 0) * avrh[i].p3Grab.r3Rot;
 			}
-			gVR.aafGunAdjPending[i][0] = gVR.aafGunAdjPending[i][1] = 0;
+			gVR.aafGunAdjPending[i][0] = gVR.aafGunAdjPending[i][1] = gVR.aafGunAdjPending[i][2] = 0;
 			if (!pins)
 				gVR.astrHeldGunKey[i][0] = 0;
 			if (pins && (gVR.afHeldMass[i] <= 150.0f || ptCast<CGun>(pins)) && !NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE)))
@@ -4693,6 +4694,7 @@ public:
 			float f_side = i_kind >= 0 ? gVR.aafGunAcross[i_kind][i_hand] : gVR.fGunSideOther;
 			float f_up   = i_kind >= 0 ? gVR.aafGunUp[i_kind][i_hand] : 0.0f;
 			float f_lat  = i_kind >= 0 ? gVR.aafGunLateral[i_kind][i_hand] : 0.0f;
+			float f_fwd  = 0.0f;
 			// Each model of gun has its own setting if one was made for it (pistols that share a
 			// kind had been sharing one setting, so setting one moved the others).
 			char str_key[64] = "";
@@ -4706,11 +4708,13 @@ public:
 					const char* str_h = i_hand == 0 ? "Right" : "Left";
 					f_lat = gVR.pfnGunValue((str_k + "Lateral" + str_h).c_str(), f_lat);
 					f_up  = gVR.pfnGunValue((str_k + "Up" + str_h).c_str(), f_up);
+					f_fwd = gVR.pfnGunValue((str_k + "Forward" + str_h).c_str(), f_fwd);
 				}
 			}
 			strncpy(gVR.astrHeldGunKey[i_hand], str_key, sizeof(gVR.astrHeldGunKey[i_hand]) - 1);
 			gVR.afHeldGunLat[i_hand] = f_lat;
 			gVR.afHeldGunUp[i_hand] = f_up;
+			gVR.afHeldGunFwd[i_hand] = f_fwd;
 			p3_adj.v3Pos = CVector3<>(i_hand == 0 ? f_side : -f_side, -gVR.fGunBack, 0);
 			vh.p3Grab = pins->p3GetPlacement() * ~p3SpecialPickup(pmp_pickup, p3_hand) * p3_adj;
 			// Up or down along the gun's own up direction (the same for both hands).
@@ -4719,6 +4723,9 @@ public:
 			// Sideways along the gun's own sideways direction (mirrored for the left hand).
 			if (f_lat != 0.0f)
 				vh.p3Grab.v3Pos += CVector3<>(i_hand == 0 ? f_lat : -f_lat, 0, 0) * vh.p3Grab.r3Rot;
+			// Forward or back along the barrel.
+			if (f_fwd != 0.0f)
+				vh.p3Grab.v3Pos += CVector3<>(0, f_fwd, 0) * vh.p3Grab.r3Rot;
 			static const char* const astrKIND[5] = { "pistol", "shotgun", "shotgun 2", "rifle", "other long gun" };
 			if (gVR.pfnLog && pgun_grab)
 				gVR.pfnLog("Gun %s in the %s hand: %s (length %.2f, %.0f kg, %s%.2f s between shots, ammo %d, damage %.0f), across %.3f, up %.3f.",
@@ -6154,8 +6161,8 @@ public:
 					if (v3_side.tLen() > 1e-3f)
 						v3_side.Normalise();
 					ap3_target[i_support].v3Pos = ap3_target[i_gun].v3Pos - v3_gun_up * 0.045f + v3_gun_fwd * 0.025f + v3_side * 0.035f;
-					// Fingers down and forward (45 degrees), palm toward the gun.
-					CVector3<> v3_fingers = v3_gun_fwd * 0.7071f - v3_gun_up * 0.7071f;
+					// Fingers straight forward along the gun, palm toward the gun.
+					CVector3<> v3_fingers = v3_gun_fwd;
 					CVector3<> v3_palm = -v3_side;
 					v3_palm = v3_palm - v3_fingers * (v3_palm * v3_fingers);
 					CRotate3<> r3_f(d3YAxis, CDir3<>(v3_fingers));
@@ -6206,6 +6213,13 @@ public:
 						ap3_target[i_support].v3Pos -= v3_right * gVR.fSmgSupportLeft;
 						ap3_target[i_support].v3Pos += (CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot()) * gVR.fSmgSupportUp;
 					}
+				}
+				// This gun model's own supporting hand height (ini Gun_...SupportUp, metres).
+				if (pgun && gVR.pfnGunValue && gVR.astrHeldGunKey[i_gun][0])
+				{
+					float f_sup_up = gVR.pfnGunValue((std::string(gVR.astrHeldGunKey[i_gun]) + "SupportUp").c_str(), 0.0f);
+					if (f_sup_up != 0.0f)
+						ap3_target[i_support].v3Pos += (CVector3<>(0, 0, 1) * avrh[i_gun].pinsHeld->r3Rot()) * f_sup_up;
 				}
 			}
 		}

@@ -1081,11 +1081,16 @@ namespace
 			bool b_active = setVR.bGunAdjust && gVR.abHoldingGun[h] && k >= 0 && k < 5;
 			int c = iCtl(h);
 			float f_x = 0, f_y = 0;
+			bool b_fwd = false;
 			if (b_active)
 			{
 				const SVRHandInput& hi = fr.ctl.ahand[c];
 				f_x = std::fabs(hi.fStickX) > 0.3f ? hi.fStickX : 0.0f;
 				f_y = std::fabs(hi.fStickY) > 0.3f ? hi.fStickY : 0.0f;
+				// Stick pressed in: up/down moves the gun forward/back instead.
+				b_fwd = hi.bStickClick;
+				if (b_fwd)
+					f_x = 0;
 				// The stick is used for this, not for walking or turning.
 				SVRHandInput& rhi = c == iOffCtl() ? rhi_off : rhi_main;
 				rhi.fStickX = rhi.fStickY = 0;
@@ -1097,10 +1102,13 @@ namespace
 				// Stick right moves the gun to your right (worked out in the game, along the gun's
 				// own sideways direction); up moves it up.
 				float f_right = f_x * fRATE * f_dt;
-				float f_up = f_y * fRATE * f_dt;
+				float f_up = b_fwd ? 0.0f : f_y * fRATE * f_dt;
+				float f_fwd = b_fwd ? f_y * fRATE * f_dt : 0.0f;
 				gVR.afHeldGunUp[h] += f_up;
+				gVR.afHeldGunFwd[h] += f_fwd;
 				gVR.aafGunAdjPending[h][0] += f_right;
 				gVR.aafGunAdjPending[h][1] += f_up;
+				gVR.aafGunAdjPending[h][2] += f_fwd;
 				ab_dirty[h] = true;
 				ai_kind[h] = k;
 			}
@@ -1113,10 +1121,13 @@ namespace
 				std::string str_up   = str_model + "Up" + (h == 0 ? "Right" : "Left");
 				std::string str_lat  = str_model + "Lateral" + (h == 0 ? "Right" : "Left");
 				SetIniValue(str_lat.c_str(), gVR.afHeldGunLat[h]);
+				std::string str_fwd  = str_model + "Forward" + (h == 0 ? "Right" : "Left");
 				SetIniValue(str_up.c_str(), gVR.afHeldGunUp[h]);
+				SetIniValue(str_fwd.c_str(), gVR.afHeldGunFwd[h]);
 				mapGunValues[str_lat] = gVR.afHeldGunLat[h];
 				mapGunValues[str_up] = gVR.afHeldGunUp[h];
-				Log("Gun adjust: %s=%.3f %s=%.3f.", str_lat.c_str(), gVR.afHeldGunLat[h], str_up.c_str(), gVR.afHeldGunUp[h]);
+				mapGunValues[str_fwd] = gVR.afHeldGunFwd[h];
+				Log("Gun adjust: %s=%.3f %s=%.3f %s=%.3f.", str_lat.c_str(), gVR.afHeldGunLat[h], str_up.c_str(), gVR.afHeldGunUp[h], str_fwd.c_str(), gVR.afHeldGunFwd[h]);
 				Haptic(h, 0.03f, 150.0f, 0.3f);
 				ab_dirty[h] = false;
 			}
@@ -2608,16 +2619,18 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			b_ok = sc.bResult;
 		else
 		{
-			// A bad frame is dropped and the next one tried (the game's old renderer can't
-			// safely take over mid-level); only repeated failures switch it off.
+			// A bad frame is dropped and the next one tried.
 			VRScene_AbortFrame();
 			iSceneCrashes++;
 			unsigned u_offset = (unsigned)((uintptr_t)pvSceneCrashAddress - (uintptr_t)GetModuleHandleA(nullptr));
-			Log("Modern renderer error %d (code %08X at exe offset %08X); frame skipped.", iSceneCrashes, (unsigned)u4_code, u_offset);
-			if (iSceneCrashes >= 30)
+			if (iSceneCrashes <= 30 || iSceneCrashes % 100 == 0)
+				Log("Modern renderer error %d (code %08X at exe offset %08X); frame skipped.", iSceneCrashes, (unsigned)u4_code, u_offset);
+			// Never hand over to the game's old renderer: after repeated failures throw away
+			// everything built for this level and build it again from scratch.
+			if (iSceneCrashes % 30 == 0)
 			{
-				bNewRendererFailed = true;
-				Log("Modern renderer: too many errors; switching to the game's renderer for this session.");
+				Log("Modern renderer: repeated errors; rebuilding this level's graphics.");
+				VRScene_ReleaseLevel();
 			}
 		}
 		adTimingMs[etPAINT] += dNowMs() - d_t0;

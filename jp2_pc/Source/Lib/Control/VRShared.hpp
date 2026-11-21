@@ -92,7 +92,8 @@ struct SVRShared
 	bool  bWaterWaves = true;			// Water's own wave simulation runs.
 	float aafFingerTip[2][3] = {};		// Index fingertip of each hand (world).
 	int   aiHeldGunKind[2] = { -1, -1 };
-	float aafGunAdjPending[2][2] = {};		// Stick adjustments not yet applied to the held gun.
+	float aafGunAdjPending[2][3] = {};		// Stick adjustments not yet applied to the held gun (right, up, forward).
+	float afHeldGunFwd[2] = {};			// The held gun's forward/back setting.
 	bool  abHoldingMelee[2] = { false, false };
 	float fMeleeTiltDeg = 45.0f;		// Bats and pipes tipped up in the hand.
 	float fMeleeScale = 1.0f;			// Melee hits (things swung in the hand) hurt this much more.

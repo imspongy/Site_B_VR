@@ -139,6 +139,8 @@ namespace
 	//
 	// Textures.
 	//
+	std::unordered_map<uint32_t, int> mapSolidTex;	// Plain colour -> its 1x1 texture.
+
 	int iTexture(const CTexture* ptex, bool& rb_alpha)
 	{
 		rb_alpha = false;
@@ -151,9 +153,6 @@ namespace
 		// Solid colour.
 		if (ptex->iGetNumMipLevels() <= 0)
 		{
-			auto it = mapTex.find(ptex);
-			if (it != mapTex.end())
-				return it->second;
 			uint32_t u4 = u4From565(ptex->tpSolid);
 			if (!b_alpha_colour && (((uint32)ptex->d3dpixColour >> 24) != 0))
 			{
@@ -167,8 +166,13 @@ namespace
 				uint32 u = (uint32)ptex->d3dpixColour;
 				u4 = u4RGBA((u >> 16) & 255, (u >> 8) & 255, u & 255, (u >> 24) & 255);
 			}
+			// Kept by the colour itself, not by the texture's address: an address can be
+			// reused by another texture (sparks once drew with whatever image had been there).
+			auto it = mapSolidTex.find(u4);
+			if (it != mapSolidTex.end())
+				return it->second;
 			int i_h = VRR_TextureCreate(1, 1, &u4);
-			mapTex[ptex] = i_h;
+			mapSolidTex[u4] = i_h;
 			return i_h;
 		}
 
@@ -1912,6 +1916,7 @@ void VRScene_Shutdown()
 {
 	mapMesh.clear();
 	mapTex.clear();
+	mapSolidTex.clear();
 	mapTexAlpha.clear();
 	mapNormalTex.clear();
 	mapWaterTex.clear();
@@ -1944,6 +1949,8 @@ void VRScene_ReleaseLevel()
 	iPhysTexRed = iPhysTexBlue = 0;
 	iGlintTex = 0;
 	mapMelee.clear();
+	apinsNear.clear();
+	apinsNearLast.clear();
 	ptrrLevel = nullptr;
 	pvLevelPlayer = nullptr;
 	VRR_ClearAll();
@@ -2021,7 +2028,14 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	UpdateGlintHandles(b_new_level);
 	gbGlints = set.bGlints;
 	aglGlints.clear();
-	// Level data check: what Anne walks into (to find out what each level's plants are made
+	apinsNearLast.swap(apinsNear);
+	apinsNear.clear();
+	SWalkStats ws = {};
+	Visit(pwWorld->ppartPartitionList(), wk, ws);
+	if (b_build_terrain && pwWorld->ppartTerrainPartitionList())
+		Visit(pwWorld->ppartTerrainPartitionList(), wk, ws);
+	wsLast = ws;
+	// Level data check (this frame's objects only, never last frame's): what Anne walks into (to find out what each level's plants are made
 	// of; logged once per object, a limited number per level).
 	{
 		static std::unordered_set<const void*> setTouched;
@@ -2057,13 +2071,6 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 			}
 		}
 	}
-	apinsNearLast.swap(apinsNear);
-	apinsNear.clear();
-	SWalkStats ws = {};
-	Visit(pwWorld->ppartPartitionList(), wk, ws);
-	if (b_build_terrain && pwWorld->ppartTerrainPartitionList())
-		Visit(pwWorld->ppartTerrainPartitionList(), wk, ws);
-	wsLast = ws;
 
 	DrawParticles(wk.v3Eye);
 	DrawGlints(wk.v3Eye);
@@ -2135,6 +2142,29 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		{
 			// Some levels store the light's travel direction instead.
 			fr.afSunDir[0] = -fr.afSunDir[0]; fr.afSunDir[1] = -fr.afSunDir[1]; fr.afSunDir[2] = -fr.afSunDir[2];
+		}
+		// Lighting check: every light, whenever what's used changes (lighting differed between loads).
+		static float af_last[5] = { -9, -9, -9, -9, -9 };
+		float af_now[5] = { fr.afSunDir[0], fr.afSunDir[1], fr.afSunDir[2], fr.fSun, fr.fAmbient };
+		bool b_changed = false;
+		for (int k = 0; k < 5; k++)
+			if (std::fabs(af_now[k] - af_last[k]) > 0.01f)
+				b_changed = true;
+		if (b_changed && gVR.pfnLog)
+		{
+			gVR.pfnLog("Lights: sun (%.2f %.2f %.2f) strength %.2f, ambient %.2f, shadows %.0f m.", af_now[0], af_now[1], af_now[2], af_now[3], af_now[4], set.fShadowDistance);
+			for (std::list<CInstance*>::const_iterator it = wql.begin(); it != wql.end(); ++it)
+			{
+				rptr<CLight> plt = ptCastRenderType<CLight>((*it)->prdtGetRenderInfo());
+				if (!plt)
+					continue;
+				SLightInfo lti = plt->ltiGetInfo(CVector3<>(0, 0, 0));
+				CVector3<> v3 = (CVector3<>)lti.d3Light * (*it)->pr3Presence().r3Rot;
+				gVR.pfnLog("  light %s: %s, strength %.2f, direction (%.2f %.2f %.2f).", (*it)->strGetInstanceName(),
+					plt->bIsDirectional() ? "directional" : plt->bIsPositional() ? "positional" : "ambient", (float)lti.lvStrength, v3.tX, v3.tY, v3.tZ);
+			}
+			for (int k = 0; k < 5; k++)
+				af_last[k] = af_now[k];
 		}
 	}
 	fr.fBrightness = set.fBrightness;
