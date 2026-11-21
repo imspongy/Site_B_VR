@@ -1,16 +1,16 @@
 
 ; Site B VR: VR settings (boxed, bottom right, clear of Restart Level)
-UICTRL "textbox" 1 1 -1 232 166 312 192
+UICTRL "textbox" 1 1 -1 208 166 316 194
         1 ; Transparent Bk
         1 ; Back Lit
         1 ; Back lit offset
         0 0 0; Back lit color
         "VR SETTINGS" ; Initial Text
-        14 ; Point Size
+        12 ; Point Size
         700 ; Weight
         0 255 0 ; Bk Color
         255 255 255 ; FG Color
-        0x5 ; DT Flags
+        0x25 ; DT Flags
         1 ; Draw Border
 
-UICTRL "hotspot" 1 1 1100 232 166 312 192 0
+UICTRL "hotspot" 1 1 1100 208 166 316 194 0

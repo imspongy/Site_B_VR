@@ -128,6 +128,8 @@ struct SVRShared
 
 	// Instances: the mirrored second arm (flipped culling) and the hand boxes (bullets pass).
 	const void* pvMirrorInstance = nullptr;
+	int   aiHandShape[2] = { 0, 0 };		// The game's hand shape for what each hand holds (0 none).
+	float fSmgSupportUp = 0.03f;			// The submachine gun's supporting hand higher (m).
 	int   iMirrorPolys = 0;			// Diagnostics: polygons of the mirrored arm seen / facing the eye.
 	int   iMirrorPolysFront = 0;
 	const void* apvHandBox[2] = { nullptr, nullptr };

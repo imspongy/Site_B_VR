@@ -621,6 +621,23 @@ namespace
 	//
 	void DrawSkinned(CInstance* pins, const CBioMesh* pbm, SMeshEntry& me, const float af_world[12])
 	{
+		// Anne's hands: the game's own hand shape for what each hand holds.  Her body carries the
+		// right hand and the mirrored arm the left; both are drawn from the same mesh, so the
+		// shape is put on just before each is skinned.
+		if (pins && (pins == (CInstance*)gpPlayer || (const void*)pins == gVR.pvMirrorInstance))
+		{
+			int i_shape = (const void*)pins == gVR.pvMirrorInstance ? gVR.aiHandShape[1] : gVR.aiHandShape[0];
+			static const CBioMesh* pbm_shaped = nullptr;
+			static int i_shaped = -1;
+			if (pbm != pbm_shaped || i_shape != i_shaped)
+			{
+				CSubBioMesh* psbm = dynamic_cast<CSubBioMesh*>(const_cast<CBioMesh*>(pbm));
+				if (psbm)
+					psbm->Substitute(i_shape);
+				pbm_shaped = pbm;
+				i_shaped = i_shape;
+			}
+		}
 		CAnimate* pani = ptCast<CAnimate>(pins);
 		if (!pani)
 			return;

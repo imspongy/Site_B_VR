@@ -1424,7 +1424,7 @@ public:
 	bool           bVRHaveBodyHeight = false;
 	bool           bVRGrounded = true;
 	bool           bVRSwimming = false;
-	bool           bVRSubstituted = false;	// Right hand drawn in the game's own gun grip.
+	bool           abVRSubstituted[2] = { false, false };	// Hand drawn in the game's own gun grip.
 	bool           bVRDropStowed = false;	// Just loaded a save: drop what was holstered.
 	std::set<CInstance*> setVRHingedIgnored;	// Hinged things her body boxes no longer push.
 	bool           bVRLandSound = false;	// Play a landing footfall this step.
@@ -4504,11 +4504,8 @@ public:
 	//*****************************************************************************************
 	void CPlayerPriv::ReleaseVR(int i_hand, bool b_throw)
 	{
-		if (i_hand == 0 && bVRSubstituted)
-		{
-			CAnimate::Substitute(0);
-			bVRSubstituted = false;
-		}
+		gVR.aiHandShape[i_hand] = 0;
+		abVRSubstituted[i_hand] = false;
 		SVRHand& vh = avrh[i_hand];
 		if (!vh.pinsHeld)
 			return;
@@ -4562,16 +4559,16 @@ public:
 		if (avrh[1 - i_hand].pinsHeld == pins)
 			ReleaseVR(1 - i_hand, false);
 
-		// The right hand holding something the game has its own hand shape for (guns: trigger
-		// finger out): that shape is used, as the game did.
-		if (i_hand == 0)
+		// A hand holding something the game has its own hand shape for (guns: trigger finger out)
+		// is drawn in that shape.  Each hand has its own: the shape is put on the mesh just for
+		// the drawing of that hand (her body for the right, the mirrored arm for the left).
 		{
 			const CMagnetPair* pmp_sub = NMagnetSystem::pmpFindMagnet(pins, Set(emfHAND_HOLD));
 			int i_sub = pmp_sub ? pmp_sub->pmagData->u1SubstituteMesh : 0;
-			CAnimate::Substitute(i_sub);
-			bVRSubstituted = i_sub != 0;
-			if (bVRSubstituted && gVR.pfnLog)
-				gVR.pfnLog("Hand: the game's own grip shape %d for %s.", i_sub, pins->strGetInstanceName());
+			gVR.aiHandShape[i_hand] = i_sub;
+			abVRSubstituted[i_hand] = i_sub != 0;
+			if (i_sub && gVR.pfnLog)
+				gVR.pfnLog("Hand: the game's own grip shape %d for %s in the %s hand.", i_sub, pins->strGetInstanceName(), i_hand ? "left" : "right");
 		}
 
 		// A gun mounted on a hinge (the .50 sniper on its tripod): taken off the mount, so it is
@@ -5450,21 +5447,18 @@ public:
 				float f_surface = wqwh.v3Water.tZ;
 				float f_bottom;
 				bool b_bottom = b_floor(v3VRFeet.tX, v3VRFeet.tY, f_surface, 30.0f, f_bottom);
-				if (!b_bottom || f_surface - f_bottom > fFLOAT)
+				// (Once afloat, she stays afloat until it is clearly shallow: switching back and
+				// forth at the edge made her bounce.)
+				if (!b_bottom || f_surface - f_bottom > (b_was ? fFLOAT - 0.25f : fFLOAT))
 				{
 					bVRSwimming = true;
 					float f_float_z = f_surface - fFLOAT;
 					// Sink in from a jump or fall, then bob up to the surface.
-					if (v3VRFeet.tZ > f_float_z && !b_was)
-					{
-						fVRVz -= fGRAVITY * f_dt;
-						v3VRFeet.tZ += fVRVz * f_dt;
-					}
-					else
-					{
-						v3VRFeet.tZ += (f_float_z - v3VRFeet.tZ) * Min(1.0f, 3.0f * f_dt);
-						fVRVz = 0;
-					}
+					// Eased toward floating height, never overshooting: no bob.
+					float f_dz = f_float_z - v3VRFeet.tZ;
+					float f_step = Min(fabsf(f_dz), 0.6f * f_dt + fabsf(f_dz) * Min(1.0f, 1.5f * f_dt));
+					v3VRFeet.tZ += f_dz >= 0 ? f_step : -f_step;
+					fVRVz = 0;
 					if (v3VRFeet.tZ < f_float_z - 1.0f)
 						v3VRFeet.tZ = f_float_z - 1.0f;
 					bVRGrounded = false;
@@ -6045,7 +6039,7 @@ public:
 		CPlacement3<> ap3_target[2] = { p3VRController(0), p3VRController(1) };
 		float af_curl[2];
 		for (int h = 0; h < 2; h++)
-			af_curl[h] = avrh[h].pinsHeld ? ((h == 0 && bVRSubstituted) ? 0.0f : 0.75f) : gVR.afCurl[h];
+			af_curl[h] = avrh[h].pinsHeld ? (abVRSubstituted[h] ? 0.0f : 0.75f) : gVR.afCurl[h];
 
 		if (gVR.iTwoHand)
 		{
@@ -6123,6 +6117,7 @@ public:
 					{
 						v3_right.Normalise();
 						ap3_target[i_support].v3Pos -= v3_right * gVR.fSmgSupportLeft;
+						ap3_target[i_support].v3Pos += v3_gun_up * gVR.fSmgSupportUp;
 					}
 				}
 			}
