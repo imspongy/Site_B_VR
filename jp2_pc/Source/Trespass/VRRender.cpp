@@ -2511,11 +2511,14 @@ bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, cons
 		}
 	// Skirts: each edge hangs a short wall down, so where the coarse grid beside a patch
 	// is lower there's no gap to see through.  Both windings, seen from either side.
+	// (The skirt's own top points, copies of the edge marked as skirt: sharing the ground's
+	// edge points let half of each skirt escape the between-patches test, and it stood up
+	// out of the ground as flat fins.)
 	for (int e = 0; e < 4; e++)
 		for (int k = 0; k < i_n - 1; k++)
 		{
-			uint32_t a = u4PatchEdge(i_n, e, k), b = u4PatchEdge(i_n, e, k + 1);
-			uint32_t c = (uint32_t)(i_n * i_n + e * i_n + k), d = c + 1;
+			uint32_t t0 = (uint32_t)(i_n * i_n + (e * i_n + k) * 2), t1 = t0 + 2;
+			uint32_t a = t0, b = t1, c = t0 + 1, d = t1 + 1;
 			au4.push_back(a); au4.push_back(b); au4.push_back(d);
 			au4.push_back(a); au4.push_back(d); au4.push_back(c);
 			au4.push_back(a); au4.push_back(d); au4.push_back(b);
@@ -2526,16 +2529,17 @@ bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, cons
 		for (int k = 0; k < i_n; k++)
 		{
 			SVRRTerrainVertex tv = ptv[u4PatchEdge(i_n, e, k)];
-			// Down to below the coarse ground, or up to it where that is higher (else a crack
-			// showed the sky where the detail changes on distant hills).
-			tv.afPos[2] = pf_skirt ? pf_skirt[e * i_n + k] : tv.afPos[2] - 3.0f;
 			// Marked as skirt (alpha 0), facing out: a skirt between two patches is not drawn
 			// (one rising to the coarse ground there would stand up as a fin).
 			tv.u4Colour &= 0x00FFFFFFu;
 			tv.afNormal[0] = e == 2 ? -1.0f : e == 3 ? 1.0f : 0.0f;
 			tv.afNormal[1] = e == 0 ? -1.0f : e == 1 ? 1.0f : 0.0f;
 			tv.afNormal[2] = 0.0f;
-			atv.push_back(tv);
+			atv.push_back(tv);		// Top, at the ground's edge.
+			// Down to below the coarse ground, or up to it where that is higher (else a crack
+			// showed the sky where the detail changes on distant hills).
+			tv.afPos[2] = pf_skirt ? pf_skirt[e * i_n + k] : tv.afPos[2] - 3.0f;
+			atv.push_back(tv);		// Bottom (or top, rising to the coarse ground).
 		}
 	SafeRelease(apvbPatch[i_slot]);
 	SafeRelease(apibPatch[i_slot]);

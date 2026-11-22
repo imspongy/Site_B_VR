@@ -444,9 +444,11 @@ bool CLocationTrigger::bEvaluateNow()
 	{
 		// if the activate object is set then we only fire if that object is contained within
 		// the trigger.
+		// (Your hands count by the tip of the index finger here too: the whole hand box held
+		// several keypad keys down at once.)
 		return bContained(pinsActivate) ||
-		       (bVRHandFor((CInstance*)gVR.apvVRHandBox[0]) && bContained((CInstance*)gVR.apvVRHandBox[0])) ||
-		       (bVRHandFor((CInstance*)gVR.apvVRHandBox[1]) && bContained((CInstance*)gVR.apvVRHandBox[1]));
+		       (bVRHandFor((CInstance*)gVR.apvVRHandBox[0]) && bVRTipInside(0)) ||
+		       (bVRHandFor((CInstance*)gVR.apvVRHandBox[1]) && bVRTipInside(1));
 	}
 	else
 	{
@@ -497,6 +499,15 @@ bool CLocationTrigger::bEvaluateNow()
 	return false;
 }
 
+
+//*********************************************************************************************
+// VR: is the tip of this hand's index finger inside the trigger?
+bool CLocationTrigger::bVRTipInside(int h) const
+{
+	CVector3<> v3_tip(gVR.aafFingerTip[h][0], gVR.aafFingerTip[h][1], gVR.aafFingerTip[h][2]);
+	v3_tip *= ~pr3Presence();
+	return bv_BoundingVolume && bv_BoundingVolume->bContains(v3_tip);
+}
 
 //*********************************************************************************************
 // VR: is this one of your hands, standing in for Anne's hand on a trigger that waits for her hand?

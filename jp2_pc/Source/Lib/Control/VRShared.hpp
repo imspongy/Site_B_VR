@@ -172,6 +172,7 @@ struct SVRShared
 	// then rotation as a quaternion c, x, y, z).  The renderer draws it at the controller's
 	// latest pose, so it doesn't judder between physics steps.
 	const void* apvHeldFirm[2] = { nullptr, nullptr };
+	float aafHeldGunAxis[2][6] = {};		// Held gun: its origin and its forward (barrel) direction, world.
 	float afHeldGrab[2][7] = {};	// Longest side of what each hand holds (m): long guns get a fore grip.
 	float afHeldMass[2] = { 0, 0 };
 	bool  abForceTarget[2] = { false, false };

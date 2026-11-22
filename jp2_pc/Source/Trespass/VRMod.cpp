@@ -2507,7 +2507,21 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 				{
 					// Long guns (shotgun, rifles) are held under the barrel; short ones by cupping the grip.
 					bool b_pistol = gVR.afHeldLength[g] > 0.0f ? gVR.afHeldLength[g] < 0.55f : gVR.afHeldMass[g] <= setVR.fPistolMaxMass;
-					if (f_gap < (b_pistol ? 0.25f : 0.7f))
+					// Long guns: only a hand right at the gun, ahead of the gun hand (anywhere within
+					// 0.7 m of the gun hand grabbed guns the other hand was holding by accident).
+					bool b_near = f_gap < 0.25f;
+					if (!b_pistol && abHandValid[s] && abHandValid[g])
+					{
+						const float* pf = gVR.aafHeldGunAxis[g];
+						CVector3<> v3_o(pf[0], pf[1], pf[2]), v3_f(pf[3], pf[4], pf[5]);
+						float f_len = gVR.afHeldLength[g] > 0 ? gVR.afHeldLength[g] : 1.0f;
+						CVector3<> v3_rel = av3HandWorld[s] - v3_o;
+						float f_along = v3_rel * v3_f;
+						float f_gun_hand = (av3HandWorld[g] - v3_o) * v3_f;
+						CVector3<> v3_off = v3_rel - v3_f * f_along;
+						b_near = fLen(v3_off) < 0.15f && f_along > f_gun_hand + 0.05f && f_along < f_gun_hand + f_len + 0.1f;
+					}
+					if (b_near)
 					{
 						gVR.iTwoHand = i_mode;
 						gVR.bTwoHandPistol = b_pistol;

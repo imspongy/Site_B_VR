@@ -2695,6 +2695,13 @@ public:
 			// magnet master changed, otherwise rubbed against it the whole time (silenced SMG).
 			if (pins)
 				IgnoreVR(i, pins, true);
+			if (pins && avrh[i].iGunKind >= 0)
+			{
+				CVector3<> v3_o = pins->v3Pos(), v3_f = CVector3<>(0, 1, 0) * pins->r3Rot();
+				float* pf = gVR.aafHeldGunAxis[i];
+				pf[0] = v3_o.tX; pf[1] = v3_o.tY; pf[2] = v3_o.tZ;
+				pf[3] = v3_f.tX; pf[4] = v3_f.tY; pf[5] = v3_f.tZ;
+			}
 			// Gun adjusting in the headset: move the gun in the hand by what the stick did.
 			if (pins && avrh[i].iGunKind >= 0 && (gVR.aafGunAdjPending[i][0] != 0 || gVR.aafGunAdjPending[i][1] != 0 || gVR.aafGunAdjPending[i][2] != 0))
 			{

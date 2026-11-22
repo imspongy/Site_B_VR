@@ -526,6 +526,7 @@ public:
 	//*****************************************************************************************
 	// VR: one of your hands standing in for Anne's hand.
 	bool bVRHandFor(const CInstance* pins) const;
+	bool bVRTipInside(int h) const;
 
 	//*****************************************************************************************
 	virtual bool bEvaluateNow() override;
