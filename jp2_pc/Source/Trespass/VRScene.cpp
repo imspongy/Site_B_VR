@@ -1470,6 +1470,7 @@ namespace
 	}
 
 	void ReleaseQueries(CTerrain* ptrr);
+	float fTerrainHeight(CTerrain* ptrr, float f_x, float f_y);
 
 	//******************************************************************************************
 	// Animated ground textures (surf washing up the beach, and the like): the game animates
@@ -1504,7 +1505,7 @@ namespace
 			for (int i = 0; i < i_verts; i++)
 			{
 				CVector3<> v3 = *pmv0[i].pv3Point * pr3;
-				v3.tZ = (float)ptrr->rHeight(v3.tX, v3.tY) + f_lift;
+				v3.tZ = fTerrainHeight(ptrr, v3.tX, v3.tY) + f_lift;
 				SVRRVertex& v = av[i];
 				v.afPos[0] = v3.tX; v.afPos[1] = v3.tY; v.afPos[2] = v3.tZ;
 				v.afNormal[0] = 0; v.afNormal[1] = 0; v.afNormal[2] = 1;
@@ -1642,13 +1643,13 @@ namespace
 				if (pjob.iNext < i_grid)
 				{
 					int i_x = pjob.iNext % i_side - 1, i_y = pjob.iNext / i_side - 1;
-					pjob.afH[pjob.iNext] = (float)ptrr->rHeight(f_ox + i_x * f_step, f_oy + i_y * f_step);
+					pjob.afH[pjob.iNext] = fTerrainHeight(ptrr, f_ox + i_x * f_step, f_oy + i_y * f_step);
 				}
 				else
 				{
 					int i_c = pjob.iNext - i_grid;
 					int i_x = i_c % (iPATCH_N - 1), i_y = i_c / (iPATCH_N - 1);
-					pjob.afH[pjob.iNext] = (float)ptrr->rHeight(f_ox + (i_x + 0.5f) * f_step, f_oy + (i_y + 0.5f) * f_step);
+					pjob.afH[pjob.iNext] = fTerrainHeight(ptrr, f_ox + (i_x + 0.5f) * f_step, f_oy + (i_y + 0.5f) * f_step);
 				}
 				pjob.iNext++;
 				if (++i_since >= 400)
@@ -1715,6 +1716,24 @@ namespace
 	}
 
 	//******************************************************************************************
+	// A height from the game's terrain tree.  Each lookup builds a path of nodes down to the
+	// finest level (about 50) in the game's fixed-size terrain memory, which holds 7000; the
+	// game doesn't check for running out, and when it did (hundreds of lookups between
+	// clean-ups) it wrote past the end, which later crashed the AI's and physics' own terrain
+	// and object lookups (level 3).  So clean up every few lookups.
+	float fTerrainHeight(CTerrain* ptrr, float f_x, float f_y)
+	{
+		static int i_since = 0;
+		float f = (float)ptrr->rHeight(f_x, f_y);
+		if (++i_since >= 16)
+		{
+			ReleaseQueries(ptrr);
+			i_since = 0;
+		}
+		return f;
+	}
+
+	//******************************************************************************************
 	//
 	// Terrain: height grid and texture atlas, once per level.
 	//
@@ -1754,7 +1773,7 @@ namespace
 			QueryPerformanceFrequency(&li_f);
 			QueryPerformanceCounter(&li_0);
 			for (int i = 0; i < 400; i++)
-				ptrr->rHeight(f_x0 + (i % 20) * f_w / 20.0f, f_y0 + (i / 20) * f_h / 20.0f);
+				fTerrainHeight(ptrr, f_x0 + (i % 20) * f_w / 20.0f, f_y0 + (i / 20) * f_h / 20.0f);
 			QueryPerformanceCounter(&li_1);
 			ReleaseQueries(ptrr);
 			double d_each = double(li_1.QuadPart - li_0.QuadPart) / double(li_f.QuadPart) / 400.0;
@@ -1776,7 +1795,7 @@ namespace
 			for (int x = 0; x < i_nx; x++)
 			{
 				float f_x = std::min(f_x0 + x * f_spacing, f_x1), f_y = std::min(f_y0 + y * f_spacing, f_y1);
-				af_h[(size_t)y * i_nx + x] = (float)ptrr->rHeight(f_x, f_y);
+				af_h[(size_t)y * i_nx + x] = fTerrainHeight(ptrr, f_x, f_y);
 
 				// Each lookup builds part of the game's height tree in a fixed-size memory
 				// area; let it free what isn't needed any more before that fills up.
