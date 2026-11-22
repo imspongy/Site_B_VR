@@ -20,6 +20,10 @@ jobs:
         working-directory: jp2_pc
         run: cmake -G "Visual Studio 17 2022" -A Win32 -S . -B Build/CI -D USE_TRESPASSER_DIRECTORY=false
 
+      - name: Check the VR renderer's shaders
+        shell: pwsh
+        run: python tools/check_shaders.py jp2_pc/Source/Trespass/VRRender.cpp
+
       - name: Build (Final = fast)
         working-directory: jp2_pc
         run: cmake --build Build/CI --config Final --target trespass -- /m
