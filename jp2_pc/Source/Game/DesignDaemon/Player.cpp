@@ -5958,6 +5958,25 @@ public:
 		sri.patf3JointTransforms[12] = CTransform3<>(mx3_hscale * atf3[12].mx3Mat * mx3_hand,  v3_w_new);
 		sri.patf3JointTransforms[13] = CTransform3<>(mx3_hscale * atf3[13].mx3Mat * mx3_hand * mx3_curl, v3_f_new);
 
+		// Where the drawn fingertips are: keypad keys are pressed there, not at a guess from
+		// the controller (keys pressed only sometimes, and not the one aimed at).
+		{
+			CVector3<> v3_fd = v3_f_new - v3_w_new;
+			if (v3_fd.tLen() > 1e-4f)
+			{
+				v3_fd.Normalise();
+				CVector3<> v3_tip = v3_f_new + (v3_fd * mx3_curl) * (0.085f * r_hs * r_inv_scale);
+				if (b_mirror)
+					v3_tip.tX = -v3_tip.tX;
+				CVector3<> v3_tip_w = v3_tip * pr3;
+				int h_tip = b_mirror ? 1 : 0;
+				gVR.aafFingerTipDrawn[h_tip][0] = v3_tip_w.tX;
+				gVR.aafFingerTipDrawn[h_tip][1] = v3_tip_w.tY;
+				gVR.aafFingerTipDrawn[h_tip][2] = v3_tip_w.tZ;
+				gVR.aiFingerTipAge[h_tip] = 0;
+			}
+		}
+
 		if (b_mirror)
 		{
 			for (int j = 0; j < pbm->iJoints; j++)

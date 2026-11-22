@@ -2622,7 +2622,14 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 
 		StoreV(gVR.aafHandPos[h], av3HandWorld[h]);
 		// The index fingertip: forward of the grip (the controller points along its forward).
-		StoreV(gVR.aafFingerTip[h], av3HandWorld[h] + CVector3<>(0, 0.09f, -0.015f) * ar3HandWorld[h]);
+		if (gVR.aiFingerTipAge[h] < 4)
+		{
+			for (int k = 0; k < 3; k++)
+				gVR.aafFingerTip[h][k] = gVR.aafFingerTipDrawn[h][k];
+		}
+		else
+			StoreV(gVR.aafFingerTip[h], av3HandWorld[h] + CVector3<>(0, 0.09f, -0.015f) * ar3HandWorld[h]);
+		gVR.aiFingerTipAge[h]++;
 		StoreQ(gVR.aafHandRot[h], (h == 0 ? r3_offset : r3_offset_l) * ar3_hand[h]);
 		{
 			// The controller's own up (its top, where your thumb is), in the game's hand frame.
