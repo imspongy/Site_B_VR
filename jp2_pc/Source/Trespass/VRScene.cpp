@@ -166,6 +166,16 @@ namespace
 				uint32 u = (uint32)ptex->d3dpixColour;
 				u4 = u4RGBA((u >> 16) & 255, (u >> 8) & 255, u & 255, (u >> 24) & 255);
 			}
+			{
+				int r = u4 & 255, g = (u4 >> 8) & 255, bl = (u4 >> 16) & 255;
+				static int i_logged = 0;
+				if (bl > 160 && r < 80 && g < 80 && i_logged < 20 && gVR.pfnLog)
+				{
+					i_logged++;
+					gVR.pfnLog("Texture check: plain colour %d %d %d (game colour %04X, card colour %08X, %s).", r, g, bl,
+						(unsigned)ptex->tpSolid, (unsigned)(uint32)ptex->d3dpixColour, b_transparent ? "see-through" : "solid");
+				}
+			}
 			// Kept by the colour itself, not by the texture's address: an address can be
 			// reused by another texture (sparks once drew with whatever image had been there).
 			auto it = mapSolidTex.find(u4);
@@ -341,6 +351,24 @@ namespace
 			b_any_clear = false;
 		}
 
+		// Texture check (the black obelisk drew blue): textures that are nearly all pure blue.
+		{
+			size_t u_blue = 0;
+			for (uint32_t u : au4)
+			{
+				int r = u & 255, g = (u >> 8) & 255, b = (u >> 16) & 255;
+				if (b > 160 && r < 80 && g < 80)
+					u_blue++;
+			}
+			if (u_blue * 10 > au4.size() * 9 && gVR.pfnLog)
+			{
+				const CColour* pclr0 = i_pal > 0 ? &ppal->aclrPalette[0] : nullptr;
+				gVR.pfnLog("Texture check: %dx%d, %d bits, %s%s%s%s, palette %d (first %d %d %d), mostly blue.", i_w, i_h, praw->iPixelBits,
+					b_transparent ? "see-through" : "solid", ptex->seterfFeatures[erfBUMP] ? ", bump" : "",
+					b_alpha_colour ? ", alpha colour" : "", b_key_black ? ", key drawn black" : "", i_pal,
+					pclr0 ? pclr0->u1Red : -1, pclr0 ? pclr0->u1Green : -1, pclr0 ? pclr0->u1Blue : -1);
+			}
+		}
 		int i_handle = VRR_TextureCreate(i_w, i_h, au4.data());
 		mapTex[praw] = i_handle;
 		mapTexAlpha[praw] = b_any_clear;

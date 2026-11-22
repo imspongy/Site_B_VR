@@ -46,15 +46,38 @@ namespace
 	// Shaders.
 	//
 	const char* strSHADERS = R"HLSL(
+// Both eyes' views.  Both eyes are drawn in one pass where the card allows it (each thing is
+// drawn twice by instancing, once into each eye's layer), halving the work of sending the
+// scene to the card; otherwise one pass per eye.
+struct SEyeData
+{
+	float4 row[4];
+	float4 pos;
+	float4 ex;
+	float4 ey;
+	float4 ez;
+	float4 tan;		// left, right, down, up
+};
 cbuffer CBEye : register(b0)
 {
-	float4 gRow[4];
-	float4 gEyePos;
-	float4 gEyeX;
-	float4 gEyeY;
-	float4 gEyeZ;
-	float4 gTan;		// left, right, down, up
+	SEyeData gEyes[2];
+	uint4    gStereo;	// x: both eyes in one pass, y: the eye when not
 };
+static uint sEye = 0;
+#define gRow    gEyes[sEye].row
+#define gEyePos gEyes[sEye].pos
+#define gEyeX   gEyes[sEye].ex
+#define gEyeY   gEyes[sEye].ey
+#define gEyeZ   gEyes[sEye].ez
+#define gTan    gEyes[sEye].tan
+uint EyeOf(uint iid) { return gStereo.x ? (iid & 1) : gStereo.y; }
+#ifdef STEREO_RT
+#define EYE_OUT nointerpolation uint eye : EYE; uint rtai : SV_RenderTargetArrayIndex;
+#define SET_EYE_OUT(o) o.eye = sEye; o.rtai = sEye;
+#else
+#define EYE_OUT nointerpolation uint eye : EYE;
+#define SET_EYE_OUT(o) o.eye = sEye;
+#endif
 
 cbuffer CBFrame : register(b1)
 {
@@ -105,6 +128,7 @@ struct PSObjIn
 	float3 wn  : TEXCOORD1;
 	float2 uv  : TEXCOORD2;
 	nointerpolation uint flags : TEXCOORD3;
+	EYE_OUT
 };
 
 float3 WorldPos(VSObjIn i)
@@ -194,9 +218,11 @@ float3 Shade(float3 albedo, float3 n, float3 wp, bool unlit)
 	return albedo * (gLight.x + gSun.w * ndl * sh) * gLight.y;
 }
 
-PSObjIn VSObject(VSObjIn i)
+PSObjIn VSObject(VSObjIn i, uint iid : SV_InstanceID)
 {
 	PSObjIn o;
+	sEye = EyeOf(iid);
+	SET_EYE_OUT(o)
 	o.wp = WorldPos(i);
 	o.wn = WorldNormal(i);
 	o.uv = i.uv + i.uvoff;
@@ -207,6 +233,7 @@ PSObjIn VSObject(VSObjIn i)
 
 float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 {
+	sEye = i.eye;
 	float4 c = gTex.Sample(gSamp, i.uv);
 	if (i.flags & 1)
 	{
@@ -279,11 +306,14 @@ struct PSTerIn
 	float3 wp  : TEXCOORD0;
 	float3 wn  : TEXCOORD1;
 	float4 c   : COLOR;
+	EYE_OUT
 };
 
-PSTerIn VSTerrain(VSTerIn i)
+PSTerIn VSTerrain(VSTerIn i, uint iid : SV_InstanceID)
 {
 	PSTerIn o;
+	sEye = EyeOf(iid);
+	SET_EYE_OUT(o)
 	o.wp = i.p;
 	o.wn = i.n;
 	o.c = i.c;
@@ -373,6 +403,7 @@ float3 TerrainDetail(float3 wp, float3 atlas_col)
 
 float4 PSTerrain(PSTerIn i) : SV_Target
 {
+	sEye = i.eye;
 	float3 albedo = i.c.rgb;
 	if (gAtlasOn.x > 0.5)
 		albedo = gAtlasTex.Sample(gSamp, (i.wp.xy - gAtlas.xy) * gAtlas.zw).rgb;
@@ -500,11 +531,14 @@ struct PSSkyIn
 {
 	float4 pos : SV_Position;
 	float2 ndc : TEXCOORD0;
+	EYE_OUT
 };
 
-PSSkyIn VSSky(uint id : SV_VertexID)
+PSSkyIn VSSky(uint id : SV_VertexID, uint iid : SV_InstanceID)
 {
 	PSSkyIn o;
+	sEye = EyeOf(iid);
+	SET_EYE_OUT(o)
 	float2 t = float2((id << 1) & 2, id & 2);
 	o.ndc = t * float2(2, 2) - float2(1, 1);
 	o.pos = float4(o.ndc, 0, 1);
@@ -513,6 +547,7 @@ PSSkyIn VSSky(uint id : SV_VertexID)
 
 float4 PSSky(PSSkyIn i) : SV_Target
 {
+	sEye = i.eye;
 	float tx = lerp(gTan.x, gTan.y, i.ndc.x * 0.5 + 0.5);
 	float tz = lerp(gTan.z, gTan.w, i.ndc.y * 0.5 + 0.5);
 	float3 d = normalize(gEyeY.xyz + gEyeX.xyz * tx + gEyeZ.xyz * tz);
@@ -565,7 +600,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 )HLSL";
 
 	//******************************************************************************************
-	struct SEyeCB
+	struct SEyeOne
 	{
 		float afRow[4][4];
 		float afEyePos[4];
@@ -574,6 +609,13 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		float afEyeZ[4];
 		float afTan[4];
 	};
+	struct SEyeCB
+	{
+		SEyeOne aeye[2];
+		uint32_t au4Stereo[4];
+	};
+	bool bStereoPass = false;	// Both eyes in one pass (the card can pick the layer in the vertex shader).
+	UINT uEyeInstances = 1;		// Instances per thing drawn now: 2 in the eyes' single pass, else 1.
 
 	struct SFrameCB
 	{
@@ -629,10 +671,12 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	int                     iWidth = 0, iHeight = 0, iMSAA = 1, iShadowSize = 0;
 
 	// Targets.
-	ID3D11Texture2D*        ptexColour = nullptr;	// MSAA colour.
-	ID3D11RenderTargetView* prtvColour = nullptr;
+	ID3D11Texture2D*        ptexColour = nullptr;	// Colour (anti-aliased if on): a layer per eye.
+	ID3D11RenderTargetView* prtvColour = nullptr;	// Both layers.
+	ID3D11RenderTargetView* aprtvColourEye[2] = { nullptr, nullptr };	// One layer each.
 	ID3D11Texture2D*        ptexDepth = nullptr;
 	ID3D11DepthStencilView* pdsvDepth = nullptr;
+	ID3D11DepthStencilView* adsvDepthEye[2] = { nullptr, nullptr };
 	ID3D11Texture2D*        aptexEye[2] = { nullptr, nullptr };	// Resolved eye images.
 	ID3D11RenderTargetView* aprtvEye[2] = { nullptr, nullptr };
 
@@ -656,6 +700,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	ID3D11PixelShader*  ppsShadowAlpha = nullptr;
 	ID3D11VertexShader* pvsShadowTerrain = nullptr;
 	ID3D11InputLayout*  pilObject = nullptr;
+	ID3D11InputLayout*  pilObjectEyes = nullptr;
 	ID3D11InputLayout*  pilTerrain = nullptr;
 
 	// States.
@@ -781,7 +826,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	{
 		ID3DBlob* pblob = nullptr;
 		ID3DBlob* pblob_err = nullptr;
-		HRESULT hr = D3DCompile(strSHADERS, std::strlen(strSHADERS), "SiteBVR", nullptr, nullptr, str_entry, str_target,
+		D3D_SHADER_MACRO am_stereo[] = { { "STEREO_RT", "1" }, { nullptr, nullptr } };
+		HRESULT hr = D3DCompile(strSHADERS, std::strlen(strSHADERS), "SiteBVR", bStereoPass ? am_stereo : nullptr, nullptr, str_entry, str_target,
 		                        D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &pblob, &pblob_err);
 		if (FAILED(hr))
 		{
@@ -852,6 +898,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		SafeRelease(ptexDepth);
 		for (int i = 0; i < 2; i++)
 		{
+			SafeRelease(aprtvColourEye[i]);
+			SafeRelease(adsvDepthEye[i]);
 			SafeRelease(aprtvEye[i]);
 			SafeRelease(aptexEye[i]);
 		}
@@ -882,25 +930,42 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 			}
 		}
 
-		// Multisampled colour and depth.
+		// Colour and depth (multisampled if on), a layer for each eye.
 		UINT u_quality = 0;
 		while (iMSAA > 1 && (FAILED(pDev->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, iMSAA, &u_quality)) || u_quality == 0))
 			iMSAA /= 2;
-		if (iMSAA > 1)
 		{
 			D3D11_TEXTURE2D_DESC td = {};
 			td.Width = iWidth;
 			td.Height = iHeight;
 			td.MipLevels = 1;
-			td.ArraySize = 1;
+			td.ArraySize = 2;
 			td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 			td.SampleDesc.Count = iMSAA;
 			td.Usage = D3D11_USAGE_DEFAULT;
 			td.BindFlags = D3D11_BIND_RENDER_TARGET;
-			if (FAILED(pDev->CreateTexture2D(&td, nullptr, &ptexColour)) ||
-				FAILED(pDev->CreateRenderTargetView(ptexColour, nullptr, &prtvColour)))
+			bool b_ok = SUCCEEDED(pDev->CreateTexture2D(&td, nullptr, &ptexColour));
+			for (int i = -1; b_ok && i < 2; i++)
 			{
-				str_err = "could not create the anti-aliasing buffer";
+				D3D11_RENDER_TARGET_VIEW_DESC rvd = {};
+				rvd.Format = td.Format;
+				if (iMSAA > 1)
+				{
+					rvd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY;
+					rvd.Texture2DMSArray.FirstArraySlice = i < 0 ? 0 : i;
+					rvd.Texture2DMSArray.ArraySize = i < 0 ? 2 : 1;
+				}
+				else
+				{
+					rvd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+					rvd.Texture2DArray.FirstArraySlice = i < 0 ? 0 : i;
+					rvd.Texture2DArray.ArraySize = i < 0 ? 2 : 1;
+				}
+				b_ok = SUCCEEDED(pDev->CreateRenderTargetView(ptexColour, &rvd, i < 0 ? &prtvColour : &aprtvColourEye[i]));
+			}
+			if (!b_ok)
+			{
+				str_err = "could not create the colour buffer";
 				return false;
 			}
 		}
@@ -909,13 +974,31 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 			td.Width = iWidth;
 			td.Height = iHeight;
 			td.MipLevels = 1;
-			td.ArraySize = 1;
+			td.ArraySize = 2;
 			td.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;		// Stencil: fine terrain covers coarse.
 			td.SampleDesc.Count = iMSAA;
 			td.Usage = D3D11_USAGE_DEFAULT;
 			td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-			if (FAILED(pDev->CreateTexture2D(&td, nullptr, &ptexDepth)) ||
-				FAILED(pDev->CreateDepthStencilView(ptexDepth, nullptr, &pdsvDepth)))
+			bool b_ok = SUCCEEDED(pDev->CreateTexture2D(&td, nullptr, &ptexDepth));
+			for (int i = -1; b_ok && i < 2; i++)
+			{
+				D3D11_DEPTH_STENCIL_VIEW_DESC dvd = {};
+				dvd.Format = td.Format;
+				if (iMSAA > 1)
+				{
+					dvd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
+					dvd.Texture2DMSArray.FirstArraySlice = i < 0 ? 0 : i;
+					dvd.Texture2DMSArray.ArraySize = i < 0 ? 2 : 1;
+				}
+				else
+				{
+					dvd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+					dvd.Texture2DArray.FirstArraySlice = i < 0 ? 0 : i;
+					dvd.Texture2DArray.ArraySize = i < 0 ? 2 : 1;
+				}
+				b_ok = SUCCEEDED(pDev->CreateDepthStencilView(ptexDepth, &dvd, i < 0 ? &pdsvDepth : &adsvDepthEye[i]));
+			}
+			if (!b_ok)
 			{
 				str_err = "could not create the depth buffer";
 				return false;
@@ -1103,6 +1186,10 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 			};
 			b_ok = SUCCEEDED(pDev->CreateInputLayout(aied_obj, 8, pblob_obj->GetBufferPointer(), pblob_obj->GetBufferSize(), &pilObject)) &&
 			       SUCCEEDED(pDev->CreateInputLayout(aied_ter, 3, pblob_ter->GetBufferPointer(), pblob_ter->GetBufferSize(), &pilTerrain));
+			// The eyes' pass: each thing's placement is used for two instances (one per eye).
+			for (int k = 3; k < 8; k++)
+				aied_obj[k].InstanceDataStepRate = bStereoPass ? 2 : 1;
+			b_ok = b_ok && SUCCEEDED(pDev->CreateInputLayout(aied_obj, 8, pblob_obj->GetBufferPointer(), pblob_obj->GetBufferSize(), &pilObjectEyes));
 			if (!b_ok)
 				str_err = "could not create the vertex layouts";
 		}
@@ -1150,7 +1237,8 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	{
 		UINT u_stride = sizeof(SInstance), u_offset = 0;
 		pCtx->IASetVertexBuffers(1, 1, &pvbInst, &u_stride, &u_offset);
-		pCtx->IASetInputLayout(pilObject);
+		pCtx->IASetInputLayout(b_shadow ? pilObject : pilObjectEyes);
+		UINT u_mul = b_shadow ? 1 : uEyeInstances;
 		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 		int i_bound_mesh = -1, i_bound_tex = -1, i_bound_ntex = -1, i_base = 0, i_first = 0;
@@ -1226,7 +1314,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				i_bound_ntex = drw.iNormalTex;
 			}
 
-			pCtx->DrawIndexedInstanced(drw.iNumIndices, i_run, i_first + drw.iFirstIndex, i_base, i);
+			pCtx->DrawIndexedInstanced(drw.iNumIndices, (UINT)i_run * u_mul, i_first + drw.iFirstIndex, i_base, i);
 			iLastBatches++;
 		}
 	}
@@ -1250,7 +1338,7 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 				continue;
 			pCtx->IASetIndexBuffer(apibPatch[i], DXGI_FORMAT_R32_UINT, 0);
 			pCtx->IASetVertexBuffers(0, 1, &apvbPatch[i], &u_stride, &u_offset);
-			pCtx->DrawIndexed(aiPatchIdx[i], 0, 0);
+			pCtx->DrawIndexedInstanced(aiPatchIdx[i], uEyeInstances, 0, 0, 0);
 		}
 	}
 
@@ -1320,48 +1408,53 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 		pCtx->IASetIndexBuffer(pibTerrain, DXGI_FORMAT_R32_UINT, 0);
 		pCtx->IASetInputLayout(pilTerrain);
 		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		pCtx->DrawIndexed(iTerrainIndices, 0, 0);
+		pCtx->DrawIndexedInstanced(iTerrainIndices, uEyeInstances, 0, 0, 0);
 	}
 
 	//******************************************************************************************
-	void SetEye(const SVRRFrame& fr, int i_eye)
+	void SetEyes(const SVRRFrame& fr, int i_pass)
 	{
-		const float* e  = fr.afEyePos[i_eye];
-		const float* ex = &fr.afEyeAxes[i_eye][0];
-		const float* ey = &fr.afEyeAxes[i_eye][3];
-		const float* ez = &fr.afEyeAxes[i_eye][6];
-		float l = fr.afEyeTan[i_eye][0], r = fr.afEyeTan[i_eye][1];
-		float d = fr.afEyeTan[i_eye][2], u = fr.afEyeTan[i_eye][3];
-		float sx = 2.0f / (r - l), ox = (r + l) / (r - l);
-		float sz = 2.0f / (u - d), oz = (u + d) / (u - d);
-
-		SEyeCB cb = {};
-		for (int k = 0; k < 3; k++)
+		SEyeCB cbs = {};
+		for (int i_eye = 0; i_eye < 2; i_eye++)
 		{
-			cb.afRow[0][k] = sx * ex[k] - ox * ey[k];
-			cb.afRow[1][k] = sz * ez[k] - oz * ey[k];
-			cb.afRow[2][k] = 0;
-			cb.afRow[3][k] = ey[k];
+			SEyeOne& cb = cbs.aeye[i_eye];
+			const float* e  = fr.afEyePos[i_eye];
+			const float* ex = &fr.afEyeAxes[i_eye][0];
+			const float* ey = &fr.afEyeAxes[i_eye][3];
+			const float* ez = &fr.afEyeAxes[i_eye][6];
+			float l = fr.afEyeTan[i_eye][0], r = fr.afEyeTan[i_eye][1];
+			float d = fr.afEyeTan[i_eye][2], u = fr.afEyeTan[i_eye][3];
+			float sx = 2.0f / (r - l), ox = (r + l) / (r - l);
+			float sz = 2.0f / (u - d), oz = (u + d) / (u - d);
+			for (int k = 0; k < 3; k++)
+			{
+				cb.afRow[0][k] = sx * ex[k] - ox * ey[k];
+				cb.afRow[1][k] = sz * ez[k] - oz * ey[k];
+				cb.afRow[2][k] = 0;
+				cb.afRow[3][k] = ey[k];
+			}
+			for (int i_row = 0; i_row < 4; i_row++)
+			{
+				if (i_row == 2)
+					continue;
+				cb.afRow[i_row][3] = -(cb.afRow[i_row][0] * e[0] + cb.afRow[i_row][1] * e[1] + cb.afRow[i_row][2] * e[2]);
+			}
+			cb.afRow[2][3] = fr.fNear;		// Reversed infinite depth: z = near / distance.
+			for (int k = 0; k < 3; k++)
+			{
+				cb.afEyePos[k] = e[k];
+				cb.afEyeX[k] = ex[k];
+				cb.afEyeY[k] = ey[k];
+				cb.afEyeZ[k] = ez[k];
+			}
+			cb.afTan[0] = l;
+			cb.afTan[1] = r;
+			cb.afTan[2] = d;
+			cb.afTan[3] = u;
 		}
-		for (int i_row = 0; i_row < 4; i_row++)
-		{
-			if (i_row == 2)
-				continue;
-			cb.afRow[i_row][3] = -(cb.afRow[i_row][0] * e[0] + cb.afRow[i_row][1] * e[1] + cb.afRow[i_row][2] * e[2]);
-		}
-		cb.afRow[2][3] = fr.fNear;		// Reversed infinite depth: z = near / distance.
-		for (int k = 0; k < 3; k++)
-		{
-			cb.afEyePos[k] = e[k];
-			cb.afEyeX[k] = ex[k];
-			cb.afEyeY[k] = ey[k];
-			cb.afEyeZ[k] = ez[k];
-		}
-		cb.afTan[0] = l;
-		cb.afTan[1] = r;
-		cb.afTan[2] = d;
-		cb.afTan[3] = u;
-		bUpload(pcbEye, &cb, sizeof(cb));
+		cbs.au4Stereo[0] = bStereoPass ? 1u : 0u;
+		cbs.au4Stereo[1] = (uint32_t)i_pass;
+		bUpload(pcbEye, &cbs, sizeof(cbs));
 	}
 
 	//******************************************************************************************
@@ -1415,6 +1508,13 @@ bool VRR_Init(void* pv_device, void* pv_context, int i_width, int i_height, int 
 	iHeight = (std::max)(64, i_height);
 	iMSAA = i_msaa >= 8 ? 8 : i_msaa >= 4 ? 4 : i_msaa >= 2 ? 2 : 1;
 	iShadowSize = i_shadow_size >= 512 ? (std::min)(i_shadow_size, 8192) : 0;
+
+	// One pass for both eyes needs the vertex shader to choose the eye's layer.
+	{
+		D3D11_FEATURE_DATA_D3D11_OPTIONS3 fo3 = {};
+		bStereoPass = SUCCEEDED(pDev->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS3, &fo3, sizeof(fo3))) &&
+		              fo3.VPAndRTArrayIndexFromAnyShaderFeedingRasterizer;
+	}
 
 	std::string str;
 	if (!bCreateShaders(str) || !bCreateStates() || !bCreateTargets(str))
@@ -1480,7 +1580,7 @@ void VRR_Shutdown()
 	ID3D11DeviceChild* ap[] =
 	{
 		pvsObject, ppsObject, pvsTerrain, ppsTerrain, ppsTerrainCoarse, pvsAtlasTerrain, ppsAtlasTerrain, pvsAtlasDecal, ppsAtlasDecal,
-		pvsSky, ppsSky, pvsShadowObject, ppsShadowAlpha, pvsShadowTerrain, pilObject, pilTerrain,
+		pvsSky, ppsSky, pvsShadowObject, ppsShadowAlpha, pvsShadowTerrain, pilObject, pilObjectEyes, pilTerrain,
 		prsBack, prsNone, prsShadow, prsAtlas, pdsTest, pdsOff, pdsShadow, pdsFine, pdsCoarse, pdsTestNoWrite, pbsBlend, pbsOpaque, pbsA2C, pssWrap, pssShadow, pssClamp,
 		pcbEye, pcbFrame, pvsIdDecal, ppsIdDecal, pvsBlit, ppsBlit
 	};
@@ -1490,7 +1590,7 @@ void VRR_Shutdown()
 	pvsObject = nullptr; ppsObject = nullptr; pvsTerrain = nullptr; ppsTerrain = nullptr; ppsTerrainCoarse = nullptr;
 	pvsAtlasTerrain = nullptr; ppsAtlasTerrain = nullptr; pvsAtlasDecal = nullptr; ppsAtlasDecal = nullptr;
 	pvsSky = nullptr; ppsSky = nullptr; pvsShadowObject = nullptr; ppsShadowAlpha = nullptr; pvsShadowTerrain = nullptr;
-	pilObject = nullptr; pilTerrain = nullptr;
+	pilObject = nullptr; pilObjectEyes = nullptr; pilTerrain = nullptr;
 	prsBack = nullptr; prsNone = nullptr; prsShadow = nullptr; prsAtlas = nullptr;
 	pdsTest = nullptr; pdsOff = nullptr; pdsShadow = nullptr; pdsFine = nullptr; pdsCoarse = nullptr; pdsTestNoWrite = nullptr; pbsBlend = nullptr; pbsOpaque = nullptr; pbsA2C = nullptr;
 	pssWrap = nullptr; pssShadow = nullptr; pssClamp = nullptr; pcbEye = nullptr; pcbFrame = nullptr;
@@ -2205,17 +2305,20 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 	}
 
 	//
-	// Each eye.
+	// The eyes: both in one pass (each thing drawn as two instances, one into each eye's
+	// layer) where the card allows, otherwise a pass each.
 	//
-	for (int i_eye = 0; i_eye < 2; i_eye++)
+	uEyeInstances = bStereoPass ? 2 : 1;
+	for (int i_pass = 0; i_pass < (bStereoPass ? 1 : 2); i_pass++)
 	{
-		SetEye(fr, i_eye);
+		SetEyes(fr, i_pass);
 
-		ID3D11RenderTargetView* prtv = iMSAA > 1 ? prtvColour : aprtvEye[i_eye];
+		ID3D11RenderTargetView* prtv = bStereoPass ? prtvColour : aprtvColourEye[i_pass];
+		ID3D11DepthStencilView* pdsv = bStereoPass ? pdsvDepth : adsvDepthEye[i_pass];
 		float af_clear[4] = { fr.afSkyFogColour[0], fr.afSkyFogColour[1], fr.afSkyFogColour[2], 1 };
-		pCtx->OMSetRenderTargets(1, &prtv, pdsvDepth);
+		pCtx->OMSetRenderTargets(1, &prtv, pdsv);
 		pCtx->ClearRenderTargetView(prtv, af_clear);
-		pCtx->ClearDepthStencilView(pdsvDepth, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
+		pCtx->ClearDepthStencilView(pdsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
 		D3D11_VIEWPORT vp = { 0, 0, (float)iWidth, (float)iHeight, 0, 1 };
 		pCtx->RSSetViewports(1, &vp);
 
@@ -2238,7 +2341,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		pCtx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		pCtx->VSSetShader(pvsSky, nullptr, 0);
 		pCtx->PSSetShader(ppsSky, nullptr, 0);
-		pCtx->Draw(3, 0);
+		pCtx->DrawInstanced(3, uEyeInstances, 0, 0);
 
 		// Terrain: the fine patches near you first, then the coarse grid wherever they aren't.
 		pCtx->RSSetState(prsBack);
@@ -2267,8 +2370,17 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			DrawObjects(false);
 		}
 
+	}
+	uEyeInstances = 1;
+
+	// Each eye's layer into the image SteamVR is given.
+	for (int i_eye = 0; i_eye < 2; i_eye++)
+	{
+		UINT u_sub = D3D11CalcSubresource(0, i_eye, 1);
 		if (iMSAA > 1)
-			pCtx->ResolveSubresource(aptexEye[i_eye], 0, ptexColour, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+			pCtx->ResolveSubresource(aptexEye[i_eye], 0, ptexColour, u_sub, DXGI_FORMAT_R8G8B8A8_UNORM);
+		else
+			pCtx->CopySubresourceRegion(aptexEye[i_eye], 0, 0, 0, 0, ptexColour, u_sub, nullptr);
 	}
 
 	ID3D11ShaderResourceView* apsrv_null[3] = { nullptr, nullptr, nullptr };
