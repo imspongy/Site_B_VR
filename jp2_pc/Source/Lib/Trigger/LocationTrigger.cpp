@@ -43,6 +43,8 @@
 #include "Trigger.hpp"
 #include <algorithm>
 #include <set>
+#include <map>
+#include <chrono>
 #include <string>
 
 #include "Action.hpp"
@@ -506,7 +508,19 @@ bool CLocationTrigger::bVRTipInside(int h) const
 {
 	CVector3<> v3_tip(gVR.aafFingerTip[h][0], gVR.aafFingerTip[h][1], gVR.aafFingerTip[h][2]);
 	v3_tip *= ~pr3Presence();
-	return bv_BoundingVolume && bv_BoundingVolume->bContains(v3_tip);
+	bool b_in = bv_BoundingVolume && bv_BoundingVolume->bContains(v3_tip);
+	// A key stays held for a moment after the finger leaves it: a finger shaking at a key's edge
+	// pressed it twice.
+	static std::map<std::pair<const void*, int>, long long> map_last_in;
+	long long u4_now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	std::pair<const void*, int> key((const void*)this, h);
+	if (b_in)
+	{
+		map_last_in[key] = u4_now;
+		return true;
+	}
+	auto it = map_last_in.find(key);
+	return it != map_last_in.end() && u4_now - it->second < 500;
 }
 
 //*********************************************************************************************
@@ -650,9 +664,7 @@ bool CLocationTrigger::Evaluate
 		// VR: your hand presses a keypad key with the tip of its index finger (the whole hand
 		// box pressed several keys at once).
 		int h = (const void*)pins == gVR.apvVRHandBox[0] ? 0 : 1;
-		CVector3<> v3_tip(gVR.aafFingerTip[h][0], gVR.aafFingerTip[h][1], gVR.aafFingerTip[h][2]);
-		v3_tip *= ~pr3Presence();
-		b_in = bv_BoundingVolume->bContains(v3_tip);
+		b_in = bVRTipInside(h);
 	}
 	else if (bPointTrigger)
 	{		

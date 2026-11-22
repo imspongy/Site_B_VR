@@ -5966,7 +5966,7 @@ public:
 			if (v3_fd.tLen() > 1e-4f)
 			{
 				v3_fd.Normalise();
-				CVector3<> v3_tip = v3_f_new + (v3_fd * mx3_curl) * (0.085f * r_hs * r_inv_scale);
+				CVector3<> v3_tip = v3_f_new + (v3_fd * mx3_curl) * ((0.085f - 0.0127f) * r_hs * r_inv_scale);	// Half an inch in from the fingertip.
 				if (b_mirror)
 					v3_tip.tX = -v3_tip.tX;
 				CVector3<> v3_tip_w = v3_tip * pr3;
