@@ -1481,6 +1481,8 @@ namespace
 
 	void ReleaseQueries(CTerrain* ptrr);
 	float fTerrainHeight(CTerrain* ptrr, float f_x, float f_y);
+	bool bBaseColourSafe(CTerrain* ptrr, float f_x, float f_y, CColour* pclr);
+	uint32_t u4BaseColour(CTerrain* ptrr, float f_x, float f_y);
 
 	//******************************************************************************************
 	// Animated ground textures (surf washing up the beach, and the like): the game animates
