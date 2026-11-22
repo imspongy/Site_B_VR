@@ -96,7 +96,7 @@ struct SVRShared
 	float afHeldGunFwd[2] = {};			// The held gun's forward/back setting.
 	bool  abHoldingMelee[2] = { false, false };
 	float fMeleeTiltDeg = 45.0f;		// Bats and pipes tipped up in the hand.
-	char  strBodyPassThrough[512] = ;	// Things (instance names, comma separated) her body walks through: invisible walls.
+	char  strBodyPassThrough[512] = { 0 };	// Things (instance names, comma separated) her body walks through: invisible walls.
 	float fMeleeScale = 1.0f;			// Melee hits (things swung in the hand) hurt this much more.
 	float fMeleeDrawScale = 0.7f;		// Bats and pipes drawn this size in the hand.
 	float fForearmTwist = 0.75f;		// How much of the hand's twist the forearm takes.
