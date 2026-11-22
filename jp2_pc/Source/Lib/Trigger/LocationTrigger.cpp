@@ -507,6 +507,21 @@ bool CLocationTrigger::bVRHandFor(const CInstance* pins) const
 	if ((const void*)pins != gVR.apvVRHandBox[0] && (const void*)pins != gVR.apvVRHandBox[1])
 		return false;
 	bool b_hand = (const void*)pinsActivate == gVR.pvGameHand;
+	// A keypad whose triggers wait for their own button (level 4's door code): the button is
+	// pressed by the finger reaching where the pushed-in button would be.  A small thing right
+	// at the trigger only.
+	if (!b_hand && const_cast<CLocationTrigger*>(this)->eitInstanceType(pinsActivate) == eINSTANCE_OBJECT && pinsActivate->prdtGetRenderInfo())
+	{
+		const CBoundVolBox* pbvb = pinsActivate->prdtGetRenderInfo()->bvGet().pbvbCast();
+		if (pbvb)
+		{
+			float f_s = fabsf(pinsActivate->fGetScale());
+			float f_len = (std::max)((std::max)((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]),
+			                         (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s;
+			if (f_len < 0.3f && (pinsActivate->v3Pos() - v3Pos()).tLen() < 0.4f)
+				b_hand = true;
+		}
+	}
 	// Logged once per trigger and hand (every move of a hand inside it comes here: logging each
 	// one filled the log with 350,000 lines and stalled the game, sound included).
 	static std::set<std::pair<const void*, const void*>> setLogged;
@@ -515,7 +530,7 @@ bool CLocationTrigger::bVRHandFor(const CInstance* pins) const
 		std::string str_trigger = strGetInstanceName();
 		std::string str_waits = pinsActivate->strGetInstanceName();
 		gVR.pfnLog("Trigger %s (waits for %s%s) reached by your %s hand.", str_trigger.c_str(), str_waits.c_str(),
-			b_hand ? ", Anne's hand" : "", (const void*)pins == gVR.apvVRHandBox[0] ? "right" : "left");
+			b_hand ? ((const void*)pinsActivate == gVR.pvGameHand ? ", Anne's hand" : ", a button: pressed") : "", (const void*)pins == gVR.apvVRHandBox[0] ? "right" : "left");
 	}
 	return b_hand;
 }

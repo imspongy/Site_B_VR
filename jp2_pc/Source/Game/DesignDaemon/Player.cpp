@@ -5281,6 +5281,13 @@ public:
 					if (gVR.apvHolstered[i] && ((const void*)pins == gVR.apvHolstered[i] || (const void*)pins_master == gVR.apvHolstered[i]))
 						return false;
 			}
+			// Invisible walls listed in the ini (BodyPassThrough=name,name).
+			if (gVR.strBodyPassThrough[0])
+			{
+				std::string str_n = pins->strGetInstanceName();
+				if (!str_n.empty() && std::strstr(gVR.strBodyPassThrough, str_n.c_str()))
+					return false;
+			}
 			CBoundaryBox* pbb = ptCast<CBoundaryBox>(pins);
 			if (pbb)
 				return b_wall && pbb->paniAnimate != this && pbb->paniAnimate && !pbb->paniAnimate->bDead();
@@ -5545,18 +5552,32 @@ public:
 				bool b_bottom = b_floor(v3VRFeet.tX, v3VRFeet.tY, f_surface, 30.0f, f_bottom);
 				// (Once afloat, she stays afloat until it is clearly shallow: switching back and
 				// forth at the edge made her bounce.)
-				if (!b_bottom || f_surface - f_bottom > (b_was ? fFLOAT - 0.25f : fFLOAT))
+				float f_float_z = f_surface - fFLOAT;
+				// Still above the water (diving off a cliff): she just falls until she's in it
+				// (she was eased down toward the water from high up: slow motion).
+				bool b_in = b_was || v3VRFeet.tZ <= f_float_z + 0.02f;
+				if (b_in && (!b_bottom || f_surface - f_bottom > (b_was ? fFLOAT - 0.25f : fFLOAT)))
 				{
 					bVRSwimming = true;
-					float f_float_z = f_surface - fFLOAT;
-					// Sink in from a jump or fall, then bob up to the surface.
-					// Eased toward floating height, never overshooting: no bob.
-					float f_dz = f_float_z - v3VRFeet.tZ;
-					float f_step = Min(fabsf(f_dz), 0.6f * f_dt + fabsf(f_dz) * Min(1.0f, 1.5f * f_dt));
-					v3VRFeet.tZ += f_dz >= 0 ? f_step : -f_step;
-					fVRVz = 0;
-					if (v3VRFeet.tZ < f_float_z - 1.0f)
-						v3VRFeet.tZ = f_float_z - 1.0f;
+					if (fVRVz < 0)
+					{
+						// Plunging in: the water stops her quickly, then she comes up.
+						v3VRFeet.tZ += fVRVz * f_dt;
+						fVRVz = Min(0.0f, fVRVz + Max(12.0f, -fVRVz * 6.0f) * f_dt);
+						if (v3VRFeet.tZ < f_float_z - 2.5f)
+						{
+							v3VRFeet.tZ = f_float_z - 2.5f;
+							fVRVz = 0;
+						}
+					}
+					else
+					{
+						// Up (or down) to floating height at a steady swimming pace.
+						fVRVz = 0;
+						float f_dz = f_float_z - v3VRFeet.tZ;
+						float f_step = Min(fabsf(f_dz), 1.2f * f_dt);
+						v3VRFeet.tZ += f_dz >= 0 ? f_step : -f_step;
+					}
 					bVRGrounded = false;
 					if (!b_was && gVR.pfnLog)
 						gVR.pfnLog("Body: swimming.");

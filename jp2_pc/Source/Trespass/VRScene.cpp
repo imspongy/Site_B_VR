@@ -176,6 +176,14 @@ namespace
 						(unsigned)ptex->tpSolid, (unsigned)(uint32)ptex->d3dpixColour, b_transparent ? "see-through" : "solid");
 				}
 			}
+			// The key blue as a plain colour on a solid surface is the game's black (the black
+			// obelisk: game colour 00FF, palette entry 0).
+			if (!b_transparent && !b_alpha_colour)
+			{
+				int r = u4 & 255, g = (u4 >> 8) & 255, bl = (u4 >> 16) & 255;
+				if (bl > 200 && r < 40 && g < 60)
+					u4 = u4RGBA(0, 0, 0);
+			}
 			// Kept by the colour itself, not by the texture's address: an address can be
 			// reused by another texture (sparks once drew with whatever image had been there).
 			auto it = mapSolidTex.find(u4);
@@ -1474,6 +1482,26 @@ namespace
 	// float.  Around the player the ground is sampled every half metre, in patches built a
 	// little each frame as you move.
 	//
+	// The coarse grid's heights, for meeting it exactly at the edge of the fine patches.
+	std::vector<float> afCoarseH;
+	int   iCoarseNX = 0, iCoarseNY = 0;
+	float fCoarseX0 = 0, fCoarseY0 = 0, fCoarseStep = 1;
+	float fCoarseHeight(float f_x, float f_y, bool& rb_ok)
+	{
+		rb_ok = false;
+		if (afCoarseH.empty())
+			return 0;
+		float fx = (f_x - fCoarseX0) / fCoarseStep, fy = (f_y - fCoarseY0) / fCoarseStep;
+		int ix = (int)std::floor(fx), iy = (int)std::floor(fy);
+		if (ix < 0 || iy < 0 || ix >= iCoarseNX - 1 || iy >= iCoarseNY - 1)
+			return 0;
+		float u = fx - ix, v = fy - iy;
+		float ha = afCoarseH[(size_t)iy * iCoarseNX + ix], hb = afCoarseH[(size_t)iy * iCoarseNX + ix + 1];
+		float hc = afCoarseH[(size_t)(iy + 1) * iCoarseNX + ix], hd = afCoarseH[(size_t)(iy + 1) * iCoarseNX + ix + 1];
+		rb_ok = true;
+		// Same split as the coarse grid's triangles (a-b-d, a-d-c).
+		return u >= v ? ha + u * (hb - ha) + v * (hd - hb) : ha + v * (hc - ha) + u * (hd - hc);
+	}
 	float fPATCH_SIZE = 32.0f;			// Set per level: 64 steps of the game's own terrain point spacing.
 	const int   iPATCH_N = 65;				// Vertices along a side (0.5 m apart).
 	const int   iPATCH_RADIUS = 4;			// Patches either side of yours that are kept ready (about 140 m).
@@ -1730,7 +1758,19 @@ namespace
 					float f_bc = 0.5f * (h(x + 1, y) + h(x, y + 1));
 					au1_flip[(size_t)y * (iPATCH_N - 1) + x] = std::fabs(f_bc - f_mid) + 0.001f < std::fabs(f_ad - f_mid) ? 1 : 0;
 				}
-			if (VRR_TerrainPatchSet(pjob.iSlot, iPATCH_N, atv.data(), au1_flip.data()))
+			// Skirt heights: each edge point down below the coarse ground, or up to it.
+			std::vector<float> af_skirt((size_t)4 * iPATCH_N);
+			for (int e = 0; e < 4; e++)
+				for (int k = 0; k < iPATCH_N; k++)
+				{
+					int x = e == 0 || e == 1 ? k : e == 2 ? 0 : iPATCH_N - 1;
+					int y = e == 2 || e == 3 ? k : e == 0 ? 0 : iPATCH_N - 1;
+					const SVRRTerrainVertex& tv = atv[(size_t)y * iPATCH_N + x];
+					bool b_ok;
+					float f_c = fCoarseHeight(tv.afPos[0], tv.afPos[1], b_ok);
+					af_skirt[(size_t)e * iPATCH_N + k] = b_ok && f_c > tv.afPos[2] + 0.01f ? f_c + 0.05f : tv.afPos[2] - 3.0f;
+				}
+			if (VRR_TerrainPatchSet(pjob.iSlot, iPATCH_N, atv.data(), au1_flip.data(), af_skirt.data()))
 			{
 				apatch[pjob.iSlot].bUsed = true;
 				apatch[pjob.iSlot].iX = pjob.iX;
@@ -1918,6 +1958,9 @@ namespace
 			fPatchY0 = f_gy + std::floor((f_y0 - f_gy) / f_step) * f_step;
 			SceneLog("GPU renderer: the game's terrain points are %.3f m apart; fine ground every %.3f m.", f_res, f_step);
 		}
+		afCoarseH = af_h;
+		iCoarseNX = i_nx; iCoarseNY = i_ny;
+		fCoarseX0 = f_x0; fCoarseY0 = f_y0; fCoarseStep = f_spacing;
 		if (!VRR_TerrainSet(i_nx, i_ny, f_x0, f_y0, f_spacing, atv.data(), i_atlas))
 		{
 			SceneLog("GPU renderer: could not create the terrain.");

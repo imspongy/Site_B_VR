@@ -138,7 +138,7 @@ void* VRR_EyeTexture(int i_eye);
 
 // Fine terrain near the player: square patches of i_n x i_n vertices (slots 0..127).  Where a
 // patch is drawn it covers the coarse terrain.
-bool  VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, const uint8_t* pu1_flip = nullptr);
+bool  VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, const uint8_t* pu1_flip = nullptr, const float* pf_skirt = nullptr);
 void  VRR_TerrainPatchGrid(float f_x0, float f_y0, float f_size);	// Where the fine patches lie and how big each is.
 void  VRR_TerrainPatchClear(int i_slot);
 

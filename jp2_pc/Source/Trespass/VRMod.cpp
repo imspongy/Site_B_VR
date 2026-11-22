@@ -746,6 +746,7 @@ namespace
 		gVR.bWaterWaves   = fIni(str_file, "WaterWaves", 1.0f) > 0.5f;
 		s.bAutosave       = fIni(str_file, "Autosave", 0.0f) > 0.5f;
 		LoadGunValues(str_file);
+		GetPrivateProfileStringA("VR", "BodyPassThrough", "", gVR.strBodyPassThrough, sizeof(gVR.strBodyPassThrough), str_file.c_str());
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
 		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 0.6f);

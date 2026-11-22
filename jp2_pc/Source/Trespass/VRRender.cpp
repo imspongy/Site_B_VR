@@ -404,6 +404,16 @@ float3 TerrainDetail(float3 wp, float3 atlas_col)
 float4 PSTerrain(PSTerIn i) : SV_Target
 {
 	sEye = i.eye;
+	if (i.c.a < 0.5)
+	{
+		// A patch's skirt: not where another patch lies beyond this edge.
+		uint mw, mh;
+		gPatchMask.GetDimensions(mw, mh);
+		int2 mc = (int2)floor((i.wp.xy + i.wn.xy * 0.25 - gPatchGrid.xy) / max(gPatchGrid.z, 1.0));
+		if (mw > 0 && mc.x >= 0 && mc.y >= 0 && mc.x < (int)mw && mc.y < (int)mh && gPatchMask.Load(int3(mc, 0)) != 0)
+			discard;
+		i.wn = float3(0, 0, 1);
+	}
 	float3 albedo = i.c.rgb;
 	if (gAtlasOn.x > 0.5)
 		albedo = gAtlasTex.Sample(gSamp, (i.wp.xy - gAtlas.xy) * gAtlas.zw).rgb;
@@ -2349,6 +2359,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		pCtx->PSSetShader(ppsTerrain, nullptr, 0);
 		if (bAnyPatch())
 		{
+			pCtx->PSSetShaderResources(9, 1, &psrvPatchMask);
 			pCtx->OMSetDepthStencilState(pdsFine, 1);
 			DrawPatches();
 			pCtx->OMSetDepthStencilState(pdsCoarse, 1);
@@ -2476,7 +2487,7 @@ static uint32_t u4PatchEdge(int i_n, int e, int k)
 }
 
 //**********************************************************************************************
-bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, const uint8_t* pu1_flip)
+bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, const uint8_t* pu1_flip, const float* pf_skirt)
 {
 	if (!bReady || i_slot < 0 || i_slot >= iMAX_PATCHES || i_n < 2 || !ptv)
 		return false;
@@ -2515,7 +2526,15 @@ bool VRR_TerrainPatchSet(int i_slot, int i_n, const SVRRTerrainVertex* ptv, cons
 		for (int k = 0; k < i_n; k++)
 		{
 			SVRRTerrainVertex tv = ptv[u4PatchEdge(i_n, e, k)];
-			tv.afPos[2] -= 3.0f;
+			// Down to below the coarse ground, or up to it where that is higher (else a crack
+			// showed the sky where the detail changes on distant hills).
+			tv.afPos[2] = pf_skirt ? pf_skirt[e * i_n + k] : tv.afPos[2] - 3.0f;
+			// Marked as skirt (alpha 0), facing out: a skirt between two patches is not drawn
+			// (one rising to the coarse ground there would stand up as a fin).
+			tv.u4Colour &= 0x00FFFFFFu;
+			tv.afNormal[0] = e == 2 ? -1.0f : e == 3 ? 1.0f : 0.0f;
+			tv.afNormal[1] = e == 0 ? -1.0f : e == 1 ? 1.0f : 0.0f;
+			tv.afNormal[2] = 0.0f;
 			atv.push_back(tv);
 		}
 	SafeRelease(apvbPatch[i_slot]);
