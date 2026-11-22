@@ -679,7 +679,10 @@ namespace
 		// shape is put on just before each is skinned.
 		if (pins && (pins == (CInstance*)gpPlayer || (const void*)pins == gVR.pvMirrorInstance))
 		{
-			int i_shape = (const void*)pins == gVR.pvMirrorInstance ? gVR.aiHandShape[1] : gVR.aiHandShape[0];
+			int h_shape = (const void*)pins == gVR.pvMirrorInstance ? 1 : 0;
+			// A hand holding something has that thing's grip shape; an empty hand has the shape
+			// the level asks for (the pointing finger at phones and keypads).
+			int i_shape = gVR.abHolding[h_shape] ? gVR.aiHandShape[h_shape] : gVR.iGameHandShape;
 			// Each shape only replaces the points it lists, and the game also changes the shape of
 			// this same mesh for its own hand: so start from the plain hand every time, then put
 			// this hand's shape on (otherwise a hand kept parts of the shape before it, and the

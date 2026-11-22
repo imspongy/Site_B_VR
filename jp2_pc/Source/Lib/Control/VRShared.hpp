@@ -131,6 +131,7 @@ struct SVRShared
 	// Instances: the mirrored second arm (flipped culling) and the hand boxes (bullets pass).
 	const void* pvMirrorInstance = nullptr;
 	int   aiHandShape[2] = { 0, 0 };
+	int   iGameHandShape = 0;		// The shape the level asks for Anne's hand (the phone's pointing finger), for an empty hand.
 	bool  bDropAttachedRequest = false;
 	int   iPistolSupport = 1;			// Two-handed pistols: 1 wrap the front of the grip, 0 cup under it.	// A level or save just loaded: let go of what is fixed to her.		// The game's hand shape for what each hand holds (0 none).
 	float fSmgSupportUp = 0.03f;			// The submachine gun's supporting hand higher (m).

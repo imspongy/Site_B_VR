@@ -2690,6 +2690,7 @@ public:
 			gVR.apvVRHandBox[i] = avrh[i].pinsBox;
 			gVR.pvGameHand = pinsHand;
 			gVR.abHoldingMelee[i] = pins && avrh[i].bMelee;
+			gVR.iGameHandShape = iSubstituteRequest;
 			// Keep the held thing (and pieces fixed to it) out of collisions with her and both hand
 			// boxes every frame: a hand box that came into the world after the grab, or a gun whose
 			// magnet master changed, otherwise rubbed against it the whole time (silenced SMG).
