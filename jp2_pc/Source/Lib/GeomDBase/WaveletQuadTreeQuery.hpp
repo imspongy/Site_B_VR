@@ -353,6 +353,11 @@ namespace NMultiResolution
 		friend class CBlockAllocator<CQuadNodeQuery>;
 		static CBlockAllocator<CQuadNodeQuery>::SStore stStore; // Storage for the types.
 
+	public:
+		// How many query nodes are in use (of the fixed area sized for uDEFAULT_ALLOC_QUERY_NODES).
+		static int iNumInUse() { return stStore.iNumAlloc; }
+	private:
+
 		friend class CQueryRect;
 
 	public:

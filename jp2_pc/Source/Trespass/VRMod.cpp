@@ -47,6 +47,7 @@
 #include "Game/AI/AIMain.hpp"
 
 static void HideLoadingIfDone();
+static void HoldLoading();
 
 static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for the capture log.
 
@@ -2096,6 +2097,17 @@ static void HideLoadingIfDone()
 	}
 }
 
+// The modern renderer couldn't draw this frame (level still being made ready): keep the
+// loading notice up instead of letting the game's old renderer draw.
+static void HoldLoading()
+{
+	if (!bLoadingShown)
+	{
+		VRB_ShowLoading("Loading...", "");
+		bLoadingShown = true;
+	}
+}
+
 void VRMod_Shutdown()
 {
 	gpfnVRInputHook = nullptr;
@@ -2717,6 +2729,13 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 			iTimingFrames++;
 			dLastFrameEnd = dNowMs();
 			adTimingMs[etFRAME] += dLastFrameEnd - d_frame_start;
+			return true;
+		}
+		if (b_player_view)
+		{
+			// Never the old renderer in a level: hold the loading notice until this one draws.
+			HoldLoading();
+			dLastFrameEnd = dNowMs();
 			return true;
 		}
 	}

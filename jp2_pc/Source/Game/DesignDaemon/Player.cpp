@@ -1330,7 +1330,19 @@ private:
 		float f_len = fVRLength(pins);
 		const CGun* pgun = ptCast<CGun>(const_cast<CInstance*>(pins));
 		if (pgun && pgun->bAutoFire && pgun->iMaxAmmo >= 30)
-			f_len = Max(f_len, 0.6f);
+		{
+			// Machine pistols (the Uzi) are held like pistols: ini Gun_...PistolHold=1.
+			bool b_pistol = false;
+			if (gVR.pfnGunValue)
+			{
+				char str_key[80];
+				snprintf(str_key, sizeof(str_key), "Gun_a%d_d%d_t%dPistolHold", pgun->iMaxAmmo, (int)(pgun->gdGunData.fDamage + 0.5f),
+					(int)(pgun->sTimeBetweenShots * 100.0f + 0.5f));
+				b_pistol = gVR.pfnGunValue(str_key, 0.0f) > 0.5f;
+			}
+			if (!b_pistol)
+				f_len = Max(f_len, 0.6f);
+		}
 		return f_len;
 	}
 
@@ -5453,6 +5465,19 @@ public:
 							std::string str_name = pobl->pinsObject->strGetInstanceName();
 							gVR.pfnLog("Body: blocked by %s at %.2f m (height %.2f, face %.2f %.2f %.2f).", str_name.c_str(),
 								pobl->rDist, af_heights[i], pobl->d3Face.tX, pobl->d3Face.tY, pobl->d3Face.tZ);
+							// Once per thing: what it is (for invisible walls).
+							static std::set<const CInstance*> set_described;
+							if (set_described.insert(pobl->pinsObject).second)
+							{
+								CInstance* pins_o = pobl->pinsObject;
+								const CPhysicsInfo* pphi_o = pins_o->pphiGetPhysicsInfo();
+								float f_len = fVRLength(pins_o);
+								gVR.pfnLog("Body:   %s is at (%.2f %.2f %.2f), %.2f m across, %s, %s, %s.", str_name.c_str(),
+									pins_o->v3Pos().tX, pins_o->v3Pos().tY, pins_o->v3Pos().tZ, f_len,
+									pins_o->prdtGetRenderInfo() ? "has a shape" : "no shape (invisible)",
+									pphi_o && pphi_o->pphicCast() ? "compound physics" : "box physics",
+									pphi_o && pphi_o->bIsMovable() ? "movable" : "fixed");
+							}
 						}
 						f_allowed = f_room;
 						v3_normal = CVector3<>(pobl->d3Face.tX, pobl->d3Face.tY, 0);

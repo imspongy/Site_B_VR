@@ -223,6 +223,12 @@ namespace
 			const CColour& clr0 = ppal->aclrPalette[0];
 			b_pad_key = clr0.u1Blue > clr0.u1Red + 60 && clr0.u1Blue > clr0.u1Green + 60;
 		}
+		bool b_key_black = false;
+		if (!b_transparent && !b_pad_key && i_pal > 0)
+		{
+			const CColour& clr0 = ppal->aclrPalette[0];
+			b_key_black = clr0.u1Red < 64 && clr0.u1Green < 64 && clr0.u1Blue > 192;	// The pure key blue only.
+		}
 		const uint8* pu1_row = (const uint8*)praw->pSurface;
 		int i_bytes = praw->iPixelBits / 8;
 		for (int y = 0; y < i_h; y++)
@@ -280,6 +286,10 @@ namespace
 					u4 &= 0x00FFFFFF;
 					b_any_clear = true;
 				}
+				// In a solid texture, colour 0 is the blue key colour standing for black (the
+				// game's colour tables keep entry 0 black): the black obelisk came out blue.
+				else if (b_key_black && i_index == 0)
+					u4 = u4RGBA(0, 0, 0);
 				pu4[x] = u4;
 			}
 		}
@@ -1676,8 +1686,7 @@ namespace
 					float f_x = f_ox + x * f_step, f_y = f_oy + y * f_step;
 					tv.afPos[0] = f_x; tv.afPos[1] = f_y; tv.afPos[2] = h(x, y);
 					tv.afNormal[0] = nx / f_len; tv.afNormal[1] = ny / f_len; tv.afNormal[2] = nz / f_len;
-					CColour clr = ptrr->clrGetBaseTextureColour(f_x, f_y);
-					tv.u4Colour = u4RGBA(clr.u1Red, clr.u1Green, clr.u1Blue);
+					tv.u4Colour = u4BaseColour(ptrr, f_x, f_y);
 				}
 			// Each square split along the diagonal the real ground folds on (the one whose
 			// middle matches the ground's middle), as the game's own triangles are.
@@ -1704,6 +1713,31 @@ namespace
 	}
 
 	//******************************************************************************************
+	// The game's terrain colour map is made a moment after a level loads; read before then it
+	// faulted and threw the whole frame (and the terrain build) away.  Nothing here needs
+	// unwinding, so a plain structured guard is safe.
+	bool bBaseColourSafe(CTerrain* ptrr, float f_x, float f_y, CColour* pclr)
+	{
+		__try
+		{
+			*pclr = ptrr->clrGetBaseTextureColour(f_x, f_y);
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
+	}
+
+	uint32_t u4BaseColour(CTerrain* ptrr, float f_x, float f_y)
+	{
+		CColour clr;
+		if (!bBaseColourSafe(ptrr, f_x, f_y, &clr))
+			return u4RGBA(128, 128, 128);
+		return u4RGBA(clr.u1Red, clr.u1Green, clr.u1Blue);
+	}
+
+	//******************************************************************************************
 	// Frees the parts of the game's terrain height tree that no query uses.
 	void ReleaseQueries(CTerrain* ptrr)
 	{
@@ -1723,13 +1757,11 @@ namespace
 	// and object lookups (level 3).  So clean up every few lookups.
 	float fTerrainHeight(CTerrain* ptrr, float f_x, float f_y)
 	{
-		static int i_since = 0;
 		float f = (float)ptrr->rHeight(f_x, f_y);
-		if (++i_since >= 16)
-		{
+		// Clean up once well short of the limit (a clean-up walks the whole tree, so not after
+		// every lookup: that made each lookup three times slower).
+		if (NMultiResolution::CQuadNodeQuery::iNumInUse() > (int)uDEFAULT_ALLOC_QUERY_NODES / 3)
 			ReleaseQueries(ptrr);
-			i_since = 0;
-		}
 		return f;
 	}
 
@@ -1822,8 +1854,7 @@ namespace
 				SVRRTerrainVertex& tv = atv[i];
 				tv.afPos[0] = f_x; tv.afPos[1] = f_y; tv.afPos[2] = af_h[i];
 				tv.afNormal[0] = nx / f_len; tv.afNormal[1] = ny / f_len; tv.afNormal[2] = nz / f_len;
-				CColour clr = ptrr->clrGetBaseTextureColour(f_x, f_y);
-				tv.u4Colour = u4RGBA(clr.u1Red, clr.u1Green, clr.u1Blue);
+				tv.u4Colour = u4BaseColour(ptrr, f_x, f_y);
 			}
 		}
 
@@ -2078,7 +2109,21 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	// terrain was missing for that level).
 	bool b_build_terrain = ptrr && !bTerrainBuilt && iTerrainTries < 10;
 	if (b_build_terrain)
+	{
+		// Wait (the loading notice stays up) until the game has made the terrain's colour map,
+		// rather than drawing a level with its ground missing; at most about ten seconds.
+		static int i_wait = 0;
+		CColour clr;
+		CVector3<> v3_mid = gpPlayer ? gpPlayer->v3Pos() : CVector3<>(0, 0, 0);
+		if (!bBaseColourSafe(ptrr, v3_mid.tX, v3_mid.tY, &clr) && i_wait < 900)
+		{
+			if (i_wait++ % 90 == 0)
+				SceneLog("GPU renderer: waiting for the game to finish the terrain (%d).", i_wait);
+			return false;
+		}
+		i_wait = 0;
 		iTerrainTries++;
+	}
 
 	SWalk wk;
 	wk.v3Eye = CVector3<>((eyes.afPos[0][0] + eyes.afPos[1][0]) * 0.5f, (eyes.afPos[0][1] + eyes.afPos[1][1]) * 0.5f, (eyes.afPos[0][2] + eyes.afPos[1][2]) * 0.5f);
@@ -2121,7 +2166,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 			UpdatePatches(ptrr, gpPlayer->v3Pos(), 1.0e9);		// The ones around you, now.
 	}
 	else if (ptrr && gpPlayer)
-		UpdatePatches(ptrr, gpPlayer->v3Pos(), 2.0);			// Then about 2 ms a frame.
+		UpdatePatches(ptrr, gpPlayer->v3Pos(), 1.0);			// Then about 1 ms a frame (2 ms caused audio stutters).
 	if (ptrr)
 		DrawAnimatedTerrain(ptrr, wk.v3Eye);
 
