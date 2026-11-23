@@ -241,8 +241,29 @@ CInstance* CLocationTrigger::pinsCopy() const
 }
 
 //*********************************************************************************************
+// VR: every location trigger (for glints on the things they wait for: key cards).
+static std::set<const CLocationTrigger*>& setVRLocTriggers()
+{
+	static std::set<const CLocationTrigger*> set_t;
+	return set_t;
+}
+
+void CLocationTrigger::VRGetActivateObjects(std::vector<uint32>& rau4_handles)
+{
+	for (const CLocationTrigger* ptr : setVRLocTriggers())
+	{
+		const CInstance* pins = ptr->pinsActivate;
+		if (!pins || (const void*)pins == gVR.pvGameHand || ptCast<CAnimal>((CInstance*)pins) || ptCast<CPlayer>((CInstance*)pins))
+			continue;
+		const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+		if (pphi && pphi->bIsMovable())
+			rau4_handles.push_back(pins->u4GetUniqueHandle());
+	}
+}
+
 CLocationTrigger::~CLocationTrigger()
 {
+	setVRLocTriggers().erase(this);
 	CMessageMoveTriggerTo::UnregisterRecipient(this);
 	         CMessageStep::UnregisterRecipient(this);
 }
@@ -254,6 +275,7 @@ CLocationTrigger::~CLocationTrigger()
 //
 void CLocationTrigger::Process(const CMessageStep& msg)
 {
+	setVRLocTriggers().insert(this);
 	// If this trigger has any of the 'always' fire conditions then we need to process a little
 	// more information.
 	if (tco_TriggerConditions & (TRIGGER_COND_PLAYER_ALWAYS|TRIGGER_COND_OBJECT_ALWAYS|TRIGGER_COND_CREATURE_ALWAYS))
@@ -509,18 +531,21 @@ bool CLocationTrigger::bVRTipInside(int h) const
 	CVector3<> v3_tip(gVR.aafFingerTip[h][0], gVR.aafFingerTip[h][1], gVR.aafFingerTip[h][2]);
 	v3_tip *= ~pr3Presence();
 	bool b_in = bv_BoundingVolume && bv_BoundingVolume->bContains(v3_tip);
-	// A key stays held for a moment after the finger leaves it: a finger shaking at a key's edge
-	// pressed it twice.
-	static std::map<std::pair<const void*, int>, long long> map_last_in;
-	long long u4_now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-	std::pair<const void*, int> key((const void*)this, h);
-	if (b_in)
+	// A key lets go as soon as the finger leaves it, but a new press within 0.4 s of letting go
+	// doesn't count (a finger shaking at a key's edge pressed it twice).  (Holding it down after
+	// the finger left kept it down until the next touch, which then only let it go.)
+	struct SKeyState { bool bDown = false; long long sUp = -100000; };
+	static std::map<std::pair<const void*, int>, SKeyState> map_keys;
+	long long s_now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	SKeyState& ks = map_keys[std::make_pair((const void*)this, h)];
+	if (b_in && !ks.bDown && s_now - ks.sUp >= 400)
+		ks.bDown = true;
+	else if (!b_in && ks.bDown)
 	{
-		map_last_in[key] = u4_now;
-		return true;
+		ks.bDown = false;
+		ks.sUp = s_now;
 	}
-	auto it = map_last_in.find(key);
-	return it != map_last_in.end() && u4_now - it->second < 500;
+	return ks.bDown;
 }
 
 //*********************************************************************************************

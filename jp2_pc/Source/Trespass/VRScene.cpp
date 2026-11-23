@@ -875,6 +875,7 @@ namespace
 		u4GlintHandlesTick = u4_now;
 		std::vector<uint32> au4;
 		CObjectTrigger::VRGetPickupObjects(au4);
+		CLocationTrigger::VRGetActivateObjects(au4);		// Key cards for card readers.
 		setGlintHandles.clear();
 		setGlintHandles.insert(au4.begin(), au4.end());
 	}

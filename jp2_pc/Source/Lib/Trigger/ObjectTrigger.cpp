@@ -149,7 +149,7 @@ void CObjectTrigger::VRGetPickupObjects(std::vector<uint32>& rau4_handles)
 	rau4_handles.clear();
 	for (const CObjectTrigger* ptr : setVRObjectTriggers())
 	{
-		if (!(ptr->tcoTriggerConditions & TRIGGER_COND_OBJECT_PICKUP))
+		if (!(ptr->tcoTriggerConditions & TRIGGER_COND_OBJECT_GROUP))	// Picked up, put down or used.
 			continue;
 		for (uint32 u4 = 0; u4 < u4TRIGGER_MAX_OBJECTS; u4++)
 			if (ptr->au4Objects[u4])
