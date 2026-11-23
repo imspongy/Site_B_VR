@@ -256,7 +256,16 @@ void CLocationTrigger::VRGetActivateObjects(std::vector<uint32>& rau4_handles)
 		if (!pins || (const void*)pins == gVR.pvGameHand || ptCast<CAnimal>((CInstance*)pins) || ptCast<CPlayer>((CInstance*)pins))
 			continue;
 		const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
-		if (pphi && pphi->bIsMovable())
+		if (!pphi || !pphi->bIsMovable())
+			continue;
+		// Hand-sized things only (switches, cards): not the big gates a trigger watches swing open.
+		const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
+		if (!pbvb)
+			continue;
+		float f_s = fabsf(pins->fGetScale());
+		float f_len = (std::max)((std::max)((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X], (*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]),
+		                         (*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s;
+		if (f_len <= 1.2f)
 			rau4_handles.push_back(pins->u4GetUniqueHandle());
 	}
 }
