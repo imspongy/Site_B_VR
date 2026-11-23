@@ -4656,6 +4656,16 @@ public:
 				gVR.pfnLog("Hand: the game's own grip shape %d for %s in the %s hand.", i_sub, pins->strGetInstanceName(), i_hand ? "left" : "right");
 		}
 
+		if (gVR.pfnLog)
+		{
+			const CMagnetPair* pmp_h = NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE));
+			std::list<CMagnetPair*> lspmp_a;
+			NMagnetSystem::GetAttachedMagnets(pins, &lspmp_a);
+			gVR.pfnLog("Grab: %s (%.1f kg) %s, %d magnet(s) attached.", pins->strGetInstanceName(),
+				pins->pphiGetPhysicsInfo()->fMass(pins),
+				pmp_h ? (pmp_h->setemfFlags()[emfBREAKABLE] ? "on a breakable hinge" : "on a hinge") : "free", (int)lspmp_a.size());
+		}
+
 		// A gun mounted on a hinge (the .50 sniper on its tripod): taken off the mount, so it is
 		// held like any other gun.  (Pivoting a mounted gun with a hand that can go anywhere
 		// pulled it off its hinge and it floated away.)
@@ -5051,7 +5061,60 @@ public:
 
 			// (Guns are always lifted, however heavy the game says they are: the sniper rifle was
 			// being dragged along the ground.)
-			if ((f_mass > fTOO_HEAVY && !ptCast<CGun>(vh.pinsHeld)) || b_hinged)
+			gVR.aafHeldLag[i_hand][0] = gVR.aafHeldLag[i_hand][1] = gVR.aafHeldLag[i_hand][2] = 0;
+			if (b_hinged)
+			{
+				// Doors, gates, wheels: turned by pushing on them where the hand holds them, only
+				// along the way they can turn, with a firm hand's strength.  (Setting their
+				// velocity toward the hand fought the hinge and tore them off it.)
+				static CInstance* apins_last[2] = { nullptr, nullptr };
+				static CVector3<> av3_last[2];
+				const CMagnetPair* pmp = NMagnetSystem::pmpFindMagnet(vh.pinsHeld, Set(emfHINGE));
+				CVector3<> v3_grip = (~vh.p3Grab * vh.pinsHeld->p3GetPlacement()).v3Pos;
+				CVector3<> v3_d = p3_ctrl.v3Pos - v3_grip;
+				if (v3_d.tLen() > 0.6f)
+				{
+					apins_last[i_hand] = nullptr;
+					ReleaseVR(i_hand, false);
+					return;
+				}
+				float f_dt = Max((float)CMessageStep::sStaticStep, 0.001f);
+				CVector3<> v3_cur(0, 0, 0);
+				if (apins_last[i_hand] == vh.pinsHeld)
+					v3_cur = (v3_grip - av3_last[i_hand]) / f_dt;
+				apins_last[i_hand] = vh.pinsHeld;
+				av3_last[i_hand] = v3_grip;
+
+				// The ways it can't move: along its hinge axis and toward/away from the hinge.
+				const CSet<EMagnetFlag> set = pmp->setemfFlags();
+				int i_free = (set[emfXFREE] ? 1 : 0) + (set[emfYFREE] ? 1 : 0) + (set[emfZFREE] ? 1 : 0);
+				if (i_free == 1)
+				{
+					CVector3<> v3_ax = set[emfXFREE] ? CVector3<>(1, 0, 0) : set[emfYFREE] ? CVector3<>(0, 1, 0) : CVector3<>(0, 0, 1);
+					v3_ax = v3_ax * vh.pinsHeld->p3GetPlacement().r3Rot;
+					v3_d -= v3_ax * (v3_d * v3_ax);
+					v3_cur -= v3_ax * (v3_cur * v3_ax);
+				}
+				CVector3<> v3_r = v3_grip - pmp->v3Pos();
+				if (v3_r.tLenSqr() > 0.0001f)
+				{
+					CVector3<> v3_rn = v3_r / v3_r.tLen();
+					v3_d -= v3_rn * (v3_d * v3_rn);
+					v3_cur -= v3_rn * (v3_cur * v3_rn);
+				}
+				CVector3<> v3_want = v3_d / 0.1f;
+				if (v3_want.tLen() > 2.0f)
+					v3_want *= 2.0f / v3_want.tLen();
+				if (!_finite(v3_cur.tX) || !_finite(v3_cur.tY) || !_finite(v3_cur.tZ) || v3_cur.tLen() > 10.0f)
+					v3_cur = CVector3<>(0, 0, 0);
+				CVector3<> v3_j = (v3_want - v3_cur) * (Min(f_mass, 200.0f) * 0.35f);
+				float f_jmax = Min(f_mass, 200.0f) * 0.25f;
+				if (v3_j.tLen() > f_jmax)
+					v3_j *= f_jmax / v3_j.tLen();
+				if (_finite(v3_j.tX) && _finite(v3_j.tY) && _finite(v3_j.tZ) && v3_j.tLenSqr() > 0)
+					pphi->ApplyImpulse(vh.pinsHeld, 0, v3_grip, v3_j);
+			}
+			else if (f_mass > fTOO_HEAVY && !ptCast<CGun>(vh.pinsHeld))
 			{
 				CVector3<> v3_delta = p3_target.v3Pos - vh.pinsHeld->v3Pos();
 				if (v3_delta.tLen() > 1.0f)
@@ -5060,10 +5123,6 @@ public:
 					return;
 				}
 				CVector3<> v3_vel = v3_delta / 0.15f;
-				// A door's hinge can break if it is yanked: pulled no faster than a firm hand would
-				// (a quick swing of the controller tore doors off and they floated away).
-				if (b_hinged && v3_vel.tLen() > 1.5f)
-					v3_vel *= 1.5f / v3_vel.tLen();
 				CVector3<> v3_now = pphi->p3GetVelocity(vh.pinsHeld).v3Pos;
 				v3_vel.tZ = Min(v3_now.tZ, 0.0f);
 				pphi->ForceVelocity(vh.pinsHeld, v3_vel);
@@ -5085,13 +5144,13 @@ public:
 				if (!ptCast<CGun>(vh.pinsHeld) && f_mass > 1.0f && gVR.fHeldWeight > 0)
 				{
 					float f_dt = Max((float)CMessageStep::sStaticStep, 0.001f);
-					float f_tau = Min(gVR.fHeldWeight * (0.03f + f_mass * 0.006f), 0.35f);
+					float f_tau = Min(gVR.fHeldWeight * (0.04f + f_mass * 0.012f), 0.4f);
 					float f_k = 1.0f - expf(-f_dt / Max(f_tau, 0.001f));
 					CVector3<> v3_now = vh.pinsHeld->v3Pos();
-					CVector3<> v3_sag(0, 0, -Min(f_mass, 60.0f) * 0.002f * gVR.fHeldWeight);
+					CVector3<> v3_sag(0, 0, -Min(f_mass * 0.004f, 0.12f) * gVR.fHeldWeight);
 					CVector3<> v3_goal = p3_target.v3Pos + v3_sag;
 					// Just picked up, or far behind (a jump, a teleport): straight to the hand.
-					if ((v3_goal - v3_now).tLen() < 0.5f)
+					if ((v3_goal - v3_now).tLen() < 1.0f)
 					{
 						CVector3<> v3_lag = v3_now + (v3_goal - v3_now) * f_k;
 						if (_finite(v3_lag.tX) && _finite(v3_lag.tY) && _finite(v3_lag.tZ))
@@ -5099,6 +5158,14 @@ public:
 					}
 					else
 						p3_target.v3Pos = v3_goal;
+					// Drawn there too (the hand's thing is otherwise drawn right at the controller).
+					CVector3<> v3_off = p3_target.v3Pos - (vh.p3Grab * p3_ctrl).v3Pos;
+					if (v3_off.tLen() < 1.0f)
+					{
+						gVR.aafHeldLag[i_hand][0] = v3_off.tX;
+						gVR.aafHeldLag[i_hand][1] = v3_off.tY;
+						gVR.aafHeldLag[i_hand][2] = v3_off.tZ;
+					}
 				}
 				vh.pinsHeld->Move(p3_target);
 				pphi->ForceVelocity(vh.pinsHeld, v3_hand_vel);

@@ -1255,6 +1255,9 @@ namespace
 			float f_k = gVR.abHoldingGun[h] ? std::max(0.5f, std::min(gVR.fGunScale, 1.5f))
 			          : gVR.abHoldingMelee[h] ? gVR.fMeleeDrawScale : 1.0f;
 			CVector3<> v3_pos = p3_ctrl.v3Pos + (p3_inst.v3Pos - p3_ctrl.v3Pos) * f_k;
+			// Its weight: it trails and sags behind the hand as the game moves it.
+			if (!gVR.abHoldingGun[h] && !gVR.abHoldingMelee[h])
+				v3_pos += CVector3<>(gVR.aafHeldLag[h][0], gVR.aafHeldLag[h][1], gVR.aafHeldLag[h][2]);
 			rpr3 = CPresence3<>(p3_inst.r3Rot, rpr3.rScale * f_k, v3_pos);
 			return true;
 		}

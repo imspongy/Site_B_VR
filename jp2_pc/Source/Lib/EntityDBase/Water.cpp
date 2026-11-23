@@ -112,6 +112,7 @@
 #include "Lib/Renderer/LightBlend.hpp"
 #include "Lib/Sys/DebugConsole.hpp"
 #include "Lib/Sys/W95/Render.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Lib/Renderer/ScreenRenderAuxD3D.hpp"
 #include "Lib/EntityDBase/QualitySettings.hpp"
 
@@ -3010,8 +3011,17 @@ public:
 		CDir3<> d3_water_up = d3ZAxis * pr3GetPresence();
 
 		// Rotate water's presence to convert current up to up.
+		// (VR: turned about its own position.  Turning the whole presence turned its position
+		// about the world's origin too, so a slightly tilted puddle, 1 km from the origin, moved
+		// metres away: the one in the tipped container in the town drew outside it.)
 		CPresence3<> pr3 = pr3GetPresence();
+		CVector3<> v3_keep = pr3.v3Pos;
 		pr3 *= CRotate3<>(d3_water_up, d3ZAxis);
+		if (gVR.pfnLog && (pr3.v3Pos - v3_keep).tLen() > 0.01f)
+			gVR.pfnLog("Water %s levelled (tilted %.2f deg); kept at (%.2f %.2f %.2f) rather than moved %.2f m.",
+				strGetInstanceName(), acosf(Min(1.0f, Max(-1.0f, (float)d3_water_up.tZ))) * 57.2958f,
+				v3_keep.tX, v3_keep.tY, v3_keep.tZ, (pr3.v3Pos - v3_keep).tLen());
+		pr3.v3Pos = v3_keep;
 		SetPresence(pr3);
 
 		// Create a model-to-world transformation.
