@@ -862,6 +862,8 @@ namespace
 	int   iGlintTex = 0;
 	bool  gbGlints = true;
 
+	bool bLooksCard(CInstance* pins);
+
 	void UpdateGlintHandles(bool b_new_level)
 	{
 		if (b_new_level)
@@ -875,8 +877,16 @@ namespace
 				CLocationTrigger::VRGetActivateObjects(au4_loc);
 				bool b_loc = std::find(au4_loc.begin(), au4_loc.end(), pins->u4GetUniqueHandle()) != au4_loc.end();
 				std::string str = CObjectTrigger::strVRDescribe(pins->u4GetUniqueHandle());
+				if (gVR.pfnLog && pins->prdtGetRenderInfo() && pins->prdtGetRenderInfo()->bvGet().pbvbCast())
+				{
+					const CBoundVolBox& bvb = *pins->prdtGetRenderInfo()->bvGet().pbvbCast();
+					float f_s = std::fabs(pins->fGetScale());
+					gVR.pfnLog("Glint check: %s is %.3f x %.3f x %.3f m, %.2f kg.", pins->strGetInstanceName(),
+						(bvb[ebeMAX_X] - bvb[ebeMIN_X]) * f_s, (bvb[ebeMAX_Y] - bvb[ebeMIN_Y]) * f_s, (bvb[ebeMAX_Z] - bvb[ebeMIN_Z]) * f_s,
+						pins->pphiGetPhysicsInfo() ? pins->pphiGetPhysicsInfo()->fMass(pins) : 0.0f);
+				}
 				if (gVR.pfnLog) gVR.pfnLog("Glint check: picked up %s: %s;%s%s.", pins->strGetInstanceName(),
-					setGlintHandles.count(pins->u4GetUniqueHandle()) ? "glinted" : "did not glint",
+					setGlintHandles.count(pins->u4GetUniqueHandle()) || bLooksCard(pins) ? "glinted" : "did not glint",
 					b_loc ? " a location trigger waits for it;" : "", str.empty() ? " no object trigger names it" : str.c_str());
 			}
 		DWORD u4_now = GetTickCount();
@@ -912,6 +922,28 @@ namespace
 		return b;
 	}
 
+	// Key cards: nothing in the level names them (a card reader takes any card), so they are
+	// known by shape: small, thin and flat, light and movable.
+	std::unordered_map<const CInstance*, bool> mapCard;
+	bool bLooksCard(CInstance* pins)
+	{
+		auto it = mapCard.find(pins);
+		if (it != mapCard.end())
+			return it->second;
+		bool b = false;
+		const CPhysicsInfo* pphi = pins->pphiGetPhysicsInfo();
+		const CBoundVolBox* pbvb = pins->prdtGetRenderInfo() ? pins->prdtGetRenderInfo()->bvGet().pbvbCast() : nullptr;
+		if (pphi && pphi->bIsMovable() && pbvb)
+		{
+			float f_s = std::fabs(pins->fGetScale());
+			float af_d[3] = { ((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X]) * f_s, ((*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]) * f_s, ((*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s };
+			std::sort(af_d, af_d + 3);
+			b = af_d[2] <= 0.2f && af_d[2] >= 0.05f && af_d[1] <= 0.15f && af_d[0] <= 0.02f && pphi->fMass(pins) <= 1.0f;
+		}
+		mapCard[pins] = b;
+		return b;
+	}
+
 	void ConsiderGlint(CInstance* pins, const CPresence3<>& pr3, float f_radius, const CVector3<>& v3_eye)
 	{
 		if (!gbGlints || setPickedUp.count(pins))
@@ -920,7 +952,7 @@ namespace
 		float f_dist = v3_to.tLen();
 		if (f_dist > 30.0f || f_dist < 0.3f)
 			return;
-		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()))
+		if (!ptCast<CGun>(pins) && !setGlintHandles.count(pins->u4GetUniqueHandle()) && !bLooksCard(pins))
 			return;
 		if (pins == (CInstance*)gVR.apvHeldFirm[0] || pins == (CInstance*)gVR.apvHeldFirm[1])
 			return;
@@ -2133,6 +2165,7 @@ void VRScene_ReleaseLevel()
 	iPhysTexRed = iPhysTexBlue = 0;
 	iGlintTex = 0;
 	mapMelee.clear();
+	mapCard.clear();
 	apinsNear.clear();
 	apinsNearLast.clear();
 	ptrrLevel = nullptr;
@@ -2175,6 +2208,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		iPhysTexRed = iPhysTexBlue = 0;
 		iGlintTex = 0;
 		mapMelee.clear();
+	mapCard.clear();
 		VRR_ClearAll();
 
 		// Load all of the level's textures now (the game normally streams them in a little at
