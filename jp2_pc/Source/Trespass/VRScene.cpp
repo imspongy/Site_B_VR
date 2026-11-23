@@ -1611,6 +1611,12 @@ namespace
 	// under it (as the game does: ground textures follow the terrain), draw it.
 	std::vector<CInstance*> apinsAnimTerrain;
 
+	bool bIsBloodTerrain(CInstance* pins)
+	{
+		const char* str = pins->strGetInstanceName();
+		return str && (strncmp(str, "TrnObj_BloodSplat", 17) == 0 || strncmp(str, "TrnObj_BloodStreak", 18) == 0);
+	}
+
 	void DrawAnimatedTerrain(CTerrain* ptrr, const CVector3<>& v3_eye)
 	{
 		if (!ptrr || apinsAnimTerrain.empty())
@@ -1618,20 +1624,28 @@ namespace
 		for (CInstance* pins : apinsAnimTerrain)
 		{
 			rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
-			if (!pmsh || !pmsh->bIsAnimated())
+			bool b_blood = bIsBloodTerrain(pins);
+			if (!pmsh || (!pmsh->bIsAnimated() && !b_blood))
 				continue;
 			const CPresence3<>& pr3 = pins->pr3Presence();
+			if (b_blood && std::fabs(pr3.rScale) < 0.01f)
+				continue;
 			float f_r = 0;
 			for (uint u = 0; u < pmsh->pav3Points.uLen; u++)
 				f_r = std::max(f_r, (float)pmsh->pav3Points[u].tLen());
 			if ((CVector2<>(pr3.v3Pos) - CVector2<>(v3_eye)).tLen() > 250.0f + f_r * std::fabs(pr3.rScale))
 				continue;
-			const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
-			if (setAnimatedThisFrame.insert(pmsh.ptGet()).second)
-				pma->Animate();
+			if (pmsh->bIsAnimated())
+			{
+				const CMeshAnimating* pma = static_cast<const CMeshAnimating*>(pmsh.ptGet());
+				if (setAnimatedThisFrame.insert(pmsh.ptGet()).second)
+					pma->Animate();
+			}
 
 			CTerrainObj* ptobj = ptCast<CTerrainObj>(pins);
-			float f_lift = 0.03f + (ptobj ? ptobj->iHeight : 0) * 0.004f;
+			// (Blood: the newest on top, as the game layers them; its height has a high flag bit.)
+			float f_lift = b_blood ? 0.035f + (ptobj ? (ptobj->iHeight & 0x3F) : 0) * 0.0003f
+			                       : 0.03f + (ptobj ? ptobj->iHeight : 0) * 0.004f;
 			const CMesh::SVertex* pmv0 = pmsh->pamvVertices.atArray;
 			int i_verts = (int)pmsh->pamvVertices.uLen;
 			std::vector<SVRRVertex> av((size_t)i_verts);
@@ -2047,6 +2061,14 @@ namespace
 			rptr_const<CMesh> pmsh = ptCastRenderType<CMesh>(pins->prdtGetRenderInfo());
 			if (!pmsh)
 				continue;
+			// Blood on the ground (the game's own blood splat and streak ground textures, which it
+			// moves under wounded animals as they bleed): drawn live where they are now, not baked
+			// where they waited at the level's start.
+			if (bIsBloodTerrain(pins))
+			{
+				apinsAnimTerrain.push_back(pins);
+				continue;
+			}
 			if (pmsh->bIsAnimated())
 			{
 				// Animated ground textures (surf on the sand and the like) move every frame:

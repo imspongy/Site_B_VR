@@ -2570,7 +2570,11 @@ bool VRMod_RenderStereo(const std::function<void()>& paint_scene)
 						float f_along = v3_rel * v3_f;
 						float f_gun_hand = (av3HandWorld[g] - v3_o) * v3_f;
 						CVector3<> v3_off = v3_rel - v3_f * f_along;
-						b_near = fLen(v3_off) < 0.15f && f_along > f_gun_hand + 0.05f && f_along < f_gun_hand + f_len + 0.1f;
+						// The machine gun (200 rounds) is bulkier under its barrel: a wider reach.
+						int i_ammo = 0;
+						sscanf(gVR.astrHeldGunKey[g], "Gun_a%d_", &i_ammo);
+						float f_reach = i_ammo >= 150 ? 0.27f : 0.15f;
+						b_near = fLen(v3_off) < f_reach && f_along > f_gun_hand + 0.05f && f_along < f_gun_hand + f_len + 0.1f;
 					}
 					if (b_near)
 					{

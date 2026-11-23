@@ -173,6 +173,28 @@ void CVideoWnd::NextNonDirect()
         }
     }
 
+    // VR: the screen is cleared before every frame, so copy the whole picture, not just the
+    // parts Smacker says changed (still parts, like the title and the credits, went black for
+    // a frame now and then: a flash).
+    if (VRMod_Active())
+    {
+        int i_w = (int)m_pSmack->Width * 2;
+        int i_h = (int)m_pSmack->Height;
+        if (m_iTop + i_h > m_pBuff->iHeight)
+            i_h = m_pBuff->iHeight - m_iTop;
+        if (i_w > 0 && i_h > 0 && m_iLeft >= 0 && m_iTop >= 0)
+        {
+            pbSrc = pb + (m_iLeft * 2) + (iSrcPitch * m_iTop);
+            pbDst = pbBits + (m_iLeft * 2) + (iDstPitch * m_iTop);
+            for (y = 0; y < i_h; y++)
+            {
+                memcpy(pbDst, pbSrc, i_w);
+                pbSrc += iSrcPitch;
+                pbDst += iDstPitch;
+            }
+        }
+    }
+
     m_pBuff->Unlock();
     pSurface->Unlock(nullptr);
 }

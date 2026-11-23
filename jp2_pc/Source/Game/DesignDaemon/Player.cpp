@@ -6307,6 +6307,17 @@ public:
 				float f_xs = atf3_ref[10].v3Pos.tX;
 				float f_sign = f_xs >= 0 ? 1.0f : -1.0f;
 				float f_limit = 0.85f * fabs(f_xs);
+				// Her left arm's own joints: the shoulder and every joint out beyond it (elbow,
+				// wrist, hand).  A polygon moved only by these is the arm itself, however close
+				// it hangs to her side (those parts were still showing).
+				std::vector<unsigned char> au1_arm_joint(i_transforms, 0);
+				std::string str_joints;
+				for (int j = 0; j < i_transforms; j++)
+					if (atf3_ref[j].v3Pos.tX * f_sign <= -0.9f * fabs(f_xs))	// (The other side from joint 10, as below.)
+					{
+						au1_arm_joint[j] = 1;
+						str_joints += " " + std::to_string(j);
+					}
 				int i_count = 0;
 				for (uint u = 0; u < pbm->pampPolygons.uLen; u++)
 				{
@@ -6321,6 +6332,8 @@ public:
 							b_stub = false;
 							break;
 						}
+						if (au1_arm_joint[i_joint])
+							continue;
 						CVector3<> v3 = pbm->pav3Points[u_pt] * atf3_ref[i_joint];
 						if (v3.tX * f_sign > -f_limit)
 							b_stub = false;
@@ -6329,7 +6342,7 @@ public:
 					i_count += b_stub ? 1 : 0;
 				}
 				if (gVR.pfnLog)
-					gVR.pfnLog("Arms: hiding %d of %d polygons as the left arm stub (shoulder x %.3f).", i_count, (int)au1_stub.size(), f_xs);
+					gVR.pfnLog("Arms: hiding %d of %d polygons as the left arm stub (shoulder x %.3f; arm joints%s).", i_count, (int)au1_stub.size(), f_xs, str_joints.c_str());
 			}
 			bool b_hide = gVR.bLeftArm && gVR.abHandValid[1] && !gVR.bLeftArmTest && !au1_stub.empty();
 			gVR.pu1StubPolys = b_hide ? &au1_stub[0] : nullptr;
