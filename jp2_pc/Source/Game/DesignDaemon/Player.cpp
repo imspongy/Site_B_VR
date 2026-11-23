@@ -5060,6 +5060,10 @@ public:
 					return;
 				}
 				CVector3<> v3_vel = v3_delta / 0.15f;
+				// A door's hinge can break if it is yanked: pulled no faster than a firm hand would
+				// (a quick swing of the controller tore doors off and they floated away).
+				if (b_hinged && v3_vel.tLen() > 1.5f)
+					v3_vel *= 1.5f / v3_vel.tLen();
 				CVector3<> v3_now = pphi->p3GetVelocity(vh.pinsHeld).v3Pos;
 				v3_vel.tZ = Min(v3_now.tZ, 0.0f);
 				pphi->ForceVelocity(vh.pinsHeld, v3_vel);
@@ -5549,7 +5553,9 @@ public:
 				float f_m = Min(Max(pphi_p->fMass(pinsVRPush), 5.0f), 300.0f);
 				if (!pphi_p->bIsActive(pinsVRPush))
 					pphi_p->Activate(pinsVRPush);
-				pphi_p->ApplyImpulse(pinsVRPush, 0, v3VRPushAt, v3VRPushDir * (f_m * Min(f_speed, 4.0f) * 0.6f));
+				// (Hinged things, doors, only gently: their hinges can break.)
+				bool b_hinge_p = NMagnetSystem::pmpFindMagnet(pinsVRPush, Set(emfHINGE)) != nullptr;
+				pphi_p->ApplyImpulse(pinsVRPush, 0, v3VRPushAt, v3VRPushDir * (f_m * Min(f_speed, b_hinge_p ? 1.0f : 4.0f) * 0.6f));
 				if (gVR.pfnLog)
 					gVR.pfnLog("Body: pushed %s (%.0f kg) at %.1f m/s.", pinsVRPush->strGetInstanceName(), pphi_p->fMass(pinsVRPush), f_speed);
 			}
