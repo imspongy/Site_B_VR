@@ -5144,13 +5144,13 @@ public:
 				if (!ptCast<CGun>(vh.pinsHeld) && f_mass > 1.0f && gVR.fHeldWeight > 0)
 				{
 					float f_dt = Max((float)CMessageStep::sStaticStep, 0.001f);
-					float f_tau = Min(gVR.fHeldWeight * (0.04f + f_mass * 0.012f), 0.4f);
+					float f_tau = Min(gVR.fHeldWeight * (0.03f + f_mass * 0.006f), 0.35f);
 					float f_k = 1.0f - expf(-f_dt / Max(f_tau, 0.001f));
 					CVector3<> v3_now = vh.pinsHeld->v3Pos();
-					CVector3<> v3_sag(0, 0, -Min(f_mass * 0.004f, 0.12f) * gVR.fHeldWeight);
+					CVector3<> v3_sag(0, 0, -Min(f_mass, 60.0f) * 0.002f * gVR.fHeldWeight);
 					CVector3<> v3_goal = p3_target.v3Pos + v3_sag;
 					// Just picked up, or far behind (a jump, a teleport): straight to the hand.
-					if ((v3_goal - v3_now).tLen() < 1.0f)
+					if ((v3_goal - v3_now).tLen() < 0.5f)
 					{
 						CVector3<> v3_lag = v3_now + (v3_goal - v3_now) * f_k;
 						if (_finite(v3_lag.tX) && _finite(v3_lag.tY) && _finite(v3_lag.tZ))
