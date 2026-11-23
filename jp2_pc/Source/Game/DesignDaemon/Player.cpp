@@ -5547,7 +5547,7 @@ public:
 					gVR.pfnLog("Body: pushed %s (%.0f kg) at %.1f m/s.", pinsVRPush->strGetInstanceName(), pphi_p->fMass(pinsVRPush), f_speed);
 			}
 		}
-		// Ground too steep to walk up (over 45 degrees): she doesn't climb it (walking
+		// Ground too steep to walk up (over 70 degrees): she doesn't climb it (walking
 		// straight up near-cliffs skipped puzzles).  Ground only; steps on things are fine.
 		auto b_too_steep = [&](const CVector3<>& v3_from, const CVector3<>& v3_move) -> bool
 		{
@@ -5563,7 +5563,7 @@ public:
 			bool b_ok1 = b_floor(v3_from.tX + v3_move.tX, v3_from.tY + v3_move.tY, v3_from.tZ + fSTEP, fSTEP + 0.45f, f_z1);
 			bool b_ter1 = b_ok1 && ptCast<CTerrain>(pins_floor);
 			pins_floor = pins_save;
-			return b_ter0 && b_ter1 && f_z1 - f_z0 > 0.01f && (f_z1 - f_z0) / f_h > 1.0f;	// Steeper than 45 degrees.
+			return b_ter0 && b_ter1 && f_z1 - f_z0 > 0.01f && (f_z1 - f_z0) / f_h > 2.747f;	// Steeper than 70 degrees.
 		};
 		if (b_too_steep(v3VRFeet, v3_step))
 		{
