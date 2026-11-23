@@ -867,8 +867,18 @@ namespace
 		if (b_new_level)
 			setPickedUp.clear();
 		for (int h = 0; h < 2; h++)
-			if (gVR.apvHeldFirm[h])
-				setPickedUp.insert(gVR.apvHeldFirm[h]);
+			if (gVR.apvHeldFirm[h] && setPickedUp.insert(gVR.apvHeldFirm[h]).second && !ptCast<CGun>((CInstance*)gVR.apvHeldFirm[h]))
+			{
+				// Glint check (key cards didn't glint): what this was, and what refers to it.
+				CInstance* pins = (CInstance*)gVR.apvHeldFirm[h];
+				std::vector<uint32> au4_loc;
+				CLocationTrigger::VRGetActivateObjects(au4_loc);
+				bool b_loc = std::find(au4_loc.begin(), au4_loc.end(), pins->u4GetUniqueHandle()) != au4_loc.end();
+				std::string str = CObjectTrigger::strVRDescribe(pins->u4GetUniqueHandle());
+				SceneLog("Glint check: picked up %s: %s;%s%s.", pins->strGetInstanceName(),
+					setGlintHandles.count(pins->u4GetUniqueHandle()) ? "glinted" : "did not glint",
+					b_loc ? " a location trigger waits for it;" : "", str.empty() ? " no object trigger names it" : str.c_str());
+			}
 		DWORD u4_now = GetTickCount();
 		if (!b_new_level && u4_now - u4GlintHandlesTick < 2000)
 			return;

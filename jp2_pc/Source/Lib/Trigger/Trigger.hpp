@@ -771,6 +771,7 @@ public:
 	//******************************************************************************************
 	// VR: every object a pickup trigger is waiting for (to make them glint).
 	static void VRGetPickupObjects(std::vector<uint32>& rau4_handles);
+	static std::string strVRDescribe(uint32 u4_handle);
 	static std::set<const CObjectTrigger*>& setVRObjectTriggers();
 
 	//*****************************************************************************************

@@ -158,6 +158,21 @@ void CObjectTrigger::VRGetPickupObjects(std::vector<uint32>& rau4_handles)
 }
 
 
+// VR glint check: which object triggers name this thing, with their conditions.
+std::string CObjectTrigger::strVRDescribe(uint32 u4_handle)
+{
+	std::string str;
+	char str_b[96];
+	for (const CObjectTrigger* ptr : setVRObjectTriggers())
+		for (uint32 u4 = 0; u4 < u4TRIGGER_MAX_OBJECTS; u4++)
+			if (ptr->au4Objects[u4] == u4_handle)
+			{
+				snprintf(str_b, sizeof(str_b), " object trigger %s (conditions %08X)", ptr->strGetInstanceName(), (unsigned)ptr->tcoTriggerConditions);
+				str += str_b;
+			}
+	return str;
+}
+
 //*********************************************************************************************
 CObjectTrigger::~CObjectTrigger()
 {
