@@ -5912,6 +5912,16 @@ public:
 				CInstance* pins_m = NMagnetSystem::pinsFindMaster(pins);
 				if (pins_m)
 					pins = pins_m;
+				// Only loose, light things (a plank, a crate).  Not lifts, platforms, doors or
+				// anything on a track or hinge, nor heavy things: the level 7 lift couldn't rise
+				// with her on it because it was held still under her.
+				pphi = pins->pphiGetPhysicsInfo();
+				if (!pphi || !pphi->bIsMovable() || pphi->fMass(pins) > 50.0f)
+					return;
+				if (NMagnetSystem::pmpFindMagnet(pins, Set(emfSLIDE) + emfHINGE))
+					return;
+				if (pphi->p3GetVelocity(pins).v3Pos.tLen() > 0.3f)
+					return;
 				int i_free = -1;
 				for (int i = 0; i < 4; i++)
 				{
