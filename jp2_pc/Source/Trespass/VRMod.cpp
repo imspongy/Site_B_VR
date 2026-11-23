@@ -37,6 +37,7 @@
 #include "precomp.h"
 #include <csignal>
 #include <map>
+#include <set>
 #include <exception>
 #pragma hdrstop
 
@@ -71,6 +72,9 @@ static CVector3<> v3LastHeadTrack;		// Your head in the room (last frame), for t
 #include "Lib/Renderer/Primitives/Walk.hpp"
 #include "Lib/Renderer/Primitives/IndexT.hpp"
 #include "Lib/Renderer/Primitives/IndexPerspectiveT.hpp"
+#include "Lib/EntityDBase/ParticleGen.hpp"
+#include "Lib/Audio/AudioDaemon.hpp"
+#include "Lib/Audio/AudioLoader.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -749,6 +753,7 @@ namespace
 		GetPrivateProfileStringA("VR", "BodyPassThrough", "", gVR.strBodyPassThrough, sizeof(gVR.strBodyPassThrough), str_file.c_str());
 		gVR.fMeleeTiltDeg = fIni(str_file, "MeleeTilt", 45.0f);
 		gVR.fMeleeDrawScale = (std::min)(1.5f, (std::max)(0.3f, fIni(str_file, "MeleeScale", 0.7f)));
+		gVR.fHeldWeight = (std::min)(3.0f, (std::max)(0.0f, fIni(str_file, "HeldWeight", 1.0f)));
 		gVR.fMeleeScale   = fIni(str_file, "MeleeDamage", 0.6f);
 		s.bGlints         = fIni(str_file, "Glints", 1.0f) > 0.5f;
 		gVR.fArmScale     = (std::min)(1.2f, (std::max)(0.6f, fIni(str_file, "ArmScale", 0.85f)));
@@ -2071,6 +2076,52 @@ void VRMod_LevelLoaded()
 {
 	bVRLoadingLevel = false;
 	Log("Level loaded.");
+	// Sparks off all metal, as off the barrels: the game gives sparks to four metal materials
+	// only.  Any other metal material this level's sounds know of gets the same sparks.
+	{
+		CCreateParticles* pcrt_spark = NParticleMap::pcrtFind(matHashIdentifier("Metal Hard 1"));
+		CCreateParticles* pcrt_default = NParticleMap::pcrtFind(0);
+		TCollisionHash* pch = padAudioDaemon && padAudioDaemon->padatEffects ? padAudioDaemon->padatEffects->pchGetCollisions() : nullptr;
+		if (pcrt_spark && pch)
+		{
+			std::set<uint32> set_known;
+			for (auto& pr : *pch)
+			{
+				set_known.insert((uint32)(pr.first & 0xFFFFFFFFu));
+				set_known.insert((uint32)(pr.first >> 32));
+			}
+			static const char* astr_base[] =
+			{
+				"Metal", "Metal Hard", "Metal Dull", "Metal Light", "Metal Heavy", "Metal Thin", "Metal Sheet",
+				"Metal Pipe", "Metal Pole", "Metal Grate", "Metal Fence", "Metal Plate", "Metal Box", "Metal Can",
+				"Metal Door", "Metal Gate", "Metal Barrel", "Metal Chain", "Metal Hollow", "Metal Solid", "Oil Barrel",
+				"Sheet Metal", "Steel", "Iron", "Tin", "Girder", "Chain Link", "Chainlink", "Car", "Truck", "Jeep",
+				"Vehicle", "Pipe", "Terrain - Metal", "Barrel", "Drum", "Gun", "Fence - Metal", "Container"
+			};
+			std::string str_added;
+			for (const char* str_b : astr_base)
+				for (int i_n = 0; i_n <= 6; i_n++)
+				{
+					char str_name[64];
+					if (i_n == 0)
+						snprintf(str_name, sizeof(str_name), "%s", str_b);
+					else
+						snprintf(str_name, sizeof(str_name), "%s %d", str_b, i_n);
+					TSoundMaterial smat = matHashIdentifier(str_name);
+					if (!set_known.count((uint32)smat))
+						continue;
+					CCreateParticles* pcrt_now = NParticleMap::pcrtFind(smat);
+					if (pcrt_now == pcrt_spark)
+						continue;
+					if (pcrt_now && pcrt_now != pcrt_default)
+						continue;		// It has its own effect already.
+					NParticleMap::AddMapping(pcrt_spark, smat);
+					str_added += str_added.empty() ? "" : ", ";
+					str_added += str_name;
+				}
+			Log("Sparks: metal materials given sparks: %s.", str_added.empty() ? "none" : str_added.c_str());
+		}
+	}
 	{
 		extern const char* strAudioEAXState;
 		Log("Audio: game reverb (EAX): %s.", strAudioEAXState);

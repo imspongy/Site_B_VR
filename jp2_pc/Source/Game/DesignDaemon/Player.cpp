@@ -5074,6 +5074,21 @@ public:
 			}
 			else
 			{
+				// A feeling of weight: things trail the hand a little, more the heavier they are
+				// (a rock barely, a crate noticeably), and heavy ones sag.  Guns stay put.
+				if (!ptCast<CGun>(vh.pinsHeld) && f_mass > 1.0f && gVR.fHeldWeight > 0)
+				{
+					float f_dt = Max((float)CMessageStep::sStaticStep, 0.001f);
+					float f_tau = gVR.fHeldWeight * (0.012f + f_mass * 0.0035f);
+					float f_k = 1.0f - expf(-f_dt / Max(f_tau, 0.001f));
+					CPlacement3<> p3_now = vh.pinsHeld->p3GetPlacement();
+					CVector3<> v3_sag(0, 0, -Min(f_mass, 60.0f) * 0.0012f * gVR.fHeldWeight);
+					CPlacement3<> p3_lag;
+					p3_lag.v3Pos = p3_now.v3Pos + (p3_target.v3Pos + v3_sag - p3_now.v3Pos) * f_k;
+					CRotate3<> r3_d = ~p3_now.r3Rot * p3_target.r3Rot;
+					p3_lag.r3Rot = p3_now.r3Rot * (r3_d * f_k);
+					p3_target = p3_lag;
+				}
 				vh.pinsHeld->Move(p3_target);
 				pphi->ForceVelocity(vh.pinsHeld, v3_hand_vel);
 			}
@@ -5531,6 +5546,29 @@ public:
 				if (gVR.pfnLog)
 					gVR.pfnLog("Body: pushed %s (%.0f kg) at %.1f m/s.", pinsVRPush->strGetInstanceName(), pphi_p->fMass(pinsVRPush), f_speed);
 			}
+		}
+		// Ground too steep to walk up (over about 60 degrees): she doesn't climb it (walking
+		// straight up near-cliffs skipped puzzles).  Ground only; steps on things are fine.
+		auto b_too_steep = [&](const CVector3<>& v3_from, const CVector3<>& v3_move) -> bool
+		{
+			if (!bVRGrounded || bVRSwimming)
+				return false;
+			float f_h = sqrtf(v3_move.tX * v3_move.tX + v3_move.tY * v3_move.tY);
+			if (f_h < 1e-4f)
+				return false;
+			CInstance* pins_save = pins_floor;
+			float f_z0, f_z1;
+			bool b_ok0 = b_floor(v3_from.tX, v3_from.tY, v3_from.tZ + fSTEP, fSTEP + 0.45f, f_z0);
+			bool b_ter0 = b_ok0 && ptCast<CTerrain>(pins_floor);
+			bool b_ok1 = b_floor(v3_from.tX + v3_move.tX, v3_from.tY + v3_move.tY, v3_from.tZ + fSTEP, fSTEP + 0.45f, f_z1);
+			bool b_ter1 = b_ok1 && ptCast<CTerrain>(pins_floor);
+			pins_floor = pins_save;
+			return b_ter0 && b_ter1 && f_z1 - f_z0 > 0.01f && (f_z1 - f_z0) / f_h > 1.73f;
+		};
+		if (b_too_steep(v3VRFeet, v3_step))
+		{
+			v3_step.tX = v3_step.tY = 0;
+			v3_normal = CVector3<>(0, 0, 0);
 		}
 		v3VRFeet += v3_step;
 		CVector3<> v3_rest = v3_d - v3_step;

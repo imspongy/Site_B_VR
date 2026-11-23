@@ -97,6 +97,7 @@ struct SVRShared
 	bool  abHoldingMelee[2] = { false, false };
 	float fMeleeTiltDeg = 45.0f;		// Bats and pipes tipped up in the hand.
 	char  strBodyPassThrough[512] = { 0 };	// Things (instance names, comma separated) her body walks through: invisible walls.
+	float fHeldWeight = 1.0f;		// How much held things trail and sag with their weight (0 = none).
 	float fMeleeScale = 1.0f;			// Melee hits (things swung in the hand) hurt this much more.
 	float fMeleeDrawScale = 0.7f;		// Bats and pipes drawn this size in the hand.
 	float fForearmTwist = 0.75f;		// How much of the hand's twist the forearm takes.

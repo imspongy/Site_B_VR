@@ -184,6 +184,25 @@ UICTRL "textbox" 1 1 -1 188 47 306 61
 
 UICTRL "hotspot" 1 1 1107 166 48 306 61 0
 
+UICTRL "textbox" 1 1 1208 166 64 306 75
+        1 ; Transparent Bk
+        1 ; Back Lit
+        1 ; Back lit offset
+        0 0 0; Back lit color
+        "" ; Initial Text
+        10 ; Point Size
+        500 ; Weight
+        0 255 0 ; Bk Color
+        255 255 255 ; FG Color
+        0x0 ; DT Flags
+        0 ; Draw Border
+
+UICTRL "slider" 1 1 1008 166 74 306 92
+        "menu\\slider.tga"
+        101 ; # of units
+        0 ; Default Unit value
+        0 ; Border/Ticks
+
 UICTRL "textbox" 1 1 1204 16 92 156 103
         1 ; Transparent Bk
         1 ; Back Lit

@@ -1272,18 +1272,22 @@ namespace
         { 1027, "Glints", 1 },
     };
 
-    struct SVRSlider { int iID; int iLabelID; const char* strKey; const char* strName; float fMin, fMax, fDefault; const char* strFormat; };
+    struct SVRSlider { int iID; int iLabelID; const char* strKey; const char* strName; float fMin, fMax, fDefault; const char* strFormat; float fStep; };
     const SVRSlider asVRSliders[] =
     {
-        { 1004, 1204, "SmoothTurnSpeed", "Turn speed",    60.0f, 300.0f, 150.0f, "%s: %.0f deg/s" },
-        { 1005, 1205, "DrawDistance",    "Draw distance", 2.0f,  12.0f,  8.0f,   "%s: %.1f" },
-        { 1006, 1206, "MoveSpeed",       "Walk speed",    1.0f,  4.0f,   2.2f,   "%s: %.1f m/s" },
-        { 1007, 1207, "DetailCull",      "Small-object culling", 0.0f, 0.01f, 0.0025f, "%s: %.4f" },
+        { 1004, 1204, "SmoothTurnSpeed", "Turn speed",    60.0f, 300.0f, 150.0f, "%s: %.0f deg/s", 0.0f },
+        { 1005, 1205, "DrawDistance",    "Draw distance", 2.0f,  12.0f,  8.0f,   "%s: %.1f", 0.0f },
+        { 1006, 1206, "MoveSpeed",       "Walk speed",    1.0f,  4.0f,   2.2f,   "%s: %.1f m/s", 0.0f },
+        { 1007, 1207, "DetailCull",      "Small-object culling", 0.0f, 0.01f, 0.0025f, "%s: %.4f", 0.0f },
+        { 1008, 1208, "SnapTurnDegrees", "Snap turn",     15.0f, 90.0f,  45.0f,  "%s: %.0f deg", 5.0f },
     };
 
     float fSliderValue(const SVRSlider& sl, int i_unit)
     {
-        return sl.fMin + (sl.fMax - sl.fMin) * (float)i_unit / 100.0f;
+        float f = sl.fMin + (sl.fMax - sl.fMin) * (float)i_unit / 100.0f;
+        if (sl.fStep > 0)
+            f = sl.fMin + floorf((f - sl.fMin) / sl.fStep + 0.5f) * sl.fStep;
+        return f;
     }
 }
 
