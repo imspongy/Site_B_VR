@@ -5254,12 +5254,41 @@ public:
 			CWDbQueryTerrain wqtrr;
 			return wqtrr.tGet();
 		};
+		// Whether the sounds know a footstep on this material.  (In a stretch of the forest her
+		// steps went silent: what was under her had no footstep sound.  Then the ground's own is
+		// used, or the last one that had a sound.)
+		static TSoundMaterial smat_last_good = 0;
+		auto b_has_step = [&](TSoundMaterial smat) -> bool
+		{
+			if (!smat || !padAudioDaemon || !padAudioDaemon->padatEffects)
+				return smat != 0;
+			return padAudioDaemon->padatEffects->pcolFindCollision(padAudioDaemon->u8CollisionHash(smat, smatFOOT)) != nullptr;
+		};
 		auto step = [&](float f_energy)
 		{
 			CInstance* pins = pins_under();
 			if (!pins)
 				return;
-			CMessageCollision msg(pins, pins_foot, 0, smatFOOT, f_energy, f_energy, 0.0f, v3_feet, 0.0f, 0.0f);
+			TSoundMaterial smat = pins->pphiGetPhysicsInfo()->smatGetMaterialType(v3_feet);
+			if (!b_has_step(smat))
+			{
+				static std::set<std::pair<uint32, uint32>> set_told;
+				CInstance* pins_ground = CWDbQueryTerrain().tGet();
+				TSoundMaterial smat_ground = pins_ground && pins_ground != pins ? pins_ground->pphiGetPhysicsInfo()->smatGetMaterialType(v3_feet) : 0;
+				TSoundMaterial smat_use = b_has_step(smat_ground) ? smat_ground : smat_last_good;
+				if (gVR.pfnLog && set_told.insert(std::make_pair((uint32)smat, (uint32)smat_use)).second)
+					gVR.pfnLog("Steps: no footstep sound for material %08X under her (on %s); using %s.", (uint32)smat,
+						ptCast<CTerrain>(pins) ? "the ground" : pins->strGetInstanceName(),
+						smat_use == smat_ground && smat_use ? "the ground's" : smat_use ? "the last one heard" : "nothing (none yet)");
+				if (!smat_use)
+					return;
+				if (smat_use == smat_ground)
+					pins = pins_ground;
+				smat = smat_use;
+			}
+			else
+				smat_last_good = smat;
+			CMessageCollision msg(pins, pins_foot, smat, smatFOOT, f_energy, f_energy, 0.0f, v3_feet, 0.0f, 0.0f);
 			msg.Dispatch();
 		};
 
