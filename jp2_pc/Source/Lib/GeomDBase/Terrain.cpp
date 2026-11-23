@@ -31,6 +31,7 @@
 
 #include "gblinc/common.hpp"
 #include "Lib/W95/WinInclude.hpp"
+#include "Lib/Control/VRShared.hpp"
 #include "Terrain.hpp"
 
 #include "Lib/GeomDBase/PartitionPriv.hpp"
@@ -270,6 +271,12 @@ public:
 	void CTerrain::Process(const CMessageMove& msgmv)
 	{
 		CTimeBlock tmb(&psMoveMsgTerrain);
+
+		// VR: the GPU renderer draws the ground and its shadows itself, so the old renderer's
+		// terrain textures needn't follow things moving.  (Doing so crashed 10 s into level 7,
+		// reading a moved thing's render data.)
+		if (gVR.bActive)
+			return;
 
 		// Update terrain when any light or CTerrainObj moves.
 		if (ptCastRenderType<CLight>(msgmv.pinsMover->prdtGetRenderInfo()) != 0 ||

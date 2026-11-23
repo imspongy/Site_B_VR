@@ -75,6 +75,7 @@
 #include "Lib/Physics/PhysicsHelp.hpp"
 #include "Lib/Renderer/Camera.hpp"
 #include "Lib/Audio/AudioDaemon.hpp"
+#include "Lib/Audio/AudioLoader.hpp"
 #include "Lib/Transform/TransformIO.hpp"
 #include "Lib/Sys/W95/Render.hpp"
 #include "Lib/Sys/ConIO.hpp"
