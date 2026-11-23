@@ -102,6 +102,7 @@ namespace
 	std::vector<float> afTriScratch;
 	std::unordered_map<const void*, int>         mapTex;		// Raster (or texture) -> handle.
 	std::unordered_map<const void*, bool>        mapTexAlpha;
+	std::unordered_map<const void*, int>         mapTexFaint;	// The same, partly see-through (blood on the ground).
 
 	const CTerrain* ptrrLevel = nullptr;
 	const void*     pvLevelPlayer = nullptr;
@@ -141,7 +142,7 @@ namespace
 	//
 	std::unordered_map<uint32_t, int> mapSolidTex;	// Plain colour -> its 1x1 texture.
 
-	int iTexture(const CTexture* ptex, bool& rb_alpha)
+	int iTexture(const CTexture* ptex, bool& rb_alpha, int i_opacity = 255)
 	{
 		rb_alpha = false;
 		if (!ptex)
@@ -199,11 +200,23 @@ namespace
 		if (!praw || !praw->pSurface || praw->iWidth <= 0 || praw->iHeight <= 0)
 			return 0;
 
-		auto it = mapTex.find(praw);
-		if (it != mapTex.end())
+		if (i_opacity < 255)
 		{
-			rb_alpha = mapTexAlpha[praw];
-			return it->second;
+			auto itf = mapTexFaint.find(praw);
+			if (itf != mapTexFaint.end())
+			{
+				rb_alpha = true;
+				return itf->second;
+			}
+		}
+		else
+		{
+			auto it = mapTex.find(praw);
+			if (it != mapTex.end())
+			{
+				rb_alpha = mapTexAlpha[praw];
+				return it->second;
+			}
 		}
 
 		// The game streams texture pixels in from disk as they are needed; until a texture's
@@ -376,6 +389,16 @@ namespace
 					b_alpha_colour ? ", alpha colour" : "", b_key_black ? ", key drawn black" : "", i_pal,
 					pclr0 ? pclr0->u1Red : -1, pclr0 ? pclr0->u1Green : -1, pclr0 ? pclr0->u1Blue : -1);
 			}
+		}
+		if (i_opacity < 255)
+		{
+			// Partly see-through all over (the see-through texels stay clear).
+			for (uint32_t& u4 : au4)
+				u4 = (u4 & 0x00FFFFFF) | ((uint32_t)(((u4 >> 24) * (uint32_t)i_opacity) / 255) << 24);
+			int i_faint = VRR_TextureCreate(i_w, i_h, au4.data());
+			mapTexFaint[praw] = i_faint;
+			rb_alpha = true;
+			return i_faint;
 		}
 		int i_handle = VRR_TextureCreate(i_w, i_h, au4.data());
 		mapTex[praw] = i_handle;
@@ -1704,9 +1727,10 @@ namespace
 				drw.iMesh = i_mesh;
 				drw.iFirstIndex = arange[k].first;
 				drw.iNumIndices = arange[k].second;
-				drw.iTexture = iTexture(ptex, b_alpha);
+				// Blood: partly see-through, the ground showing through it, as the game blends it in.
+				drw.iTexture = iTexture(ptex, b_alpha, b_blood ? 175 : 255);
 				std::memcpy(drw.afWorld, af_identity, sizeof(drw.afWorld));
-				drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW | (b_alpha ? evrrALPHA_TEST : 0);
+				drw.u4Flags = evrrTWO_SIDED | evrrNO_SHADOW | (b_blood ? evrrBLEND : b_alpha ? evrrALPHA_TEST : 0);
 				VRR_AddDraw(drw);
 			}
 		}
@@ -2174,6 +2198,7 @@ void VRScene_Shutdown()
 	mapTex.clear();
 	mapSolidTex.clear();
 	mapTexAlpha.clear();
+	mapTexFaint.clear();
 	mapNormalTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
@@ -2197,6 +2222,7 @@ void VRScene_ReleaseLevel()
 	mapTex.clear();
 	mapSolidTex.clear();
 	mapTexAlpha.clear();
+	mapTexFaint.clear();
 	mapNormalTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
@@ -2240,6 +2266,7 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 		mapTex.clear();
 	mapSolidTex.clear();
 		mapTexAlpha.clear();
+		mapTexFaint.clear();
 		mapNormalTex.clear();
 	mapWaterTex.clear();
 	mapWaterRaster.clear();
