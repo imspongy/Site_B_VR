@@ -5521,24 +5521,7 @@ public:
 		{
 			float f_speed = v3_d.tLen() / f_dt;
 			const CPhysicsInfo* pphi_p = pinsVRPush->pphiGetPhysicsInfo();
-			// Tall heavy standing things (power poles, posts) are not pushed: walking into one
-			// knocked it over and left its wires hanging in the air.
-			bool b_standing_post = false;
-			if (pphi_p && pphi_p->fMass(pinsVRPush) > 30.0f && pinsVRPush->prdtGetRenderInfo())
-			{
-				const CBoundVolBox* pbvb = pinsVRPush->prdtGetRenderInfo()->bvGet().pbvbCast();
-				if (pbvb)
-				{
-					float f_s = fabsf(pinsVRPush->fGetScale());
-					float af_d[3] = { ((*pbvb)[ebeMAX_X] - (*pbvb)[ebeMIN_X]) * f_s, ((*pbvb)[ebeMAX_Y] - (*pbvb)[ebeMIN_Y]) * f_s,
-					                  ((*pbvb)[ebeMAX_Z] - (*pbvb)[ebeMIN_Z]) * f_s };
-					int i_long = af_d[0] >= af_d[1] && af_d[0] >= af_d[2] ? 0 : af_d[1] >= af_d[2] ? 1 : 2;
-					CVector3<> v3_ax(i_long == 0 ? 1.0f : 0.0f, i_long == 1 ? 1.0f : 0.0f, i_long == 2 ? 1.0f : 0.0f);
-					v3_ax = v3_ax * pinsVRPush->r3Rot();
-					b_standing_post = af_d[i_long] > 2.5f && fabsf(v3_ax.tZ) > 0.8f;
-				}
-			}
-			if (f_speed > 0.5f && pphi_p && !b_standing_post && CMessageStep::sStaticTotal - sVRLastPush > 0.2)
+			if (f_speed > 0.5f && pphi_p && CMessageStep::sStaticTotal - sVRLastPush > 0.2)
 			{
 				sVRLastPush = CMessageStep::sStaticTotal;
 				float f_m = Min(Max(pphi_p->fMass(pinsVRPush), 5.0f), 300.0f);

@@ -1275,12 +1275,22 @@ namespace
 		return false;
 	}
 
+	// For the capture log: what happened to each thing near you (floating wires: was their
+	// pole drawn, and if not, why).
+	std::vector<std::pair<CInstance*, const char*>> aFateNow, aFateLast;
+	void Fate(CInstance* pins, const SWalk& wk, const char* str)
+	{
+		if (aFateNow.size() < 600 && (pins->v3Pos() - wk.v3Eye).tLen() < 120.0f)
+			aFateNow.push_back(std::make_pair(pins, str));
+	}
+
 	void DrawInstance(CInstance* pins, SWalk& wk, SWalkStats& ws)
 	{
 		ws.iSeen++;
 		if (!pins->bIsVisible())
 		{
 			ws.iHidden++;
+			Fate(pins, wk, "hidden by the game");
 			return;
 		}
 
@@ -1294,6 +1304,7 @@ namespace
 		if (!pmsh)
 		{
 			ws.iNotMesh++;
+			Fate(pins, wk, "not a mesh");
 			return;
 		}
 		rptr_const<CBioMesh> pbm = prdt->rpbmCast();
@@ -1303,6 +1314,7 @@ namespace
 		if (!pme || pme->asub.empty())
 		{
 			ws.iEmpty++;
+			Fate(pins, wk, "empty mesh");
 			return;
 		}
 		ConsiderGlint(pins, pr3, pme->fRadius * std::fabs(pr3.rScale), wk.v3Eye);
@@ -1318,6 +1330,7 @@ namespace
 		if (f_dist - f_r > wk.fFar)
 		{
 			ws.iFar++;
+			Fate(pins, wk, "too far");
 			return;
 		}
 		// Too small to see from here (a few pixels across): not drawn.  Level 2's thousands of
@@ -1329,6 +1342,7 @@ namespace
 			if (f_size < wk.fDetailCull * f_dist && f_dist > 3.0f)
 			{
 				ws.iSmall++;
+				Fate(pins, wk, "too small");
 				return;
 			}
 		}
@@ -1337,10 +1351,12 @@ namespace
 			if (wk.fShadow <= 0 || (pr3.v3Pos - wk.v3ShadowCentre).tLen() > wk.fShadow + f_r)
 			{
 				ws.iBehind++;
+				Fate(pins, wk, "behind you");
 				return;
 			}
 		}
 
+		Fate(pins, wk, "drawn");
 		float af_world[12];
 		CPresence3<> pr3_draw = pr3;
 		if (!pbm.ptGet() && (gVR.apvHeldFirm[0] || gVR.apvHeldFirm[1] || gVR.apvHolstered[0] || gVR.apvHolstered[1] || gVR.apvHolstered[2] || gVR.apvHolstered[3]))
@@ -2263,6 +2279,8 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	aglGlints.clear();
 	apinsNearLast.swap(apinsNear);
 	apinsNear.clear();
+	aFateLast.swap(aFateNow);
+	aFateNow.clear();
 	SWalkStats ws = {};
 	Visit(pwWorld->ppartPartitionList(), wk, ws);
 	if (b_build_terrain && pwWorld->ppartTerrainPartitionList())
@@ -2478,6 +2496,23 @@ void VRScene_LogPhysics()
 			bvb[ebeMAX_X] - bvb[ebeMIN_X], bvb[ebeMAX_Y] - bvb[ebeMIN_Y], bvb[ebeMAX_Z] - bvb[ebeMIN_Z],
 			pins->fGetScale(), f_mesh, pins->v3Pos().tX, pins->v3Pos().tY, pins->v3Pos().tZ);
 	});
+
+	// Everything within 120 m taller than 3 m or longer than 6 m, and what became of it.
+	gVR.pfnLog("Large things within 120 m (last frame):");
+	for (auto& pr : aFateLast)
+	{
+		CInstance* pins = pr.first;
+		float f_len = 0;
+		if (pins->prdtGetRenderInfo() && pins->prdtGetRenderInfo()->bvGet().pbvbCast())
+		{
+			const CBoundVolBox& bvb = *pins->prdtGetRenderInfo()->bvGet().pbvbCast();
+			float f_s = std::fabs(pins->fGetScale());
+			f_len = std::max(std::max(bvb[ebeMAX_X] - bvb[ebeMIN_X], bvb[ebeMAX_Y] - bvb[ebeMIN_Y]), bvb[ebeMAX_Z] - bvb[ebeMIN_Z]) * f_s;
+		}
+		if (f_len < 3.0f)
+			continue;
+		gVR.pfnLog("  %s at (%.1f, %.1f, %.1f), %.1f m: %s", pins->strGetInstanceName(), pins->v3Pos().tX, pins->v3Pos().tY, pins->v3Pos().tZ, f_len, pr.second);
+	}
 
 	// Everything drawn near you, with its physics (or lack of it) and where its mesh really is.
 	gVR.pfnLog("Objects drawn near you:");
