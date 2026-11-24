@@ -698,6 +698,7 @@ namespace
 	std::string strAutosaveName;
 	bool bAutosavePending = false;
 	void LoadGunValues(const std::string& str_path);
+	void GunKey(const char* str_key, char* str_out, int i_out);
 
 	//******************************************************************************************
 	void LoadSettings()
@@ -895,6 +896,51 @@ namespace
 			fclose(pf);
 		}
 		gVR.pfnGunValue = [](const char* str_key, float f_default) { return fGunValue(str_key, f_default); };
+		gVR.pfnGunKey = [](const char* str_key, char* str_out, int i_out) { GunKey(str_key, str_out, i_out); };
+	}
+
+	// Some levels have their own versions of guns with less ammo than usual (the last level's),
+	// which were found under a key of their own with no settings: those share the settings of
+	// the gun with the same damage and rate of fire that has settings (the most ammo first).
+	void GunKey(const char* str_key, char* str_out, int i_out)
+	{
+		strncpy(str_out, str_key, i_out - 1);
+		str_out[i_out - 1] = 0;
+		size_t u_len = strlen(str_key);
+		auto it = mapGunValues.lower_bound(str_key);
+		if (it != mapGunValues.end() && it->first.compare(0, u_len, str_key) == 0)
+			return;		// It has settings of its own.
+		const char* pc_rest = strchr(str_key + 5, '_');		// "_d<damage>_t<tbs>"
+		if (strncmp(str_key, "Gun_a", 5) != 0 || !pc_rest)
+			return;
+		std::string str_rest(pc_rest);
+		int i_best = -1;
+		std::string str_best;
+		for (const auto& pr : mapGunValues)
+		{
+			int i_ammo = 0;
+			if (sscanf(pr.first.c_str(), "Gun_a%d", &i_ammo) != 1)
+				continue;
+			const char* pc = strchr(pr.first.c_str() + 5, '_');
+			if (!pc || strncmp(pc, str_rest.c_str(), str_rest.size()) != 0)
+				continue;
+			char c_next = pc[str_rest.size()];
+			if (c_next >= '0' && c_next <= '9')
+				continue;		// (t3 must not match t33.)
+			if (i_ammo > i_best)
+			{
+				i_best = i_ammo;
+				str_best = pr.first.substr(0, (pc - pr.first.c_str()) + str_rest.size());
+			}
+		}
+		if (i_best >= 0)
+		{
+			static std::set<std::string> set_told;
+			if (set_told.insert(str_key).second)
+				Log("Gun settings: %s has none of its own; using %s's (the same gun with its usual ammo).", str_key, str_best.c_str());
+			strncpy(str_out, str_best.c_str(), i_out - 1);
+			str_out[i_out - 1] = 0;
+		}
 	}
 
 	//******************************************************************************************

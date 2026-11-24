@@ -1338,8 +1338,15 @@ private:
 			if (gVR.pfnGunValue)
 			{
 				char str_key[80];
-				snprintf(str_key, sizeof(str_key), "Gun_a%d_d%d_t%dPistolHold", pgun->iMaxAmmo, (int)(pgun->gdGunData.fDamage + 0.5f),
+				snprintf(str_key, sizeof(str_key), "Gun_a%d_d%d_t%d", pgun->iMaxAmmo, (int)(pgun->gdGunData.fDamage + 0.5f),
 					(int)(pgun->sTimeBetweenShots * 100.0f + 0.5f));
+				if (gVR.pfnGunKey)
+				{
+					char str_k2[80];
+					gVR.pfnGunKey(str_key, str_k2, sizeof(str_k2));
+					strcpy(str_key, str_k2);
+				}
+				strncat(str_key, "PistolHold", sizeof(str_key) - strlen(str_key) - 1);
 				b_pistol = gVR.pfnGunValue(str_key, 0.0f) > 0.5f;
 			}
 			if (!b_pistol)
@@ -4743,6 +4750,12 @@ public:
 			{
 				snprintf(str_key, sizeof(str_key), "Gun_a%d_d%d_t%d", pgun_grab->iMaxAmmo, (int)(pgun_grab->gdGunData.fDamage + 0.5f),
 					(int)(pgun_grab->sTimeBetweenShots * 100.0f + 0.5f));
+				if (gVR.pfnGunKey)
+				{
+					char str_k2[64];
+					gVR.pfnGunKey(str_key, str_k2, sizeof(str_k2));
+					strcpy(str_key, str_k2);
+				}
 				if (gVR.pfnGunValue)
 				{
 					std::string str_k(str_key);

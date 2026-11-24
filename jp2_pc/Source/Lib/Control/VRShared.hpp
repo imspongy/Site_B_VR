@@ -85,6 +85,9 @@ struct SVRShared
 	float aafGunUp[5][2] = {};
 	float aafGunLateral[5][2] = {};		// Left/right along the gun's own sideways direction (set with GunAdjust).
 	float (*pfnGunValue)(const char* str_key, float f_default) = nullptr;	// Per-model gun settings.
+	// A gun model's settings key ("Gun_a<ammo>_d<damage>_t<tbs>"), turned to the one its settings are kept under:
+	// a version of a gun with less ammo than usual shares the settings of the usual one.
+	void (*pfnGunKey)(const char* str_key, char* str_out, int i_out) = nullptr;
 	char  astrHeldGunKey[2][64] = {};	// The model key of the gun in each hand ("Gun_a6_d25_t50").
 	float afHeldGunLat[2] = {};			// Its current left/right and up settings.
 	float afHeldGunUp[2] = {};
