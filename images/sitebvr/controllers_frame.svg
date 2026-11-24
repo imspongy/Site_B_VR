@@ -30,7 +30,7 @@
 <text x="40" y="544" text-anchor="start" class="sub">Let go to drop, swing to throw</text>
 <circle class="dot" cx="420" cy="575" r="6"/><path class="ln" stroke-dasharray="6 5" d="M420 575 L 300 630 L 40 630"/>
 <text x="40" y="618" text-anchor="start" class="lbl">Trigger (underneath)</text>
-<text x="40" y="654" text-anchor="start" class="sub">Fire / use · empty hand: force grab</text>
+<text x="40" y="654" text-anchor="start" class="sub">Fire a gun, use what you hold</text>
 <circle class="dot" cx="1050" cy="260" r="6"/><path class="ln" d="M1050 260 L 1200 140 L 1460 140"/>
 <text x="1460" y="128" text-anchor="end" class="lbl">Stick: turn</text>
 <text x="1460" y="164" text-anchor="end" class="sub">Smooth or snap (VR settings)</text>
@@ -48,7 +48,7 @@
 <text x="1460" y="544" text-anchor="end" class="sub">Let go to drop, swing to throw</text>
 <circle class="dot" cx="1080" cy="575" r="6"/><path class="ln" stroke-dasharray="6 5" d="M1080 575 L 1200 630 L 1460 630"/>
 <text x="1460" y="618" text-anchor="end" class="lbl">Trigger (underneath)</text>
-<text x="1460" y="654" text-anchor="end" class="sub">Fire / use · empty hand: force grab</text>
+<text x="1460" y="654" text-anchor="end" class="sub">Fire a gun, use what you hold</text>
 <text x="750" y="742" text-anchor="middle" class="sub">Steam Frame uses SteamVR's automatic mapping of the Touch layout.  If a button differs, rebind it in SteamVR.</text>
 <text x="750" y="770" text-anchor="middle" class="sub">Both hands grab, shoot and holster the same way.  LeftHanded=1 swaps the stick and button roles.  Everything can be rebound in SteamVR.</text>
 </svg>

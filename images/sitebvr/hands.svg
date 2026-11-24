@@ -32,14 +32,13 @@
 
   <!-- Panels -->
   <rect x="500" y="30" width="470" height="280" rx="18" class="panel"/>
-  <text x="520" y="72" class="ttl">FORCE GRAB</text>
-  <text x="520" y="112" class="lbl">Point at an item, hold the trigger,</text>
-  <text x="520" y="140" class="lbl">flick your wrist toward you,</text>
-  <text x="520" y="168" class="lbl">then squeeze grip to catch it.</text>
-  <path class="arr" d="M540 280 C 580 220 650 220 690 262" marker-end="url(#ah)"/>
-  <text x="712" y="258" class="sub">Things that matter glint</text>
-  <text x="712" y="282" class="sub">(guns, key cards, switches)</text>
-
+  <text x="520" y="72" class="ttl">GLINTS</text>
+  <text x="520" y="112" class="lbl">Things that matter sparkle:</text>
+  <text x="520" y="146" class="sub">guns, key cards and keypad switches,</text>
+  <text x="520" y="174" class="sub">so you can spot what to pick up or use.</text>
+  <text x="520" y="216" class="lbl">Pick up anything with grip.</text>
+  <text x="520" y="250" class="sub">Hold it as long as you hold grip</text>
+  <text x="520" y="278" class="sub">(or set grip to toggle in VR Settings).</text>
   <rect x="1000" y="30" width="470" height="280" rx="18" class="panel"/>
   <text x="1020" y="72" class="ttl">TWO-HANDED GUNS</text>
   <text x="1020" y="112" class="lbl">Grip the gun the other hand holds:</text>

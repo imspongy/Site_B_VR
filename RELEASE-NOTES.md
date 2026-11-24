@@ -46,7 +46,6 @@
   dragged.
 - **Push and knock things over** with your hands and body.
 - **Doors, gates, hatches and wheels** turn on their hinges when you pull them, and stay on.
-- **Force grab:** point at an item, hold the trigger, flick your wrist toward you, then grip to catch it.
 - **Glints** show what you can use: guns, key cards and keypad switches sparkle (setting: *Weapon sparkle*).
 - **Four holsters,** one at each hip and one over each shoulder. Let go of something there to holster it; grip
   there with an empty hand to draw it. Either hand can use any holster, and holstered items move with your body.

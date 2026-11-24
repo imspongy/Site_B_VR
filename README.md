@@ -81,7 +81,7 @@ To watch or record, open SteamVR's **Display VR View** window and capture it wit
 | X / □ (Frame: D-pad ↓) | The game's hint screen | A / ✕ | Jump |
 | Y / △ (Frame: D-pad ← ↑ →) | Pause menu | B / ○ (Frame: X, Y or B) | Crouch (toggle) |
 | Grip | Grab and hold | Grip | Grab and hold |
-| Trigger | Fire / use. Empty hand: force grab | Trigger | Fire / use. Empty hand: force grab |
+| Trigger | Fire / use | Trigger | Fire / use |
 
 - The menu button on either controller also opens the pause menu.
 - `LeftHanded=1` swaps the stick and button roles between the hands.
@@ -125,7 +125,6 @@ To watch or record, open SteamVR's **Display VR View** window and capture it wit
   dragged.
 - **Push and knock things over** with your hands and body.
 - **Doors, gates, hatches and wheels** turn on their hinges when you pull them, and stay on.
-- **Force grab:** point at an item, hold the trigger, flick your wrist toward you, then grip to catch it.
 - **Glints** show what you can use: guns, key cards and keypad switches sparkle (setting: *Weapon sparkle*).
 - **Four holsters,** one at each hip and one over each shoulder. Let go of something there to holster it; grip
   there with an empty hand to draw it. Either hand can use any holster, and holstered items move with your body.
@@ -220,7 +219,7 @@ within a couple of seconds, even mid-game, unless the comment says *restart*.
 | `JumpHeight` | `1` = the original game's jump. |
 | `LeftHanded` | Swap the stick and button roles. |
 | `GripToggle` | `1`: press grip once to grab, again to drop. |
-| `ForceGrab`, `TwoHandAim`, `SecondHand` | Turn those features on or off. |
+| `TwoHandAim`, `SecondHand` | Turn those features on or off. |
 | `HolsterRadius`, `HipBack`, `HipDown`, `HipFrontScale` | Where the holsters are and how far they reach. |
 | `Haptics` | Vibration strength (`0` = off). |
 | `ThrowScale` | How much faster than your hand thrown things fly. |
