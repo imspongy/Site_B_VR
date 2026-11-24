@@ -11,6 +11,8 @@ It is built on the [OpenTrespasser](https://github.com/OpenTrespasser/JurassicPa
 with a new Direct3D 11 renderer made for VR. It works with any SteamVR headset (Valve Index, Steam Frame, HTC Vive,
 Meta Quest via Link, Air Link or Virtual Desktop, PlayStation VR2, Pico and others).
 
+A huge thank you to the makers of Open Trespasser and the TresCom community. My small, Claude assisted effort wouldn't be possible without the years of work they've put in to revitalizing this game. I'd also like to thank Research Indicates for his legendary Lets Play of Trespasser which inspired me to make this mod.
+
 > Site B VR is a fan project. It is not affiliated with or endorsed by Universal, Amblin, DreamWorks
 > Interactive or Electronic Arts. You need your own copy of the original game; no game data is included.
 
