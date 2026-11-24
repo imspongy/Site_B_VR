@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/sitebvr/logo.png" alt="Site B VR" width="820">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/logo.png" alt="Site B VR" width="820">
 </p>
 
 **Site B VR** is a full virtual reality mod for *Jurassic Park: Trespasser* (1998). You play the whole game in
@@ -65,13 +65,13 @@ To watch or record, open SteamVR's **Display VR View** window and capture it wit
 ## Controls
 
 <p align="center">
-  <img src="images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900">
 </p>
 <p align="center">
-  <img src="images/sitebvr/controllers_psvr2.png" alt="PlayStation VR2 Sense controls" width="900">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_psvr2.png" alt="PlayStation VR2 Sense controls" width="900">
 </p>
 <p align="center">
-  <img src="images/sitebvr/controllers_frame.png" alt="Steam Frame controls" width="900">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_frame.png" alt="Steam Frame controls" width="900">
 </p>
 
 | Left controller | | Right controller | |
@@ -90,7 +90,7 @@ To watch or record, open SteamVR's **Display VR View** window and capture it wit
   The mod works out which ones you have.
 
 <p align="center">
-  <img src="images/sitebvr/hands.png" alt="Holsters and hand interactions" width="900">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/hands.png" alt="Holsters and hand interactions" width="900">
 </p>
 
 ---
