@@ -51,15 +51,21 @@ To watch or record, open SteamVR's **Display VR View** window and capture it wit
 ## Controls
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers.png" alt="Controller layout" width="900">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_psvr2.png" alt="PlayStation VR2 Sense controls" width="900">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_frame.png" alt="Steam Frame controls" width="900">
 </p>
 
 | Left controller | | Right controller | |
 |---|---|---|---|
 | Stick | Walk (push further to go faster) | Stick | Turn (smooth or snap) |
 | Stick click | Sprint (until you let go of the stick) | Stick click | Recenter the view |
-| X / □ | The game's hint screen | A / ✕ | Jump |
-| Y / △ | Pause menu | B / ○ | Crouch (toggle) |
+| X / □ (Frame: D-pad ↓) | The game's hint screen | A / ✕ | Jump |
+| Y / △ (Frame: D-pad ← ↑ →) | Pause menu | B / ○ (Frame: X, Y or B) | Crouch (toggle) |
 | Grip | Grab and hold | Grip | Grab and hold |
 | Trigger | Fire / use. Empty hand: force grab | Trigger | Fire / use. Empty hand: force grab |
 

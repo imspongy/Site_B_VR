@@ -10,7 +10,9 @@
 3. Start SteamVR, then run `OpenTrespasser.exe`.
 
 ## Controls
-<p align="center"><img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers.png" alt="Controller layout" width="900"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_psvr2.png" alt="PlayStation VR2 Sense controls" width="900"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_frame.png" alt="Steam Frame controls" width="900"></p>
 <p align="center"><img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/hands.png" alt="Holsters and hand interactions" width="900"></p>
 
 ## Everything in this release
