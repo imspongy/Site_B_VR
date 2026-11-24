@@ -5,9 +5,10 @@
 > A fan project, not affiliated with or endorsed by Universal, Amblin, DreamWorks Interactive or Electronic Arts. You need your own copy of the original game; no game data is included.
 
 ## Install
-1. You need Windows 10/11 (64-bit), SteamVR, a Direct3D 11 graphics card, and *Trespasser* installed from the original CD (the folder with `trespass.exe` and `data`).
-2. Download **SiteB-VR.zip** below and unzip everything into your Trespasser folder (back it up first).
-3. Start SteamVR, then run `OpenTrespasser.exe`.
+1. You need Windows 10/11 (64-bit), SteamVR, a Direct3D 11 graphics card, and your own copy of *Trespasser*: the CD, a disc image of it (`.iso`, `.cue`/`.bin`, `.img`) or an installed copy.
+2. Download **SiteB-VR.zip** below, unzip it anywhere and run **SiteBVR-Setup.exe**.
+3. Point it at your game and press **Install**. It copies the game's files straight out of the disc or image (no 1998 installer), checks nothing is missing, adds the mod and makes a **Site B VR** desktop shortcut.
+4. Start SteamVR, then play from the shortcut.
 
 ## Controls
 <p align="center"><img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900"></p>

@@ -32,6 +32,13 @@ jobs:
         working-directory: jp2_pc
         run: cmake --build Build/CI --config Release --target trespass -- /m
 
+      - name: Build the setup (SiteBVR-Setup.exe)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          cmd /c "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /EHsc /O2 /std:c++17 /MT /W3 tools\setup\SiteBVRSetup.cpp /Fe:tools\setup\SiteBVR-Setup.exe /link /SUBSYSTEM:WINDOWS"
+          if (!(Test-Path tools\setup\SiteBVR-Setup.exe)) { exit 1 }
+
       - name: Package
         shell: pwsh
         working-directory: jp2_pc
@@ -55,6 +62,7 @@ jobs:
           Copy-Item ../VR/menu/ingameopt_vr_addition.ddf $out/menu/ingameopt_vr_addition.ddf
           Copy-Item Build/CI/cmake/trespass/Final/*.map $out/OpenTrespasser.map
           Copy-Item Build/CI/cmake/trespass/Release/*.map $out/OpenTrespasser-Release.map
+          Copy-Item ../tools/setup/SiteBVR-Setup.exe $out/SiteBVR-Setup.exe
 
       - uses: actions/upload-artifact@v4
         with:

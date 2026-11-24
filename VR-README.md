@@ -33,14 +33,28 @@ Meta Quest via Link, Air Link or Virtual Desktop, PlayStation VR2, Pico and othe
 - Windows 10 or 11, 64-bit.
 - SteamVR and a headset.
 - A graphics card that supports Direct3D 11.
-- *Jurassic Park: Trespasser* installed from the original CD. The folder must contain `trespass.exe` and the
-  `data` folder.
+- Your own copy of *Jurassic Park: Trespasser*: the CD, a disc image of it, or an installed copy. The game
+  isn't included.
 
 **Steps:**
-1. Download `SiteB-VR.zip` from the [latest release](https://github.com/imspongy/Site_B_VR/releases).
-2. Back up your Trespasser folder.
-3. Unzip everything into the Trespasser folder, next to `trespass.exe`. Let it replace files if asked.
-4. Start SteamVR, then run `OpenTrespasser.exe`.
+1. Download `SiteB-VR.zip` from the [latest release](https://github.com/imspongy/Site_B_VR/releases) and unzip it anywhere.
+2. Run **`SiteBVR-Setup.exe`**.
+3. Point it at your copy of the game:
+   - the CD;
+   - a disc image (`.iso`, `.cue`/`.bin`, `.img`, or a `.zip` holding one);
+   - or a folder where Trespasser is already installed.
+4. Press **Install**. Setup:
+   - copies the game's files straight out of the disc or image, so you never run the 1998 installer;
+   - checks that nothing is missing;
+   - adds the mod and the VR Settings menu;
+   - makes a **Site B VR** desktop shortcut.
+5. Start SteamVR, then play from the shortcut.
+
+To update the mod later, run the new `SiteBVR-Setup.exe` with step 3 left empty.
+
+You can also install by hand: unzip everything into an existing Trespasser folder, next to `trespass.exe`.
+For the VR Settings entry in the pause menu, add the contents of `menu\ingameopt_vr_addition.ddf` to the end
+of a copy of `data\menu\ingameopt.ddf` saved as `menu\ingameopt.ddf`.
 
 If no headset is found, the game runs normally on your monitor.
 
