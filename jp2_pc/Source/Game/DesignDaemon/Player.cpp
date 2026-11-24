@@ -1444,6 +1444,7 @@ public:
 
 	// Visual second arm (a mirrored copy of Anne's mesh).
 	CVRLeftArm*    pvrlaLeftArm = nullptr;
+	float          fVRSlopeAhead = 0;	// Rise over run of the ground she is walking onto (0 = flat or down).
 	rptr<CRenderType> prdtLeftArmMesh;
 	TSec           sVRBrakeUntil = -100;
 	CVector3<>     v3VRFeet;
@@ -5673,7 +5674,7 @@ public:
 					gVR.pfnLog("Body: pushed %s (%.0f kg) at %.1f m/s.", pinsVRPush->strGetInstanceName(), pphi_p->fMass(pinsVRPush), f_speed);
 			}
 		}
-		// Ground too steep to walk up (over 70 degrees): she doesn't climb it (walking
+		// Ground too steep to walk up (over 55 degrees): she doesn't climb it (walking
 		// straight up near-cliffs skipped puzzles).  Ground only; steps on things are fine.
 		auto b_too_steep = [&](const CVector3<>& v3_from, const CVector3<>& v3_move) -> bool
 		{
@@ -5689,12 +5690,26 @@ public:
 			bool b_ok1 = b_floor(v3_from.tX + v3_move.tX, v3_from.tY + v3_move.tY, v3_from.tZ + fSTEP, fSTEP + 0.45f, f_z1);
 			bool b_ter1 = b_ok1 && ptCast<CTerrain>(pins_floor);
 			pins_floor = pins_save;
-			return b_ter0 && b_ter1 && f_z1 - f_z0 > 0.01f && (f_z1 - f_z0) / f_h > 2.747f;	// Steeper than 70 degrees.
+			fVRSlopeAhead = (b_ter0 && b_ter1 && f_z1 - f_z0 > 0.01f) ? (f_z1 - f_z0) / f_h : 0.0f;
+			return fVRSlopeAhead > 1.428f;		// Steeper than 55 degrees.
 		};
+		// A soft stop: from 40 degrees she climbs ever slower, losing her footing; past 55 she
+		// can't, and slides back down a little, as if slipping.
+		fVRSlopeAhead = 0;
 		if (b_too_steep(v3VRFeet, v3_step))
 		{
-			v3_step.tX = v3_step.tY = 0;
+			float f_h = sqrtf(v3_step.tX * v3_step.tX + v3_step.tY * v3_step.tY);
+			float f_slip = Min(0.6f * f_dt, f_h * 1.5f);
+			v3_step.tX = -v3_step.tX / f_h * f_slip;
+			v3_step.tY = -v3_step.tY / f_h * f_slip;
 			v3_normal = CVector3<>(0, 0, 0);
+		}
+		else if (fVRSlopeAhead > 0.839f)
+		{
+			float f_k = 1.0f - (fVRSlopeAhead - 0.839f) / (1.428f - 0.839f);
+			f_k = Max(f_k * f_k, 0.1f);
+			v3_step.tX *= f_k;
+			v3_step.tY *= f_k;
 		}
 		v3VRFeet += v3_step;
 		CVector3<> v3_rest = v3_d - v3_step;

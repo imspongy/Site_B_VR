@@ -128,6 +128,7 @@ struct PSObjIn
 	float3 wn  : TEXCOORD1;
 	float2 uv  : TEXCOORD2;
 	nointerpolation uint flags : TEXCOORD3;
+	float3 rp  : TEXCOORD5;		// Position relative to the eye (precise close up; see below).
 	EYE_OUT
 };
 
@@ -224,6 +225,7 @@ PSObjIn VSObject(VSObjIn i, uint iid : SV_InstanceID)
 	sEye = EyeOf(iid);
 	SET_EYE_OUT(o)
 	o.wp = WorldPos(i);
+	o.rp = o.wp - gEyePos.xyz;
 	o.wn = WorldNormal(i);
 	o.uv = i.uv + i.uvoff;
 	o.flags = i.flags;
@@ -247,9 +249,12 @@ float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 	// face direction decides, so smooth normals near outlines are left alone).  Fixes dark
 	// patches on models whose normals point inward or that are seen from behind.
 	float3 n = normalize(i.wn);
-	float3 dpx = ddx(i.wp), dpy = ddy(i.wp);
+	// Surface slopes from the eye-relative position: world positions are ~1 km from the
+	// origin, where a float only resolves ~0.1 mm, about a pixel's width on her body up close,
+	// so slopes from them were noise there (the sunlit static on her body and hands).
+	float3 dpx = ddx(i.rp), dpy = ddy(i.rp);
 	float3 gn = cross(dpx, dpy);
-	float3 to_eye = gEyePos.xyz - i.wp;
+	float3 to_eye = -i.rp;
 	if (dot(gn, to_eye) < 0)
 		gn = -gn;
 	if (dot(n, gn) < 0)
