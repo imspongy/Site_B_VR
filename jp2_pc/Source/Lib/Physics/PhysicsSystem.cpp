@@ -61,6 +61,8 @@
 #include "Lib/EntityDBase/PhysicsInfo.hpp"
 #include "Lib/EntityDBase/Query/QPhysics.hpp"
 #include "Lib/EntityDBase/Query/QTerrain.hpp"
+#include "Lib/GeomDBase/Terrain.hpp"
+#include "Lib/GeomDBase/WaveletQuadTreeQuery.hpp"
 #include "Lib/EntityDBase/Query/QMessage.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgSystem.hpp"
 #include "Lib/EntityDBase/MessageTypes/MsgStep.hpp"
@@ -778,6 +780,21 @@ public:
 		// Don't run if physics is off.
 		if (!bActive)
 			return;
+
+		// VR: the terrain lookups' fixed-size node memory is cleaned up before the physics' own
+		// lookups, if it is past a sixth full.  (The game never checks for running out: with
+		// the VR body's ground lookups and fast movement, the physics' lookup for things to
+		// wake ran off its end and crashed in level 3.)
+		if (NMultiResolution::CQuadNodeQuery::iNumInUse() > (int)uDEFAULT_ALLOC_QUERY_NODES / 6)
+		{
+			CTerrain* ptrr_q = CWDbQueryTerrain().tGet();
+			NMultiResolution::CQuadRootQuery* pqnq = ptrr_q ? ptrr_q->pqnqGetQueryRoot() : nullptr;
+			if (pqnq)
+			{
+				pqnq->Update();
+				pqnq->Update();
+			}
+		}
 
 		CCycleTimer ctmr;
 

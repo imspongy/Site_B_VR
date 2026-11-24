@@ -5528,8 +5528,16 @@ public:
 		// Start up (level start, load, respawn, or moved by a script): let the original physics
 		// stand her up for a moment, then take over from where she is.
 		//
-		bool b_moved_away = bVRKinInit && gVR.pvKinInstance &&
-			((v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch)).tLen() > (bVRSwimming ? 4.0f : 1.5f));
+		// (In water, the game's body floats up and down on its own: only a jump sideways counts.)
+		bool b_in_water = false;
+		{
+			CWDbQueryWaterHeight wqwh_m(CVector2<>(v3_body.tX, v3_body.tY));
+			b_in_water = wqwh_m.petWater && wqwh_m.v3Water.tZ > rWATER_NONE * 0.5 && v3VRFeet.tZ < wqwh_m.v3Water.tZ;
+		}
+		CVector3<> v3_gap = v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch);
+		if (b_in_water)
+			v3_gap.tZ = 0;
+		bool b_moved_away = bVRKinInit && gVR.pvKinInstance && v3_gap.tLen() > (b_in_water ? 4.0f : 1.5f);
 		// (In water the game's body bobs and sinks behind where she swims: a 1.7 m gap after a
 		// cliff dive restarted the controller, which then couldn't find ground to stand on.)
 		if (!bVRKinInit || b_moved_away)
