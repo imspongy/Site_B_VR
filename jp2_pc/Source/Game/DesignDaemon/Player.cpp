@@ -5528,8 +5528,24 @@ public:
 		// Start up (level start, load, respawn, or moved by a script): let the original physics
 		// stand her up for a moment, then take over from where she is.
 		//
-		bool b_moved_away = bVRKinInit && gVR.pvKinInstance &&
-			((v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch)).tLen() > 1.5f);
+		CVector3<> v3_gap = v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch);
+		bool b_moved_away = bVRKinInit && gVR.pvKinInstance && v3_gap.tLen() > 1.5f;
+		// While she swims, the game's own water physics throws her body up out of the water
+		// (diving in from the cliff: 1.7 m).  That isn't the game moving her: the controller keeps
+		// her, and puts the body back.  (Restarting it there waited for ground to stand on in
+		// deep water, forever: the view stuck at the pond's bottom, and high above her after
+		// reloading.)
+		if (b_moved_away && bVRSwimming && sqrtf(v3_gap.tX * v3_gap.tX + v3_gap.tY * v3_gap.tY) < 1.0f)
+		{
+			b_moved_away = false;
+			static int i_told = 0;
+			if (gVR.pfnLog && i_told < 5)
+			{
+				i_told++;
+				gVR.pfnLog("Body: the water threw her body %.2f m %s; kept swimming where she was.",
+					std::fabs(v3_gap.tZ), v3_gap.tZ > 0 ? "up" : "down");
+			}
+		}
 		if (!bVRKinInit || b_moved_away)
 		{
 			if (!bVRKinInit || b_moved_away)
