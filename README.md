@@ -62,16 +62,7 @@ To watch or record, open SteamVR's **Display VR View** window.
 ---
 
 ## Controls
-
-<p align="center">
-  <img src="images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900">
-</p>
-<p align="center">
-  <img src="images/sitebvr/controllers_psvr2.png" alt="PlayStation VR2 Sense controls" width="900">
-</p>
-<p align="center">
-  <img src="images/sitebvr/controllers_frame.png" alt="Steam Frame controls" width="900">
-</p>
+<p align="center"> <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_quest.png" alt="Meta Quest Touch controls" width="900"> </p> <p align="center"> <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_psvr2.png" alt="PlayStation VR2 Sense controls" width="900"> </p> <p align="center"> <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/controllers_frame.png" alt="Steam Frame controls" width="900"> </p>
 
 | Left controller | | Right controller | |
 |---|---|---|---|
@@ -88,9 +79,7 @@ To watch or record, open SteamVR's **Display VR View** window.
 - The button pictures in tutorial messages match your controllers: PlayStation VR2 Sense, Touch, Index or Vive.
   The mod works out which ones you have.
 
-<p align="center">
-  <img src="images/sitebvr/hands.png" alt="Holsters and hand interactions" width="900">
-</p>
+<p align="center"> <img src="https://raw.githubusercontent.com/imspongy/Site_B_VR/vr-mod/images/sitebvr/hands.png" alt="Holsters and hand interactions" width="900"> </p>
 
 ---
 
