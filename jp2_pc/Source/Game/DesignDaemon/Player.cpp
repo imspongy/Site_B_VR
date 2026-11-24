@@ -5528,18 +5528,8 @@ public:
 		// Start up (level start, load, respawn, or moved by a script): let the original physics
 		// stand her up for a moment, then take over from where she is.
 		//
-		// (In water, the game's body floats up and down on its own: only a jump sideways counts.)
-		bool b_in_water = false;
-		{
-			CWDbQueryWaterHeight wqwh_m(CVector2<>(v3_body.tX, v3_body.tY));
-			b_in_water = wqwh_m.petWater && wqwh_m.v3Water.tZ > rWATER_NONE * 0.5 && v3VRFeet.tZ < wqwh_m.v3Water.tZ;
-		}
-		CVector3<> v3_gap = v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch);
-		if (b_in_water)
-			v3_gap.tZ = 0;
-		bool b_moved_away = bVRKinInit && gVR.pvKinInstance && v3_gap.tLen() > (b_in_water ? 4.0f : 1.5f);
-		// (In water the game's body bobs and sinks behind where she swims: a 1.7 m gap after a
-		// cliff dive restarted the controller, which then couldn't find ground to stand on.)
+		bool b_moved_away = bVRKinInit && gVR.pvKinInstance &&
+			((v3_body - CVector3<>(v3VRFeet.tX, v3VRFeet.tY, v3VRFeet.tZ + fVRBodyAboveFeet - fVRCrouch)).tLen() > 1.5f);
 		if (!bVRKinInit || b_moved_away)
 		{
 			if (!bVRKinInit || b_moved_away)
@@ -5558,28 +5548,25 @@ public:
 		{
 			if (CMessageStep::sStaticTotal - sVRKinStart < 0.8)
 				return;
-			// In deep water (a level or save starting her in it, or a restart while swimming): she
-			// starts afloat.  (She waited for ground under her feet that never came: the view stuck
-			// at the bottom of the pond, and on reloading, high above her.)
+			float f_z;
+			bool b_ground = b_floor(v3_body.tX, v3_body.tY, v3_body.tZ + 0.2f, 4.0f, f_z);
+			if (!b_ground || v3_body.tZ - f_z > 1.6f)
 			{
-				CWDbQueryWaterHeight wqwh(CVector2<>(v3_body.tX, v3_body.tY));
-				if (wqwh.petWater && wqwh.v3Water.tZ > rWATER_NONE * 0.5 && v3_body.tZ < wqwh.v3Water.tZ + 1.0f)
-				{
-					float f_surface = wqwh.v3Water.tZ;
-					float f_bottom;
-					bool b_bottom = b_floor(v3_body.tX, v3_body.tY, f_surface, 30.0f, f_bottom);
-					if (!b_bottom || f_surface - f_bottom > 1.3f)
-					{
-						v3VRFeet = CVector3<>(v3_body.tX, v3_body.tY, f_surface - 1.3f);
-						fVRVz = 0;
-						fVRCrouch = 0;
-						bVRGrounded = false;
-						bVRSwimming = true;
-						bVRKinSettled = true;
-						if (gVR.pfnLog)
-							gVR.pfnLog("Body: controller started afloat (water surface %.2f).", f_surface);
-					}
-				}
+				// No ground under her, but she is in water and has stopped dropping in: start
+				// from where she is, and the swimming takes over.  (After a cliff dive it waited
+				// for ground forever: the view stuck at the pond's bottom, and high above her
+				// after reloading.)
+				CWDbQueryWaterHeight wqwh_s(CVector2<>(v3_body.tX, v3_body.tY));
+				bool b_water = wqwh_s.petWater && wqwh_s.v3Water.tZ > rWATER_NONE * 0.5 && v3_body.tZ < wqwh_s.v3Water.tZ + 1.0f;
+				if (!b_water || CMessageStep::sStaticTotal - sVRKinStart < 1.5)
+					return;		// Still dropping in.
+				v3VRFeet = CVector3<>(v3_body.tX, v3_body.tY, v3_body.tZ - fVRBodyAboveFeet);
+				fVRVz = 0;
+				fVRCrouch = 0;
+				bVRGrounded = false;
+				bVRKinSettled = true;
+				if (gVR.pfnLog)
+					gVR.pfnLog("Body: controller started in the water (no ground under her).");
 			}
 		}
 		if (!bVRKinSettled)
