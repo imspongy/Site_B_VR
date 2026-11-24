@@ -824,8 +824,8 @@ namespace
 		s.fTurnDeadzone = (std::min)((std::max)(s.fTurnDeadzone, 0.0f), 0.9f);
 		s.fBodyLeash    = (std::max)(s.fBodyLeash, 0.1f);
 		// Anne's legs top out at about 3.7 m/s (the original game's run).
-		s.fRunSpeed     = (std::min)(s.fRunSpeed, 15.0f);
-		s.fMoveSpeed    = (std::min)(s.fMoveSpeed, 15.0f);
+		s.fRunSpeed     = (std::min)(s.fRunSpeed, 4.5f);
+		s.fMoveSpeed    = (std::min)(s.fMoveSpeed, 4.5f);
 		setVR = s;
 
 		gVR.bMotionHand  = true;
