@@ -1,54 +1,48 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="800" viewBox="0 0 1500 800" font-family="Inter, 'DejaVu Sans', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="820" viewBox="0 0 1500 820" font-family="Inter, 'DejaVu Sans', sans-serif">
 <defs><linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b4a42"/><stop offset="1" stop-color="#23302a"/></linearGradient>
 <style>.lbl{font-size:21px;font-weight:700;fill:#efe6d2}.sub{font-size:17px;font-weight:500;fill:#a9c2a3}.ln{stroke:#e8a33d;stroke-width:2.5;fill:none}.dot{fill:#e8a33d}.ttl{font-size:30px;font-weight:900;fill:#efe6d2;letter-spacing:3px}.hd{font-size:36px;font-weight:900;fill:#e8a33d;letter-spacing:2px}</style></defs>
-<rect width="1500" height="800" rx="24" fill="#0f2419"/>
+<rect width="1500" height="820" rx="24" fill="#0f2419"/>
 <text x="750" y="52" text-anchor="middle" class="hd">PLAYSTATION VR2 SENSE CONTROLLERS</text>
-<text x="470" y="96" text-anchor="middle" class="ttl">LEFT</text>
-<text x="1030" y="96" text-anchor="middle" class="ttl">RIGHT</text>
-<g transform="translate(470 400)"><path d="M-95 -170 C -95 -230 95 -230 95 -170 L 80 60 C 70 120 40 190 0 190 C -40 190 -70 120 -80 60 Z" fill="url(#body)" stroke="#5d7266" stroke-width="3"/>
-<rect x="-112" y="-80" width="20" height="120" rx="9" fill="#e8a33d" opacity="0.85"/>
-<circle cx="-20" cy="-140" r="42" fill="#1b2620" stroke="#6d8378" stroke-width="3"/>
-<circle cx="-20" cy="-140" r="26" fill="#2c3a33"/><circle cx="48" cy="-90" r="20" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="48" y="-82.8" text-anchor="middle" font-size="20" font-weight="800" fill="#cfd9d2" transform="scale(1 1)">△</text><circle cx="36" cy="-40" r="20" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="36" y="-32.8" text-anchor="middle" font-size="20" font-weight="800" fill="#cfd9d2" transform="scale(1 1)">□</text><rect x="-36.0" y="-20.0" width="26" height="12" rx="6" fill="#2c3a33" stroke="#6d8378" stroke-width="2"/></g>
-<g transform="translate(1030 400)"><g transform="scale(-1 1)"><path d="M-95 -170 C -95 -230 95 -230 95 -170 L 80 60 C 70 120 40 190 0 190 C -40 190 -70 120 -80 60 Z" fill="url(#body)" stroke="#5d7266" stroke-width="3"/>
-<rect x="-112" y="-80" width="20" height="120" rx="9" fill="#e8a33d" opacity="0.85"/>
-<circle cx="-20" cy="-140" r="42" fill="#1b2620" stroke="#6d8378" stroke-width="3"/>
-<circle cx="-20" cy="-140" r="26" fill="#2c3a33"/></g><circle cx="-48" cy="-90" r="20" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="-48" y="-82.8" text-anchor="middle" font-size="20" font-weight="800" fill="#cfd9d2" transform="scale(1 1)">○</text><circle cx="-36" cy="-40" r="20" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="-36" y="-32.8" text-anchor="middle" font-size="20" font-weight="800" fill="#cfd9d2" transform="scale(1 1)">✕</text><rect x="10.0" y="-20.0" width="26" height="12" rx="6" fill="#2c3a33" stroke="#6d8378" stroke-width="2"/></g>
-<circle class="dot" cx="450" cy="260" r="6"/><path class="ln" d="M450 260 L 300 140 L 40 140"/>
-<text x="40" y="128" text-anchor="start" class="lbl">Stick: walk</text>
-<text x="40" y="164" text-anchor="start" class="sub">Push further to go faster</text>
-<circle class="dot" cx="450" cy="260" r="6"/><path class="ln" d="M450 260 L 300 235 L 40 235"/>
-<text x="40" y="223" text-anchor="start" class="lbl">Stick click: sprint</text>
-<text x="40" y="259" text-anchor="start" class="sub">Until you let go of the stick</text>
-<circle class="dot" cx="532" cy="324" r="6"/><path class="ln" d="M532 324 L 630 190 L 870 190"/>
-<text x="750" y="178" text-anchor="middle" class="lbl">△: pause menu</text>
-<circle class="dot" cx="520" cy="374" r="6"/><path class="ln" d="M520 374 L 630 270 L 870 270"/>
-<text x="750" y="258" text-anchor="middle" class="lbl">□: hint screen</text>
-<circle class="dot" cx="447" cy="386" r="6"/><path class="ln" d="M447 386 L 300 420 L 40 420"/>
-<text x="40" y="408" text-anchor="start" class="lbl">Create: pause menu</text>
-<circle class="dot" cx="368" cy="380" r="6"/><path class="ln" d="M368 380 L 300 520 L 40 520"/>
-<text x="40" y="508" text-anchor="start" class="lbl">Grip: grab and hold</text>
-<text x="40" y="544" text-anchor="start" class="sub">Let go to drop, swing to throw</text>
-<circle class="dot" cx="420" cy="575" r="6"/><path class="ln" stroke-dasharray="6 5" d="M420 575 L 300 630 L 40 630"/>
-<text x="40" y="618" text-anchor="start" class="lbl">Trigger (underneath)</text>
-<text x="40" y="654" text-anchor="start" class="sub">Fire a gun, use what you hold</text>
-<circle class="dot" cx="1050" cy="260" r="6"/><path class="ln" d="M1050 260 L 1200 140 L 1460 140"/>
-<text x="1460" y="128" text-anchor="end" class="lbl">Stick: turn</text>
-<text x="1460" y="164" text-anchor="end" class="sub">Smooth or snap (VR settings)</text>
-<circle class="dot" cx="1050" cy="260" r="6"/><path class="ln" d="M1050 260 L 1200 235 L 1460 235"/>
-<text x="1460" y="223" text-anchor="end" class="lbl">Stick click: recenter</text>
-<text x="1460" y="259" text-anchor="end" class="sub">Both stick clicks: save a capture</text>
-<circle class="dot" cx="968" cy="324" r="6"/><path class="ln" d="M968 324 L 870 440 L 630 440"/>
-<text x="750" y="428" text-anchor="middle" class="lbl">○: crouch</text>
-<circle class="dot" cx="980" cy="374" r="6"/><path class="ln" d="M980 374 L 870 520 L 630 520"/>
-<text x="750" y="508" text-anchor="middle" class="lbl">✕: jump</text>
-<circle class="dot" cx="1053" cy="386" r="6"/><path class="ln" d="M1053 386 L 1200 420 L 1460 420"/>
-<text x="1460" y="408" text-anchor="end" class="lbl">Options: pause menu</text>
-<circle class="dot" cx="1132" cy="380" r="6"/><path class="ln" d="M1132 380 L 1200 520 L 1460 520"/>
-<text x="1460" y="508" text-anchor="end" class="lbl">Grip: grab and hold</text>
-<text x="1460" y="544" text-anchor="end" class="sub">Let go to drop, swing to throw</text>
-<circle class="dot" cx="1080" cy="575" r="6"/><path class="ln" stroke-dasharray="6 5" d="M1080 575 L 1200 630 L 1460 630"/>
-<text x="1460" y="618" text-anchor="end" class="lbl">Trigger (underneath)</text>
-<text x="1460" y="654" text-anchor="end" class="sub">Fire a gun, use what you hold</text>
-<text x="750" y="742" text-anchor="middle" class="sub">On PC with the PlayStation VR2 adapter and the PlayStation VR2 app for SteamVR.</text>
-<text x="750" y="770" text-anchor="middle" class="sub">Both hands grab, shoot and holster the same way.  LeftHanded=1 swaps the stick and button roles.  Everything can be rebound in SteamVR.</text>
+<text x="470" y="100" text-anchor="middle" class="ttl">LEFT</text>
+<text x="1030" y="100" text-anchor="middle" class="ttl">RIGHT</text>
+<g transform="translate(470 420)"><path d="M-62 -18 A 118 118 0 1 1 62 -18 L 50 160 C 46 196 24 214 0 214 C -24 214 -46 196 -50 160 Z" fill="url(#body)" stroke="#5d7266" stroke-width="3"/>
+<rect x="-80" y="10" width="18" height="100" rx="8" fill="#e8a33d" opacity="0.85"/><rect x="-70" y="-198" width="30" height="12" rx="6" fill="#2c3a33" stroke="#6d8378" stroke-width="2"/><circle cx="-10" cy="-125" r="38" fill="#1b2620" stroke="#6d8378" stroke-width="3"/><circle cx="-10" cy="-125" r="24" fill="#2c3a33"/><circle cx="52" cy="-140" r="18" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="52" y="-133" text-anchor="middle" font-size="19" font-weight="800" fill="#cfd9d2">△</text><circle cx="40" cy="-85" r="18" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="40" y="-78" text-anchor="middle" font-size="19" font-weight="800" fill="#cfd9d2">□</text><circle cx="-12" cy="-52" r="13" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/></g>
+<g transform="translate(1030 420)"><g transform="scale(-1 1)"><path d="M-62 -18 A 118 118 0 1 1 62 -18 L 50 160 C 46 196 24 214 0 214 C -24 214 -46 196 -50 160 Z" fill="url(#body)" stroke="#5d7266" stroke-width="3"/>
+<rect x="-80" y="10" width="18" height="100" rx="8" fill="#e8a33d" opacity="0.85"/></g><rect x="40" y="-198" width="30" height="12" rx="6" fill="#2c3a33" stroke="#6d8378" stroke-width="2"/><circle cx="10" cy="-125" r="38" fill="#1b2620" stroke="#6d8378" stroke-width="3"/><circle cx="10" cy="-125" r="24" fill="#2c3a33"/><circle cx="-52" cy="-140" r="18" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="-52" y="-133" text-anchor="middle" font-size="19" font-weight="800" fill="#cfd9d2">○</text><circle cx="-40" cy="-85" r="18" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/><text x="-40" y="-78" text-anchor="middle" font-size="19" font-weight="800" fill="#cfd9d2">✕</text><circle cx="12" cy="-52" r="13" fill="#2c3a33" stroke="#6d8378" stroke-width="3"/></g>
+<path class="ln" d="M415 228 L 290 140 L 40 140"/><circle class="dot" cx="415" cy="228" r="6"/>
+<text x="40" y="128" text-anchor="start" class="lbl">Create: pause menu</text>
+<path class="ln" d="M460 295 L 290 260 L 40 260"/><circle class="dot" cx="460" cy="295" r="6"/>
+<text x="40" y="248" text-anchor="start" class="lbl">Stick: walk</text>
+<text x="40" y="284" text-anchor="start" class="sub">Click: sprint, until you let go</text>
+<path class="ln" d="M458 368 L 290 380 L 40 380"/><circle class="dot" cx="458" cy="368" r="6"/>
+<text x="40" y="368" text-anchor="start" class="lbl">PS button: not used</text>
+<path class="ln" d="M399 480 L 290 500 L 40 500"/><circle class="dot" cx="399" cy="480" r="6"/>
+<text x="40" y="488" text-anchor="start" class="lbl">Grip: grab and hold</text>
+<text x="40" y="524" text-anchor="start" class="sub">Let go to drop, swing to throw</text>
+<path class="ln" stroke-dasharray="6 5" d="M440 634 L 290 650 L 40 650"/><circle class="dot" cx="440" cy="634" r="6"/>
+<text x="40" y="638" text-anchor="start" class="lbl">Trigger (underneath)</text>
+<text x="40" y="674" text-anchor="start" class="sub">Fire a gun, use what you hold</text>
+<path class="ln" d="M540 280 L 620 160 L 880 160"/><circle class="dot" cx="540" cy="280" r="6"/>
+<text x="750" y="148" text-anchor="middle" class="lbl">△: pause menu</text>
+<path class="ln" d="M528 335 L 620 240 L 880 240"/><circle class="dot" cx="528" cy="335" r="6"/>
+<text x="750" y="228" text-anchor="middle" class="lbl">□: hint screen</text>
+<path class="ln" d="M1085 228 L 1210 140 L 1460 140"/><circle class="dot" cx="1085" cy="228" r="6"/>
+<text x="1460" y="128" text-anchor="end" class="lbl">Options: pause menu</text>
+<path class="ln" d="M1040 295 L 1210 260 L 1460 260"/><circle class="dot" cx="1040" cy="295" r="6"/>
+<text x="1460" y="248" text-anchor="end" class="lbl">Stick: turn</text>
+<text x="1460" y="284" text-anchor="end" class="sub">Click: recenter (both: capture)</text>
+<path class="ln" d="M1042 368 L 1210 380 L 1460 380"/><circle class="dot" cx="1042" cy="368" r="6"/>
+<text x="1460" y="368" text-anchor="end" class="lbl">PS button: not used</text>
+<path class="ln" d="M1101 480 L 1210 500 L 1460 500"/><circle class="dot" cx="1101" cy="480" r="6"/>
+<text x="1460" y="488" text-anchor="end" class="lbl">Grip: grab and hold</text>
+<text x="1460" y="524" text-anchor="end" class="sub">Let go to drop, swing to throw</text>
+<path class="ln" stroke-dasharray="6 5" d="M1060 634 L 1210 650 L 1460 650"/><circle class="dot" cx="1060" cy="634" r="6"/>
+<text x="1460" y="638" text-anchor="end" class="lbl">Trigger (underneath)</text>
+<text x="1460" y="674" text-anchor="end" class="sub">Fire a gun, use what you hold</text>
+<path class="ln" d="M960 280 L 880 420 L 620 420"/><circle class="dot" cx="960" cy="280" r="6"/>
+<text x="750" y="408" text-anchor="middle" class="lbl">○: crouch</text>
+<path class="ln" d="M972 335 L 880 500 L 620 500"/><circle class="dot" cx="972" cy="335" r="6"/>
+<text x="750" y="488" text-anchor="middle" class="lbl">✕: jump</text>
+<text x="750" y="762" text-anchor="middle" class="sub">On PC with the PlayStation VR2 adapter and the PlayStation VR2 app for SteamVR.</text>
+<text x="750" y="790" text-anchor="middle" class="sub">Both hands grab, shoot and holster the same way.  LeftHanded=1 swaps the stick and button roles.  Everything can be rebound in SteamVR.</text>
 </svg>
