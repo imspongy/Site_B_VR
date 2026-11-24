@@ -756,6 +756,47 @@ namespace
 		const uint8* pu1_hide = nullptr;
 		if (pins == gVR.pvStubInstance && gVR.pu1StubPolys && gVR.iStubPolys == (int)pbm->pampPolygons.uLen)
 			pu1_hide = gVR.pu1StubPolys;
+		// The left arm is a mirrored copy of her whole body: only its arm is drawn.  (The rest of
+		// the copy lay almost exactly over her body, and where the sun lit them the two fought
+		// pixel by pixel: the static on her body and hands.)
+		if ((const void*)pins == gVR.pvMirrorInstance)
+		{
+			static const void* pv_mask_mesh = nullptr;
+			static std::vector<uint8> au1_not_arm;
+			if (pv_mask_mesh != (const void*)pbm || au1_not_arm.size() != pbm->pampPolygons.uLen)
+			{
+				pv_mask_mesh = (const void*)pbm;
+				// Her (right) arm's joints, 10 to 13 (shoulder, elbow, wrist, fingers), and the
+				// blended joints made only from them.
+				std::vector<uint8> au1_arm(i_transforms, 0);
+				for (int j = 10; j <= 13 && j < i_transforms; j++)
+					au1_arm[j] = 1;
+				for (int j = 0; j < (int)pbm->afPositionRatios.uLen && j + pbm->iJoints < i_transforms; ++j)
+				{
+					int a = pbm->aiDoubleJointsA[j], b = pbm->aiDoubleJointsB[j];
+					if (a >= 10 && a <= 13 && b >= 10 && b <= 13)
+						au1_arm[j + pbm->iJoints] = 1;
+				}
+				au1_not_arm.assign(pbm->pampPolygons.uLen, 0);
+				int i_arm = 0;
+				for (uint u = 0; u < pbm->pampPolygons.uLen; u++)
+				{
+					const CMesh::SPolygon& mp = pbm->pampPolygons[u];
+					bool b_arm = mp.papmvVertices.uLen > 0;
+					for (uint v = 0; v < mp.papmvVertices.uLen && b_arm; v++)
+					{
+						int i_pt = (int)(mp.papmvVertices[v]->pv3Point - pbm->pav3Points.atArray);
+						int i_j = (i_pt >= 0 && i_pt < (int)pbm->pauJoints.uLen) ? (int)pbm->pauJoints[i_pt] : -1;
+						b_arm = i_j >= 0 && i_j < i_transforms && au1_arm[i_j];
+					}
+					au1_not_arm[u] = b_arm ? 0 : 1;
+					i_arm += b_arm;
+				}
+				if (gVR.pfnLog)
+					gVR.pfnLog("Arms: the left arm copy draws %d of %d polygons (its arm only).", i_arm, (int)pbm->pampPolygons.uLen);
+			}
+			pu1_hide = au1_not_arm.data();
+		}
 
 		const std::vector<uint32_t>* pau4 = &me.au4Indices;
 		std::vector<SSubset> asub_local;
