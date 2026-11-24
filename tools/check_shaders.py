@@ -4,7 +4,9 @@
 import glob, os, re, subprocess, sys, tempfile
 
 src = open(sys.argv[1], encoding='latin-1').read()
-hlsl = re.search(r'R"HLSL\((.*?)\)HLSL"', src, re.S).group(1)
+# (The source is split into adjacent raw strings, each under the compiler's length limit.)
+m = re.search(r'R"HLSL\((.*?)\)HLSL"((?:\s*R"HLSL\(.*?\)HLSL")*)', src, re.S)
+hlsl = m.group(1) + "".join(re.findall(r'R"HLSL\((.*?)\)HLSL"', m.group(2), re.S))
 entries = re.findall(r'b(VS|PS)\("(\w+)"', src)
 fxc = sorted(glob.glob(r'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\fxc.exe'))
 if not fxc:
