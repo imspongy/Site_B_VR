@@ -128,7 +128,7 @@ struct PSObjIn
 	float3 wn  : TEXCOORD1;
 	float2 uv  : TEXCOORD2;
 	nointerpolation uint flags : TEXCOORD3;
-	float3 rp  : TEXCOORD5;		// Position relative to the eye (precise close up; see below).
+	float3 rp  : TEXCOORD5;
 	EYE_OUT
 };
 
@@ -249,9 +249,6 @@ float4 PSObject(PSObjIn i, bool front : SV_IsFrontFace) : SV_Target
 	// face direction decides, so smooth normals near outlines are left alone).  Fixes dark
 	// patches on models whose normals point inward or that are seen from behind.
 	float3 n = normalize(i.wn);
-	// Surface slopes from the eye-relative position: world positions are ~1 km from the
-	// origin, where a float only resolves ~0.1 mm, about a pixel's width on her body up close,
-	// so slopes from them were noise there (the sunlit static on her body and hands).
 	float3 dpx = ddx(i.rp), dpy = ddy(i.rp);
 	float3 gn = cross(dpx, dpy);
 	float3 to_eye = -i.rp;
@@ -579,6 +576,7 @@ float4 PSSky(PSSkyIn i) : SV_Target
 	return float4(col, 1);
 }
 
+)HLSL" R"HLSL(
 // Shadow map.
 struct PSShadowIn
 {
