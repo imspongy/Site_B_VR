@@ -64,6 +64,7 @@
 #include "Lib/EntityDBase/Query/QPhysics.hpp"
 #include "Lib/EntityDBase/Query/QTerrain.hpp"
 #include <set>
+#include <unordered_map>
 #include "Lib/Renderer/GeomTypes.hpp"
 #include "Lib/GeomDBase/Terrain.hpp"
 #include "Lib/Loader/SaveFile.hpp"
@@ -4626,7 +4627,9 @@ public:
 
 		// Wake it up moving (it was being placed by hand, so the physics had it asleep), and keep
 		// the throw speed for a couple of steps in case anything resets it.
-		if (b_throw && v3_throw.tLen() > 0.3f)
+		// (Not doors and other hinged things: they keep the swing your hand gave them; a throw
+		// speed set on them tore them off their hinges.)
+		if (b_throw && v3_throw.tLen() > 0.3f && !NMagnetSystem::pmpFindMagnet(pins, Set(emfHINGE)))
 		{
 			pins->pphiGetPhysicsInfo()->Activate(pins, false, CPlacement3<>(CRotate3<>(), v3_throw));
 			pins->pphiGetPhysicsInfo()->ForceVelocity(pins, v3_throw);
@@ -6340,6 +6343,66 @@ public:
 					}
 					au1_stub[u] = b_stub ? 1 : 0;
 					i_count += b_stub ? 1 : 0;
+				}
+				// Her left arm has no joints of its own (it hangs from her chest's), so the parts of
+				// it hanging close to her side weren't caught above: grow out from the polygons
+				// caught, across shared corners, through polygons whose middles still lie out past
+				// her side and below her shoulder.
+				{
+					float f_side = 0.6f * fabs(f_xs);
+					float f_top = atf3_ref[10].v3Pos.tZ + 0.02f;
+					uint u_polys = pbm->pampPolygons.uLen;
+					std::vector<CVector3<>> av3_mid(u_polys);
+					std::vector<unsigned char> au1_ok(u_polys, 0);
+					std::unordered_map<uint, std::vector<uint>> map_pt_polys;
+					for (uint u = 0; u < u_polys; u++)
+					{
+						const CMesh::SPolygon& mp = pbm->pampPolygons[u];
+						CVector3<> v3_sum(0, 0, 0);
+						bool b_good = mp.papmvVertices.uLen > 0;
+						for (uint v = 0; v < mp.papmvVertices.uLen; v++)
+						{
+							uint u_pt = mp.papmvVertices[v]->u4ShapePoint;
+							int i_joint = pbm->pauJoints[u_pt];
+							if (i_joint < 0 || i_joint >= i_transforms)
+							{
+								b_good = false;
+								break;
+							}
+							v3_sum += pbm->pav3Points[u_pt] * atf3_ref[i_joint];
+							map_pt_polys[u_pt].push_back(u);
+						}
+						if (!b_good)
+							continue;
+						av3_mid[u] = v3_sum / (float)mp.papmvVertices.uLen;
+						au1_ok[u] = av3_mid[u].tX * f_sign < -f_side && av3_mid[u].tZ < f_top;
+					}
+					std::vector<uint> au_front;
+					for (uint u = 0; u < u_polys; u++)
+						if (au1_stub[u])
+							au_front.push_back(u);
+					int i_grown = 0;
+					while (!au_front.empty())
+					{
+						uint u = au_front.back();
+						au_front.pop_back();
+						const CMesh::SPolygon& mp = pbm->pampPolygons[u];
+						for (uint v = 0; v < mp.papmvVertices.uLen; v++)
+						{
+							auto it = map_pt_polys.find(mp.papmvVertices[v]->u4ShapePoint);
+							if (it == map_pt_polys.end())
+								continue;
+							for (uint n : it->second)
+								if (!au1_stub[n] && au1_ok[n])
+								{
+									au1_stub[n] = 1;
+									i_count++;
+									i_grown++;
+									au_front.push_back(n);
+								}
+						}
+					}
+					str_joints += " (" + std::to_string(i_grown) + " more grown along it)";
 				}
 				if (gVR.pfnLog)
 					gVR.pfnLog("Arms: hiding %d of %d polygons as the left arm stub (shoulder x %.3f; arm joints%s).", i_count, (int)au1_stub.size(), f_xs, str_joints.c_str());

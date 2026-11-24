@@ -56,6 +56,8 @@
 #include "Lib/View/Clut.hpp"
 #include "Lib/Loader/TextureManager.hpp"
 #include "Lib/Sys/VirtualMem.hpp"
+#include "Lib/Std/Hash.hpp"
+#include <unordered_set>
 #include "Game/DesignDaemon/Player.hpp"
 #include "Game/DesignDaemon/Gun.hpp"
 #include "Lib/Trigger/Trigger.hpp"
@@ -1636,8 +1638,21 @@ namespace
 
 	bool bIsBloodTerrain(CInstance* pins)
 	{
-		const char* str = pins->strGetInstanceName();
-		return str && (strncmp(str, "TrnObj_BloodSplat", 17) == 0 || strncmp(str, "TrnObj_BloodStreak", 18) == 0);
+		// The game finds them by name ("TrnObj_BloodSplat-00", "TrnObj_BloodStreak-07"...), which
+		// the shipped game keeps only as a hash of the name: compare hashes.
+		static std::unordered_set<uint32> set_blood;
+		if (set_blood.empty())
+		{
+			char str[64];
+			for (int i = 0; i < 100; i++)
+			{
+				sprintf(str, "TrnObj_BloodSplat-%.2d", i);
+				set_blood.insert(u4Hash(str));
+				sprintf(str, "TrnObj_BloodStreak-%.2d", i);
+				set_blood.insert(u4Hash(str));
+			}
+		}
+		return set_blood.count(pins->u4GetUniqueHandle()) != 0;
 	}
 
 	void DrawAnimatedTerrain(CTerrain* ptrr, const CVector3<>& v3_eye)
