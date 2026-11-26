@@ -698,58 +698,6 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	int iGpuSamples = 0;
 	int iShadowDrawsSkipped = 0, iShadowDrawsDrawn = 0;
 
-	void GpuStamp(int i_slot)
-	{
-		if (apqStamp[iGpuFrame][i_slot])
-			pCtx->End(apqStamp[iGpuFrame][i_slot]);
-	}
-	void GpuFrameBegin()
-	{
-		if (!apqDisjoint[0])
-		{
-			D3D11_QUERY_DESC qd = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
-			D3D11_QUERY_DESC qt = { D3D11_QUERY_TIMESTAMP, 0 };
-			for (int f = 0; f < iGPU_FRAMES; f++)
-			{
-				pDev->CreateQuery(&qd, &apqDisjoint[f]);
-				for (int k = 0; k <= egtCOUNT; k++)
-					pDev->CreateQuery(&qt, &apqStamp[f][k]);
-			}
-		}
-		// Read the oldest frame's times, if they are in.
-		int i_old = (iGpuFrame + 1) % iGPU_FRAMES;
-		if (abGpuIssued[i_old] && apqDisjoint[i_old])
-		{
-			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
-			if (pCtx->GetData(apqDisjoint[i_old], &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK)
-			{
-				UINT64 au8[egtCOUNT + 1];
-				bool b_ok = !dj.Disjoint && dj.Frequency > 0;
-				for (int k = 0; k <= egtCOUNT && b_ok; k++)
-					b_ok = pCtx->GetData(apqStamp[i_old][k], &au8[k], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
-				if (b_ok)
-				{
-					for (int k = 0; k < egtCOUNT; k++)
-						adGpuMs[k] += (double)(au8[k + 1] - au8[k]) * 1000.0 / (double)dj.Frequency;
-					iGpuSamples++;
-				}
-				abGpuIssued[i_old] = false;
-			}
-		}
-		iGpuFrame = i_old;
-		if (abGpuIssued[iGpuFrame])
-			return;		// (Still waiting on that slot: this frame goes unmeasured.)
-		pCtx->Begin(apqDisjoint[iGpuFrame]);
-		GpuStamp(0);
-	}
-	void GpuFrameEnd()
-	{
-		if (apqDisjoint[iGpuFrame] && !abGpuIssued[iGpuFrame])
-		{
-			pCtx->End(apqDisjoint[iGpuFrame]);
-			abGpuIssued[iGpuFrame] = true;
-		}
-	}
 
 	const int iDYNAMIC_BASE = 1 << 24;
 
@@ -1291,6 +1239,59 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	}
 
 	//******************************************************************************************
+	void GpuStamp(int i_slot)
+	{
+		if (apqStamp[iGpuFrame][i_slot])
+			pCtx->End(apqStamp[iGpuFrame][i_slot]);
+	}
+	void GpuFrameBegin()
+	{
+		if (!apqDisjoint[0])
+		{
+			D3D11_QUERY_DESC qd = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+			D3D11_QUERY_DESC qt = { D3D11_QUERY_TIMESTAMP, 0 };
+			for (int f = 0; f < iGPU_FRAMES; f++)
+			{
+				pDev->CreateQuery(&qd, &apqDisjoint[f]);
+				for (int k = 0; k <= egtCOUNT; k++)
+					pDev->CreateQuery(&qt, &apqStamp[f][k]);
+			}
+		}
+		// Read the oldest frame's times, if they are in.
+		int i_old = (iGpuFrame + 1) % iGPU_FRAMES;
+		if (abGpuIssued[i_old] && apqDisjoint[i_old])
+		{
+			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+			if (pCtx->GetData(apqDisjoint[i_old], &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK)
+			{
+				UINT64 au8[egtCOUNT + 1];
+				bool b_ok = !dj.Disjoint && dj.Frequency > 0;
+				for (int k = 0; k <= egtCOUNT && b_ok; k++)
+					b_ok = pCtx->GetData(apqStamp[i_old][k], &au8[k], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+				if (b_ok)
+				{
+					for (int k = 0; k < egtCOUNT; k++)
+						adGpuMs[k] += (double)(au8[k + 1] - au8[k]) * 1000.0 / (double)dj.Frequency;
+					iGpuSamples++;
+				}
+				abGpuIssued[i_old] = false;
+			}
+		}
+		iGpuFrame = i_old;
+		if (abGpuIssued[iGpuFrame])
+			return;		// (Still waiting on that slot: this frame goes unmeasured.)
+		pCtx->Begin(apqDisjoint[iGpuFrame]);
+		GpuStamp(0);
+	}
+	void GpuFrameEnd()
+	{
+		if (apqDisjoint[iGpuFrame] && !abGpuIssued[iGpuFrame])
+		{
+			pCtx->End(apqDisjoint[iGpuFrame]);
+			abGpuIssued[iGpuFrame] = true;
+		}
+	}
+
 	ID3D11ShaderResourceView* psrvTex(int i_handle)
 	{
 		if (i_handle > 0 && i_handle <= (int)atex.size() && atex[i_handle - 1].psrv)
