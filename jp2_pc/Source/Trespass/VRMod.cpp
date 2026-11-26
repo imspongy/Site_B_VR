@@ -475,6 +475,15 @@ namespace
 	//******************************************************************************************
 	void WriteDefaultIni(const std::string& str_file)
 	{
+		// The shipped defaults (every gun's hand placement included), when they are there.
+		{
+			std::string str_def = strExeDir() + "\\TrespasserVR.defaults.ini";
+			if (GetFileAttributesA(str_def.c_str()) != INVALID_FILE_ATTRIBUTES && CopyFileA(str_def.c_str(), str_file.c_str(), FALSE))
+			{
+				SetFileAttributesA(str_file.c_str(), FILE_ATTRIBUTE_NORMAL);
+				return;
+			}
+		}
 		FILE* pf = std::fopen(str_file.c_str(), "w");
 		if (!pf)
 			return;
@@ -880,7 +889,10 @@ namespace
 	void LoadGunValues(const std::string& str_path)
 	{
 		mapGunValues.clear();
-		if (FILE* pf = fopen(str_path.c_str(), "r"))
+		// Every gun's hand placement as shipped; the player's own file overrides it.
+		std::string str_def = strExeDir() + "\\TrespasserVR.defaults.ini";
+		for (const std::string& str_file : { str_def, str_path })
+		if (FILE* pf = fopen(str_file.c_str(), "r"))
 		{
 			char str_line[512];
 			while (fgets(str_line, sizeof(str_line), pf))
