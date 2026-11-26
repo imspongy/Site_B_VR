@@ -2,9 +2,9 @@
 
 65 million prompts in the making . . . 
 
-**Site B VR** is a fully featured virtual reality mod for *Jurassic Park: Trespasser* (1998). The game is now playable in its entirety in VR for the first time. Beyond just bringing the game to VR, I wanted to make sure this mod integrates VR into the game's existing systems in a way that respects Trespasser's original gameplay and, most importantly, is fun.
+**Site B VR** is a fully featured virtual reality mod for *Jurassic Park: Trespasser* (1998). The game is now playable in its entirety in 6DOF VR with motion controls for the first time. Beyond just bringing the game to VR, I wanted to make sure this mod integrates VR into the game's existing systems in a way that respects Trespasser's original gameplay, and most importantly, is fun.
 
-Walk the island in your own body, pick up anything with your own hands, aim guns with one or both hands,
+Walk the island in full 6DOF VR, pick up anything with your own hands, aim guns with one or both hands,
 and push, swing, and throw things with the game's original physics.
 
 It is built on the [OpenTrespasser](https://github.com/OpenTrespasser/JurassicParkTrespasser) source code,
