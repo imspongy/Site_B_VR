@@ -2303,8 +2303,10 @@ bool VRScene_Ready()
 }
 
 //**********************************************************************************************
+static LARGE_INTEGER liSceneStart;
 bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& set)
 {
+	QueryPerformanceCounter(&liSceneStart);
 	if (!VRScene_Ready() || !pwWorld)
 		return false;
 
@@ -2549,7 +2551,16 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	fr.afShadowCentre[2] = wk.v3ShadowCentre.tZ;
 	fr.fShadowRadius = set.fShadowDistance;
 
+	LARGE_INTEGER li_a, li_b, li_f;
+	QueryPerformanceCounter(&li_a);
 	VRR_RenderFrame(fr);
+	QueryPerformanceCounter(&li_b);
+	QueryPerformanceFrequency(&li_f);
+	static double d_submit_ms = 0, d_build_ms = 0;
+	static int i_submit_n = 0;
+	d_submit_ms += (double)(li_b.QuadPart - li_a.QuadPart) * 1000.0 / (double)li_f.QuadPart;
+	d_build_ms += (double)(li_a.QuadPart - liSceneStart.QuadPart) * 1000.0 / (double)li_f.QuadPart;
+	i_submit_n++;
 	VRB_SubmitTexture(0, VRR_EyeTexture(0));
 	VRB_SubmitTexture(1, VRR_EyeTexture(1));
 
@@ -2560,6 +2571,17 @@ bool VRScene_RenderAndSubmit(const SVRSceneEyes& eyes, const SVRSceneSettings& s
 	              "walk: %d instances, %d hidden, %d no shape, %d not mesh, %d empty, %d far, %d behind, %d too small.",
 	              iObjects, iSkinned, i_draws, i_batches, i_tex, f_mb, i_meshes, iTexturesWaiting,
 	              wsLast.iSeen, wsLast.iHidden, wsLast.iNoShape, wsLast.iNotMesh, wsLast.iEmpty, wsLast.iFar, wsLast.iBehind, wsLast.iSmall);
+	{
+		// Where the time goes on the processor: gathering the scene, and handing it to the card.
+		size_t u = strlen(strStats);
+		if (i_submit_n > 0 && u + 96 < sizeof(strStats))
+			std::snprintf(strStats + u, sizeof(strStats) - u, " Processor: scene %.2fms, card calls %.2fms.", d_build_ms / i_submit_n, d_submit_ms / i_submit_n);
+	}
+	if (i_submit_n >= 600)
+	{
+		d_submit_ms = d_build_ms = 0;
+		i_submit_n = 0;
+	}
 	return true;
 }
 

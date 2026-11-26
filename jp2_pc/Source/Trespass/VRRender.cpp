@@ -664,13 +664,92 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 	{
 		ID3D11Buffer* pvb = nullptr;
 		ID3D11Buffer* pib = nullptr;
+		float fRadius = 1e6f;		// Furthest vertex from the mesh's origin.
 	};
 
 	struct SDynMesh
 	{
 		int iBaseVertex;
 		int iFirstIndex;
+		float fRadius = 1e6f;
 	};
+
+	float fMeshRadius(const SVRRVertex* pv, int i_verts)
+	{
+		float f = 0;
+		for (int i = 0; i < i_verts; i++)
+			f = (std::max)(f, pv[i].afPos[0] * pv[i].afPos[0] + pv[i].afPos[1] * pv[i].afPos[1] + pv[i].afPos[2] * pv[i].afPos[2]);
+		return std::sqrt(f);
+	}
+
+	// Where the shadow map is centred this frame, and how far around it things can cast into it.
+	float afShadowCull[3] = { 0, 0, 0 };
+	float fShadowCullRadius = 0;
+
+	// The graphics card's own time for each part of a frame (timestamp queries, read a few
+	// frames late so nothing waits).
+	enum { egtSHADOW, egtTERRAIN, egtOBJECTS, egtRESOLVE, egtCOUNT };
+	const int iGPU_FRAMES = 4;
+	ID3D11Query* apqDisjoint[iGPU_FRAMES] = {};
+	ID3D11Query* apqStamp[iGPU_FRAMES][egtCOUNT + 1] = {};
+	bool abGpuIssued[iGPU_FRAMES] = {};
+	int iGpuFrame = 0;
+	double adGpuMs[egtCOUNT] = {};
+	int iGpuSamples = 0;
+	int iShadowDrawsSkipped = 0, iShadowDrawsDrawn = 0;
+
+	void GpuStamp(int i_slot)
+	{
+		if (apqStamp[iGpuFrame][i_slot])
+			pCtx->End(apqStamp[iGpuFrame][i_slot]);
+	}
+	void GpuFrameBegin()
+	{
+		if (!apqDisjoint[0])
+		{
+			D3D11_QUERY_DESC qd = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+			D3D11_QUERY_DESC qt = { D3D11_QUERY_TIMESTAMP, 0 };
+			for (int f = 0; f < iGPU_FRAMES; f++)
+			{
+				pDev->CreateQuery(&qd, &apqDisjoint[f]);
+				for (int k = 0; k <= egtCOUNT; k++)
+					pDev->CreateQuery(&qt, &apqStamp[f][k]);
+			}
+		}
+		// Read the oldest frame's times, if they are in.
+		int i_old = (iGpuFrame + 1) % iGPU_FRAMES;
+		if (abGpuIssued[i_old] && apqDisjoint[i_old])
+		{
+			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+			if (pCtx->GetData(apqDisjoint[i_old], &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK)
+			{
+				UINT64 au8[egtCOUNT + 1];
+				bool b_ok = !dj.Disjoint && dj.Frequency > 0;
+				for (int k = 0; k <= egtCOUNT && b_ok; k++)
+					b_ok = pCtx->GetData(apqStamp[i_old][k], &au8[k], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+				if (b_ok)
+				{
+					for (int k = 0; k < egtCOUNT; k++)
+						adGpuMs[k] += (double)(au8[k + 1] - au8[k]) * 1000.0 / (double)dj.Frequency;
+					iGpuSamples++;
+				}
+				abGpuIssued[i_old] = false;
+			}
+		}
+		iGpuFrame = i_old;
+		if (abGpuIssued[iGpuFrame])
+			return;		// (Still waiting on that slot: this frame goes unmeasured.)
+		pCtx->Begin(apqDisjoint[iGpuFrame]);
+		GpuStamp(0);
+	}
+	void GpuFrameEnd()
+	{
+		if (apqDisjoint[iGpuFrame] && !abGpuIssued[iGpuFrame])
+		{
+			pCtx->End(apqDisjoint[iGpuFrame]);
+			abGpuIssued[iGpuFrame] = true;
+		}
+	}
 
 	const int iDYNAMIC_BASE = 1 << 24;
 
@@ -1279,6 +1358,30 @@ PSShadowIn VSShadowTerrain(VSTerIn i)
 			k += i_run;
 			if (b_shadow && (drw.u4Flags & evrrNO_SHADOW))
 				continue;
+			// Only things that can cast into the shadow map: within its reach (it was drawing
+			// everything to the far horizon, most of the frame's draws, into a 60 m square).
+			if (b_shadow && fShadowCullRadius > 0)
+			{
+				float f_r_mesh = drw.iMesh >= iDYNAMIC_BASE
+					? ((drw.iMesh - iDYNAMIC_BASE) < (int)adynmesh.size() ? adynmesh[drw.iMesh - iDYNAMIC_BASE].fRadius : 1e6f)
+					: (drw.iMesh > 0 && drw.iMesh <= (int)amesh.size() ? amesh[drw.iMesh - 1].fRadius : 1e6f);
+				// A run is several copies of one thing: test each; draw the run if any reaches.
+				bool b_any = false;
+				for (int j = i; j < i + i_run && !b_any; j++)
+				{
+					const SVRRDraw& dj = adrw[aiOrder[j]];
+					float f_scale = std::sqrt(dj.afWorld[0] * dj.afWorld[0] + dj.afWorld[4] * dj.afWorld[4] + dj.afWorld[8] * dj.afWorld[8]);
+					float dx = dj.afWorld[3] - afShadowCull[0], dy = dj.afWorld[7] - afShadowCull[1], dz = dj.afWorld[11] - afShadowCull[2];
+					float f_reach = fShadowCullRadius + f_r_mesh * (std::max)(f_scale, 1.0f);
+					b_any = dx * dx + dy * dy + dz * dz < f_reach * f_reach;
+				}
+				if (!b_any)
+				{
+					iShadowDrawsSkipped += i_run;
+					continue;
+				}
+				iShadowDrawsDrawn += i_run;
+			}
 
 			if (drw.iMesh != i_bound_mesh)
 			{
@@ -1675,6 +1778,7 @@ int VRR_MeshCreate(const SVRRVertex* pv, int i_verts, const uint32_t* pu4_indice
 	if (!bReady || i_verts <= 0 || i_indices <= 0)
 		return 0;
 	SMesh msh;
+	msh.fRadius = fMeshRadius(pv, i_verts);
 	msh.pvb = pbufCreate(sizeof(SVRRVertex) * i_verts, D3D11_BIND_VERTEX_BUFFER, false, pv);
 	msh.pib = pbufCreate(sizeof(uint32_t) * i_indices, D3D11_BIND_INDEX_BUFFER, false, pu4_indices);
 	if (!msh.pvb || !msh.pib)
@@ -1695,6 +1799,7 @@ int VRR_MeshDynamic(const SVRRVertex* pv, int i_verts, const uint32_t* pu4_indic
 	SDynMesh dm;
 	dm.iBaseVertex = (int)avDyn.size();
 	dm.iFirstIndex = (int)au4DynIdx.size();
+	dm.fRadius = fMeshRadius(pv, i_verts);
 	avDyn.insert(avDyn.end(), pv, pv + i_verts);
 	au4DynIdx.insert(au4DynIdx.end(), pu4_indices, pu4_indices + i_indices);
 	adynmesh.push_back(dm);
@@ -2276,6 +2381,11 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		cb.afShadowRow[0][3] = 0.5f - f_cr / (2.0f * f_r);
 		cb.afShadowRow[1][3] = 0.5f + f_cu / (2.0f * f_r);
 		cb.afShadowRow[2][3] = 0.5f - f_cf / (2.0f * f_depth);
+		// Things further than this from the centre can't put a shadow into the map (it reaches
+		// f_r across, and the sun is at least ~10 degrees up: long shadows reach ~6x their height).
+		for (int k = 0; k < 3; k++)
+			afShadowCull[k] = c[k];
+		fShadowCullRadius = f_r * 1.4142f + 60.0f;
 		cb.afShadowParams[0] = 1.0f / iShadowSize;
 		cb.afShadowParams[1] = 0.0004f;
 		cb.afShadowParams[2] = 1.0f;
@@ -2288,6 +2398,9 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 	ID3D11SamplerState* apss[3] = { pssWrap, pssShadow, pssClamp };
 	pCtx->PSSetSamplers(0, 3, apss);
 
+	GpuFrameBegin();
+	if (!b_shadows)
+		fShadowCullRadius = 0;
 	if (b_shadows)
 	{
 		ID3D11ShaderResourceView* apsrv_null[3] = { nullptr, nullptr, nullptr };
@@ -2316,6 +2429,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		}
 		pCtx->OMSetRenderTargets(1, &prtv_null, nullptr);
 	}
+	GpuStamp(1);
 
 	//
 	// The eyes: both in one pass (each thing drawn as two instances, one into each eye's
@@ -2375,6 +2489,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 		DrawTerrain();
 		pCtx->PSSetShader(ppsTerrain, nullptr, 0);
 		pCtx->OMSetDepthStencilState(pdsTest, 0);
+		if (i_pass == (bStereoPass ? 0 : 1))
+			GpuStamp(2);
 
 		// Objects.
 		if (!adrw.empty() && pvbInst)
@@ -2386,6 +2502,7 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 
 	}
 	uEyeInstances = 1;
+	GpuStamp(3);
 
 	// Each eye's layer into the image SteamVR is given.
 	for (int i_eye = 0; i_eye < 2; i_eye++)
@@ -2397,6 +2514,8 @@ void VRR_RenderFrame(const SVRRFrame& fr)
 			pCtx->CopySubresourceRegion(aptexEye[i_eye], 0, 0, 0, 0, ptexColour, u_sub, nullptr);
 	}
 
+	GpuStamp(4);
+	GpuFrameEnd();
 	ID3D11ShaderResourceView* apsrv_null[3] = { nullptr, nullptr, nullptr };
 	pCtx->PSSetShaderResources(0, 3, apsrv_null);
 	ID3D11RenderTargetView* prtv_null = nullptr;
@@ -2419,6 +2538,24 @@ void* VRR_EyeTexture(int i_eye)
 }
 
 //**********************************************************************************************
+void VRR_GpuTimes(char* str, int i_len)
+{
+	if (iGpuSamples == 0)
+	{
+		std::snprintf(str, i_len, "card times not measured");
+	}
+	else
+	{
+		double n = iGpuSamples;
+		std::snprintf(str, i_len, "card: shadows %.2fms (%d of %d draws), sky+ground %.2fms, objects %.2fms, resolve %.2fms",
+			adGpuMs[0] / n, iShadowDrawsDrawn, iShadowDrawsDrawn + iShadowDrawsSkipped, adGpuMs[1] / n, adGpuMs[2] / n, adGpuMs[3] / n);
+	}
+	for (double& d : adGpuMs)
+		d = 0;
+	iGpuSamples = 0;
+	iShadowDrawsDrawn = iShadowDrawsSkipped = 0;
+}
+
 void VRR_GetStats(int& ri_draws, int& ri_batches, int& ri_textures, int& ri_meshes, float& rf_gpu_mb)
 {
 	ri_draws = iLastDraws;

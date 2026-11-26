@@ -151,6 +151,7 @@ bool  VRR_CaptureEye(int i_size, uint32_t* pu4_out);
 void  VRR_AbortFrame();
 
 // Statistics for the log.
+void  VRR_GpuTimes(char* str, int i_len);	// The card's time per part of a frame since last asked.
 void  VRR_GetStats(int& ri_draws, int& ri_batches, int& ri_textures, int& ri_meshes, float& rf_gpu_mb);
 
 int   VRR_TerrainTriDecals();		// Decals laid by their own triangles (after the build).

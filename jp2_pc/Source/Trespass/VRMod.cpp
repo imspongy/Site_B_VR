@@ -449,6 +449,11 @@ namespace
 		gVR.iBatchPolys = gVR.iBatchFlushes = 0;
 		if (VRScene_Ready() && setVR.bNewRenderer)
 			Log("%s", VRScene_Stats());
+			{
+				char str_gpu[256];
+				VRR_GpuTimes(str_gpu, sizeof(str_gpu));
+				Log("GPU renderer %s.", str_gpu);
+			}
 		if (gVR.iNearDistCulled || gVR.iNearOccluded)
 			Log("Near objects hidden (within 8 m, per frame): %.1f by draw distance (e.g. %.1f m away, limit %.1f m), %.1f by occlusion.",
 				gVR.iNearDistCulled / (double)(std::max)(1, iTimingFrames), gVR.fNearCullDist, gVR.fNearCullLimit,
