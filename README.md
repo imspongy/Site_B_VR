@@ -35,7 +35,7 @@ A huge thank you to the makers of Open Trespasser and the TresCom community. My 
 **You need:**
 - Windows 10 or 11, 64-bit.
 - SteamVR and a headset.
-- Your own copy of *Jurassic Park: Trespasser*: the CD, a disc image of it, or an installed copy.
+- A copy of *Jurassic Park: Trespasser*: the CD, a disc image of it, or an installed copy.
 
 **Steps:**
 1. Download `SiteB-VR.zip` from the [latest release](../../releases) and unzip it anywhere.
